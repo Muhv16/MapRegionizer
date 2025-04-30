@@ -29,7 +29,7 @@ namespace MapRegionizer
 
                         if (pixel.R >= 250 && pixel.G >= 250 && pixel.B >= 250 && pixel.A > 0)
                         {
-                            terrainPixels.Add(new NetTopologySuite.Geometries.Coordinate(x, y));
+                            terrainPixels.Add(new Coordinate(x, y));
                         }
                     }
                 }
@@ -39,28 +39,15 @@ namespace MapRegionizer
 
         public static void DrawMap(List<Polygon> regions, List<LineString> bounds, int width, int height, string outFile)
         {
-            using var image = new Image<Rgba32>(width, height);
-
             float scaleX = 1;
             float scaleY = 1;
             float offsetX = 0;
             float offsetY = 0;
 
-            var brushes = new Brush[]
-            {
-            Brushes.Solid(Color.Red),
-            Brushes.Solid(Color.Green),
-            Brushes.Solid(Color.Blue),
-            };
-
-            var random = new Random();
+            using var image = new Image<Rgba32>((int)(width*scaleX), (int)(height*scaleY));
 
             foreach (var region in regions)
             {
-                var color = Color.FromRgb(
-                    (byte)random.Next(256),
-                    (byte)random.Next(256),
-                    (byte)random.Next(256));
 
                 var path = new SixLabors.ImageSharp.Drawing.PathBuilder()
                     .SetTransform(Matrix3x2.CreateScale(scaleX, scaleY))
@@ -69,20 +56,20 @@ namespace MapRegionizer
                     .Build();
 
                 image.Mutate(ctx => ctx
-                .SetGraphicsOptions(new GraphicsOptions { Antialias = true })
+                .SetGraphicsOptions(new GraphicsOptions { Antialias = false })
                 .Fill(Color.White, path));
             }
 
-            foreach (var region in regions)
+            foreach (var bound in bounds)
             {
                 var path = new SixLabors.ImageSharp.Drawing.PathBuilder()
                     .SetTransform(Matrix3x2.CreateScale(scaleX, scaleY))
-                    .AddLines(region.Coordinates.Select(c =>
+                    .AddLines(bound.Coordinates.Select(c =>
                         new PointF((float)c.X + offsetX, (float)c.Y + offsetY)))
                     .Build();
 
                 image.Mutate(ctx => ctx
-                .SetGraphicsOptions(new GraphicsOptions { Antialias = true })
+                .SetGraphicsOptions(new GraphicsOptions { Antialias = false })
                 .Draw(Color.Black, 1, path));
             }
 

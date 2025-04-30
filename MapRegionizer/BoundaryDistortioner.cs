@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MapRegionizer;
 
@@ -21,7 +22,6 @@ internal class BoundaryDistortioner
         _options = options;
     }
 
-    private const int distortionDetail = 4;
     public List<Polygon> Distortion(List<Polygon> polygons)
     {
         var borders = FindSharedBorders(polygons);
@@ -29,24 +29,103 @@ internal class BoundaryDistortioner
         for (int i = 0; i < borders.Count; i++)
         {
             var border = borders[i];
-            if (border.Length < 5)
-                continue;
-            var newPoints = GetEquidistantPoints(border, distortionDetail);
-            var coords = border.Coordinates.ToList();
-
-            for (int j = 0; j < newPoints.Count; j++)
-            {
-                newPoints[j].X += 1;
-                newPoints[j].Y -= 1;
-                coords.Insert(j + 1, newPoints[j]);
-            }
-            var newLine = _factory.CreateLineString(coords.ToArray());
+            var newLine = CurveLine(border);
             borderReplacements[border] = newLine;
         }
 
         RegionalBoundaries = new List<LineString>(borderReplacements.Values);
         var updatedPolygons = UpdatePolygons(polygons, borderReplacements);
         return updatedPolygons;
+    }
+
+    private LineString CurveLine(LineString line)
+    {
+        if (line.Length < _options.MinLineLenghtToCurve)
+            return line;
+
+        var newPoints = GetEquidistantPoints(line, (int)Math.Round((line.Length * _options.DistortionDetail), MidpointRounding.ToEven));
+        if (newPoints.Count == 0)
+            return line;
+
+
+        var coords = line.Coordinates.ToList();
+        var yOffsets = new double[newPoints.Count];
+        var xOffsets = new double[newPoints.Count];
+
+        if (Math.Abs(line.EndPoint.X - line.StartPoint.X) > _options.MinLineLenghtToCurve / 3)
+        {
+            yOffsets = GenerateCurveOffsets(newPoints.Count);
+        }
+        if (Math.Abs(line.EndPoint.Y - line.StartPoint.Y) > _options.MinLineLenghtToCurve / 3)
+        {
+            xOffsets = GenerateCurveOffsets(newPoints.Count);
+        }
+        
+        var random = new Random();
+        var offsetDir = random.Next(0, 2) == 0 ? -1 : 1;
+        for (int i = 0; i < newPoints.Count; i++)
+        {
+            newPoints[i].X += xOffsets[i] * offsetDir;
+            newPoints[i].Y += yOffsets[i] * offsetDir;
+            coords.Insert(i+1, newPoints[i]);
+        }
+        var newLine = _factory.CreateLineString(coords.ToArray());
+        return newLine;
+    }
+
+    /// <summary>
+    /// Генерация отступов для искривления прямых
+    /// </summary>
+    /// <param name="pointsCount"></param>
+    /// <returns></returns>
+    private double[] GenerateCurveOffsets(int pointsCount)
+    {
+        double noiseStrength = 0.2;
+
+        var result = new double[pointsCount];
+        if (pointsCount < 0)
+            return result;
+        Random random = new Random();
+        if (pointsCount <= 3)
+        {
+            for (int i = 0; i < pointsCount;i++)
+            {
+                result[i] = random.Next(-1, 2);
+            }
+        }
+        else
+        {
+            //Параболоподобный набор отступов
+            int centerIndex = result.Length / 2;
+            bool evenLength = result.Length % 2 == 0;
+            Random rand = new Random();
+
+            double stretchFactor = 1.0 / (centerIndex * centerIndex);
+            if (evenLength) stretchFactor = 1.0 / ((centerIndex - 0.5) * (centerIndex - 0.5));
+
+            for (int i = 0; i < result.Length; i++)
+            {
+                double distance = i - centerIndex;
+                if (evenLength) distance = i - centerIndex + 0.5;
+                double value = _options.MaxOffst * (1 - stretchFactor * distance * distance);
+
+                // Шум для длинных прямых
+                if (pointsCount > 9 && Math.Abs(distance) > 1)
+                {
+                    double noise = (rand.NextDouble() - 0.5) * noiseStrength;
+                    value += noise;
+                }
+                result[i] = Math.Max(value, 0.1);
+            }
+
+            // Корректировка для четных массивов
+            if (evenLength)
+            {
+                result[centerIndex - 1] = Math.Max(result[centerIndex - 1], result[centerIndex]);
+            }
+        }
+        return result;
+
     }
 
     private List<Polygon> UpdatePolygons(List<Polygon> originalPolygons, Dictionary<LineString, LineString> borderReplacements)
@@ -116,7 +195,7 @@ internal class BoundaryDistortioner
         return points;
     }
 
-    private List<LineString> FindSharedBorders(List<Polygon> polygons)
+    public List<LineString> FindSharedBorders(List<Polygon> polygons)
     {
         var edgeCounts = new Dictionary<string, int>();
 

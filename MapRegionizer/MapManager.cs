@@ -14,7 +14,7 @@ namespace MapRegionizer
 
         public Polygon? MapShapePolygon { get; private set; }
         public List<Polygon>? MapPolygons { get; private set; }
-        private List<LineString> regionalBoundaries;
+        private List<LineString>? regionalBoundaries;
 
         public MapManager()
         {
@@ -42,7 +42,7 @@ namespace MapRegionizer
             BoundaryDistortioner distortioner = new BoundaryDistortioner(factory, options);
 
             MapPolygons = regionzer.Regionize(MapShapePolygon);
-            distortioner.Distortion(MapPolygons);
+            MapPolygons = distortioner.Distortion(MapPolygons);
             regionalBoundaries = distortioner.RegionalBoundaries!;
         }
 
@@ -50,7 +50,7 @@ namespace MapRegionizer
         {
             if (MapPolygons == null) return;
 
-            ImageService.DrawMap(MapPolygons, regionalBoundaries, mapWidth, mapHeight, outputFile);
+            ImageService.DrawMap(MapPolygons, regionalBoundaries!, mapWidth, mapHeight, outputFile);
         }
     }
 }
