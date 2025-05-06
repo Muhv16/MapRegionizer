@@ -1,4 +1,5 @@
-﻿using NetTopologySuite.Geometries;
+﻿using MapRegionizer.Domain;
+using NetTopologySuite.Geometries;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -11,10 +12,10 @@ namespace MapRegionizer
 
         private int mapHeight;
         private int mapWidth;
-
-        public Polygon? MapShapePolygon { get; private set; }
-        public List<Polygon>? MapPolygons { get; private set; }
+        public List<Polygon>? ContinentShapePolygons { get; private set; }
         private List<LineString>? regionalBoundaries;
+
+        public List<Continent> Continents { get; private set; } = [];
 
         public MapManager()
         {
@@ -31,26 +32,31 @@ namespace MapRegionizer
 
             MapBuilder mapBuilder = new MapBuilder(factory, options);
             mapBuilder.BuildMapFromCoords(continentsCoords);
-            MapShapePolygon = mapBuilder.ContinentPolygon;
+            ContinentShapePolygons = mapBuilder.MapPolygons;
         }
 
         public void CreateRegions()
         {
-            if (MapShapePolygon == null) return;
+            if (ContinentShapePolygons == null) return;
 
             Regionizer regionzer = new Regionizer(factory, options);
-            BoundaryDistortioner distortioner = new BoundaryDistortioner(factory, options);
+            BoundaryService distortioner = new BoundaryService(factory, options);
 
-            MapPolygons = regionzer.Regionize(MapShapePolygon);
-            MapPolygons = distortioner.Distortion(MapPolygons);
-            regionalBoundaries = distortioner.RegionalBoundaries!;
+            foreach(var continentsShape in ContinentShapePolygons.Where(p => p.IsValid))
+            {
+                var regionizedContinent = regionzer.Regionize(continentsShape);
+                regionizedContinent = distortioner.Distortion(regionizedContinent);
+                regionalBoundaries = distortioner.RegionalBoundaries!;
+                Continents.Add(new Continent(continentsShape, regionalBoundaries));
+            }
+
         }
 
         public void SaveMapToPng(string outputFile)
         {
-            if (MapPolygons == null) return;
-
-            ImageService.DrawMap(MapPolygons, regionalBoundaries!, mapWidth, mapHeight, outputFile);
+            if (ContinentShapePolygons == null) return;
+            var mapBoundaries = Continents.SelectMany(c => c.ContinentBoundaries).ToList();
+            ImageService.DrawMap(ContinentShapePolygons, mapBoundaries, mapWidth, mapHeight, outputFile);
         }
     }
 }

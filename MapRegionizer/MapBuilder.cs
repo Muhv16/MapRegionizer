@@ -1,4 +1,5 @@
 ﻿using NetTopologySuite.Geometries;
+using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,20 +12,65 @@ namespace MapRegionizer
     {
         private readonly GeometryFactory _factory;
         private readonly MapOptions _options;
-        public Polygon? ContinentPolygon { get; private set; }
+        public List<Polygon> MapPolygons { get; private set; }
         public MapBuilder(GeometryFactory factory, MapOptions options)
         {
             _factory = factory;
             _options = options;
+            MapPolygons = new List<Polygon>();
 
         }
         public void BuildMapFromCoords(List<Coordinate> continentsCoords)
         {
-            var ring = new LinearRing(GetTracedCountour(ContourDefine(continentsCoords)));
-            ContinentPolygon = _factory.CreatePolygon(ring);
+            var continents = FindContinents(continentsCoords);
+            foreach (var continent in continents.Where(c => c.Length > 3))
+            {
+                var ring = new LinearRing(GetTracedCountour(ContourDefine(continent)));
+                MapPolygons.Add(_factory.CreatePolygon(ring));
+            }
         }
 
-        private Coordinate[] ContourDefine(List<Coordinate> shapeCoordinates)
+
+        public List<Coordinate[]> FindContinents(List<Coordinate> terrainCoords)
+        {
+            var unvisited = new HashSet<Coordinate>(terrainCoords);
+            var result = new List<Coordinate[]>();
+
+            Coordinate[] dirs = {
+            new Coordinate(1, 0),
+            new Coordinate(-1, 0),
+            new Coordinate(0, 1),
+            new Coordinate(0, -1)
+            };
+
+            while (unvisited.Count > 0)
+            {
+                var continent = new List<Coordinate>();
+                var queue = new Queue<Coordinate>();
+                var start = unvisited.First();
+                queue.Enqueue(start);
+                unvisited.Remove(start);
+
+                while (queue.Count > 0)
+                {
+                    var cur = queue.Dequeue();
+                    continent.Add(cur);
+                    foreach (var d in dirs)
+                    {
+                        var nb = new Coordinate(cur.X + d.X, cur.Y + d.Y);
+                        if (unvisited.Contains(nb))
+                        {
+                            unvisited.Remove(nb);
+                            queue.Enqueue(nb);
+                        }
+                    }
+                }
+                result.Add(continent.ToArray());
+            }
+            return result;
+        }
+
+        private Coordinate[] ContourDefine(Coordinate[] shapeCoordinates)
         {
             var shapeSet = new HashSet<Coordinate>(shapeCoordinates);
 

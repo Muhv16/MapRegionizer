@@ -147,7 +147,7 @@ namespace MapRegionizer
             {
                 coordinates = new[]
                 {
-                new Coordinate(splitCoord, envelope.MinY - 1), 
+                new Coordinate(splitCoord, envelope.MinY - 1),
                 new Coordinate(splitCoord, envelope.MaxY + 1)
             };
             }

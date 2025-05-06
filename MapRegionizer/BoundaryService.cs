@@ -9,14 +9,14 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MapRegionizer;
 
-internal class BoundaryDistortioner
+internal class BoundaryService
 {
     private readonly GeometryFactory _factory;
     private readonly MapOptions _options;
 
     public List<LineString>? RegionalBoundaries { get; private set; }
 
-    public BoundaryDistortioner(GeometryFactory factory, MapOptions options)
+    public BoundaryService(GeometryFactory factory, MapOptions options)
     {
         _factory = factory;
         _options = options;
