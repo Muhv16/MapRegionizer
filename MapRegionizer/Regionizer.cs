@@ -23,10 +23,10 @@ namespace MapRegionizer
 
         public List<Polygon> Regionize(Polygon mapPolygon)
         {
+            if (mapPolygon.Area < _options.TargetSize) return new List<Polygon>() { mapPolygon };
             DefaultVoronoiRegions = ClipRegions(mapPolygon, FormVoronoiDiargam(mapPolygon.Coordinates, mapPolygon));
             var editedRegions = new List<Polygon>(DefaultVoronoiRegions);
             MergeRegions(editedRegions);
-            SplitRegions(editedRegions);
             return editedRegions;
         }
 
@@ -49,7 +49,7 @@ namespace MapRegionizer
                             .OrderByDescending(n => polyI.Boundary.Intersection(n.Boundary).Length)
                             .ToList();
 
-                        var neighbor = neghborsSTR.FirstOrDefault(n => n.Area + polyI.Area < _options.TargetSize * _options.MaxUpward);
+                        var neighbor = neghborsSTR.FirstOrDefault(n => n.Area + polyI.Area < _options.TargetSize * _options.MaxUpward) ?? neghborsSTR.FirstOrDefault();
                         if (neighbor != null)
                         {
                             int defaultRegion = Enumerable.Range(0, regions.Count)
@@ -60,39 +60,13 @@ namespace MapRegionizer
                             i--;
                             mergedAny = true;
                         }
+                        else
+                        {
+
+                        }
                     }
                 }
             } while (mergedAny);
-        }
-
-        private void SplitRegions(List<Polygon> regions)
-        {
-            for (int i = 0; i < regions.Count; i++)
-            {
-                if (regions[i].Area > _options.TargetSize * _options.ThresholdToSplit)
-                {
-                    var polyI = (Polygon)regions[i];
-                    var envelope = polyI.EnvelopeInternal;
-                    bool isHorizontalSplit = envelope.Height > envelope.Width;
-
-                    double splitCoord;
-                    if (isHorizontalSplit)
-                    {
-                        splitCoord = envelope.MinX + envelope.Width / 2;
-                    }
-                    else
-                    {
-                        splitCoord = envelope.MinY + envelope.Height / 2;
-                    }
-
-                    var splitLine = CreateSplitLine(envelope, splitCoord, isHorizontalSplit);
-
-                    var nwwRegions = polyI.SplitPolygon(isHorizontalSplit);
-                    regions.RemoveAt(i);
-                    i--;
-                    regions.AddRange(nwwRegions);
-                }
-            }
         }
 
         private GeometryCollection FormVoronoiDiargam(Coordinate[] terrainPixels, Polygon shapePolygon)
@@ -140,27 +114,5 @@ namespace MapRegionizer
             return clippedRegions;
         }
 
-        private LineString CreateSplitLine(Envelope envelope, double splitCoord, bool isHorizontal)
-        {
-            Coordinate[] coordinates;
-            if (isHorizontal)
-            {
-                coordinates = new[]
-                {
-                new Coordinate(splitCoord, envelope.MinY - 1),
-                new Coordinate(splitCoord, envelope.MaxY + 1)
-            };
-            }
-            else
-            {
-                coordinates = new[]
-                {
-                new Coordinate(envelope.MinX - 1, splitCoord),
-                new Coordinate(envelope.MaxX + 1, splitCoord)
-            };
-            }
-
-            return _factory.CreateLineString(coordinates);
-        }
     }
 }

@@ -1,4 +1,5 @@
-﻿using MapRegionizer.Domain;
+﻿using MapRegionizer.BoundaryServices;
+using MapRegionizer.Domain;
 using NetTopologySuite.Geometries;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -8,54 +9,81 @@ namespace MapRegionizer
     public class MapManager
     {
         private GeometryFactory factory;
-        private MapOptions options;
+        public MapOptions Options { get; set; }
 
         private int mapHeight;
         private int mapWidth;
         public List<Polygon>? ContinentShapePolygons { get; private set; }
-        private List<LineString>? regionalBoundaries;
 
         public List<Continent> Continents { get; private set; } = [];
 
         public MapManager()
         {
             factory = new GeometryFactory();
-            options = new MapOptions();
+            Options = new MapOptions();
         }
-        
-        public void CreateMapFromImage(string fileName)
+
+        public MapManager(MapOptions options)
         {
-            using var image = Image.Load<Rgba32>(fileName);
+            factory = new GeometryFactory();
+            Options = options;
+        }
+
+        public void CreateMapFromImage(Image<Rgba32> image)
+        {
             mapHeight = image.Height;
             mapWidth = image.Width;
             var continentsCoords = ImageService.ParseMapContinents(image);
 
-            MapBuilder mapBuilder = new MapBuilder(factory, options);
+            MapBuilder mapBuilder = new MapBuilder(factory, Options);
             mapBuilder.BuildMapFromCoords(continentsCoords);
             ContinentShapePolygons = mapBuilder.MapPolygons;
+        }
+
+        public void CreateMapFromImage(string filePath)
+        {
+            using var image = Image.Load<Rgba32>("source.png");
+            CreateMapFromImage(image);
         }
 
         public void CreateRegions()
         {
             if (ContinentShapePolygons == null) return;
 
-            Regionizer regionzer = new Regionizer(factory, options);
-            BoundaryService distortioner = new BoundaryService(factory, options);
+            Regionizer regionzer = new Regionizer(factory, Options);
 
             foreach(var continentsShape in ContinentShapePolygons.Where(p => p.IsValid))
             {
-                var regionizedContinent = regionzer.Regionize(continentsShape);
-                regionizedContinent = distortioner.Distortion(regionizedContinent);
-                regionalBoundaries = distortioner.RegionalBoundaries!;
-                Continents.Add(new Continent(continentsShape, regionalBoundaries));
+                var continentRegions = regionzer.Regionize(continentsShape);
+
+                Continents.Add(new Continent(continentsShape, continentRegions));
             }
 
+        }
+
+        public void Distort()
+        {
+            if (Continents.Count == 0) return;
+
+            BorderFinder borderFinder = new BorderFinder(factory);
+            BorderCurver boundaryService = new BorderCurver(factory, Options);
+            PolygonUpdater polygonUpdater = new PolygonUpdater(factory);
+            
+            for (int i = 0; i < Continents.Count; i++)
+            {
+                Continent continent = Continents[i];
+                var internalBorders = borderFinder.FindSharedBorders(continent.Regions);
+                var distortedBorders = boundaryService.Distortion(internalBorders);
+                var newRegions = polygonUpdater.UpdatePolygons(continent.Regions, distortedBorders);
+                Continents[i] = new Continent(continent.ContinentPolygon, newRegions);
+            }
         }
 
         public void SaveMapToPng(string outputFile)
         {
             if (ContinentShapePolygons == null) return;
-            var mapBoundaries = Continents.SelectMany(c => c.ContinentBoundaries).ToList();
+            BorderFinder borderFinder = new BorderFinder(factory);
+            var mapBoundaries = borderFinder.FindSharedBorders(Continents.SelectMany(c => c.Regions).ToList());
             ImageService.DrawMap(ContinentShapePolygons, mapBoundaries, mapWidth, mapHeight, outputFile);
         }
     }

@@ -70,7 +70,7 @@ namespace MapRegionizer
 
                 image.Mutate(ctx => ctx
                 .SetGraphicsOptions(new GraphicsOptions { Antialias = false })
-                .Draw(Color.Black, 1, path));
+                .Draw(Color.Black, 2, path));
             }
 
             image.SaveAsPng(outFile);

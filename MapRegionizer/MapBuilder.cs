@@ -8,46 +8,62 @@ using System.Threading.Tasks;
 
 namespace MapRegionizer
 {
+    using NetTopologySuite.Geometries;
+    using NetTopologySuite.Operation.Union;
+    using NetTopologySuite.Simplify;
+
     internal class MapBuilder
     {
         private readonly GeometryFactory _factory;
         private readonly MapOptions _options;
+
         public List<Polygon> MapPolygons { get; private set; }
+
         public MapBuilder(GeometryFactory factory, MapOptions options)
         {
             _factory = factory;
             _options = options;
             MapPolygons = new List<Polygon>();
-
         }
-        public void BuildMapFromCoords(List<Coordinate> continentsCoords)
+
+        public void BuildMapFromCoords(List<Coordinate> terrainCoords)
         {
-            var continents = FindContinents(continentsCoords);
+            var continents = FindContinents(terrainCoords);
             foreach (var continent in continents.Where(c => c.Length > 3))
             {
-                var ring = new LinearRing(GetTracedCountour(ContourDefine(continent)));
-                MapPolygons.Add(_factory.CreatePolygon(ring));
+                var rawPoly = BuildPolygonFromPixels(continent);
+                if (rawPoly == null || rawPoly.ExteriorRing.NumPoints <= 3)
+                    continue;
+
+
+                var simp = DouglasPeuckerSimplifier.Simplify(rawPoly, _options.SimplifyTolerance);
+
+                // вариант замены для топологически безопасного упрощения
+                // var simp = TopologyPreservingSimplifier.Simplify(rawPoly, _options.SimplifyTolerance);
+
+                if (simp is Polygon p && p.ExteriorRing.NumPoints > 3)
+                    MapPolygons.Add(p);
             }
         }
 
-
-        public List<Coordinate[]> FindContinents(List<Coordinate> terrainCoords)
+        private List<Coordinate[]> FindContinents(List<Coordinate> terrainCoords)
         {
             var unvisited = new HashSet<Coordinate>(terrainCoords);
             var result = new List<Coordinate[]>();
 
-            Coordinate[] dirs = {
-            new Coordinate(1, 0),
-            new Coordinate(-1, 0),
-            new Coordinate(0, 1),
-            new Coordinate(0, -1)
-            };
+            var dirs = new[]
+            {
+            new Coordinate( 1,  0),
+            new Coordinate(-1,  0),
+            new Coordinate( 0,  1),
+            new Coordinate( 0, -1)
+        };
 
             while (unvisited.Count > 0)
             {
-                var continent = new List<Coordinate>();
-                var queue = new Queue<Coordinate>();
                 var start = unvisited.First();
+                var queue = new Queue<Coordinate>();
+                var continent = new List<Coordinate>();
                 queue.Enqueue(start);
                 unvisited.Remove(start);
 
@@ -65,78 +81,52 @@ namespace MapRegionizer
                         }
                     }
                 }
+
                 result.Add(continent.ToArray());
             }
+
             return result;
         }
 
-        private Coordinate[] ContourDefine(Coordinate[] shapeCoordinates)
+        private Polygon BuildPolygonFromPixels(Coordinate[] pixels)
         {
-            var shapeSet = new HashSet<Coordinate>(shapeCoordinates);
-
-            (int dx, int dy)[] offsets = new[]
+            // 1) Для каждого пикселя создаём unit‑квадрат [x,y]–[x+1,y+1]
+            var quads = pixels.Select(p =>
             {
-                ( 0,  1), ( 1,  0), ( 0, -1), (-1,  0),
-            };
+                var x = p.X * _options.PixelSize;
+                var y = p.Y * _options.PixelSize;
+                var sz = _options.PixelSize;
 
-            var contourPixels = new List<Coordinate>();
-
-            foreach (var coord in shapeCoordinates)
-            {
-                foreach (var (dx, dy) in offsets)
+                var ring = new LinearRing(new[]
                 {
-                    var neighbor = new Coordinate(coord.X + dx, coord.Y + dy);
-                    if (!shapeSet.Contains(neighbor))
-                    {
-                        contourPixels.Add(coord);
-                        break;
-                    }
-                }
-            }
-            contourPixels.Add(contourPixels[0]);
+                new Coordinate(x, y),
+                new Coordinate(x + sz, y),
+                new Coordinate(x + sz, y + sz),
+                new Coordinate(x, y + sz),
+                new Coordinate(x, y)
+            });
+                return _factory.CreatePolygon(ring);
+            }).ToList<Geometry>();
 
-            return contourPixels.ToArray();
-        }
+            // 2) Геометрически объединяем все квадраты единым Union‑ом
+            var unioned = CascadedPolygonUnion.Union(quads);
 
-        private Coordinate[] GetTracedCountour(Coordinate[] contourPixels)
-        {
-            var sortedResult = new List<Coordinate>();
-            double yMin = contourPixels.Select(c => c.Y).Min();
-            double xMin = contourPixels.Where(c => c.Y == yMin).Select(c => c.X).Min();
-
-            var currentPixel = new Coordinate(xMin, yMin);
-            sortedResult.Add(currentPixel);
-
-            var directions = new List<Coordinate>()
+            // 3) Если получилось несколько полигонов, берём самый большой по площади
+            Polygon? best = null;
+            if (unioned is MultiPolygon mpoly)
             {
-                (1, 0),
-                (1, 1),
-                (0, 1),
-                (-1, 1),
-                (-1, 0),
-                (-1, -1),
-                (0, -1),
-                (1, -1)
-            };
-            int prevDirIndex = 0;
-            for (int i = 0; i < contourPixels.Length; i++)
-            {
-                for (int di = 0; di < directions.Count; di++)
-                {
-                    int dirIndex = (prevDirIndex + di) % 8;
-                    var dir = directions[dirIndex];
-                    var nextPoint = new Coordinate(currentPixel.X + dir.X, currentPixel.Y + dir.Y);
-                    if (contourPixels.Contains(nextPoint.CoordinateValue) && !sortedResult.Contains(nextPoint.CoordinateValue))
-                    {
-                        dirIndex = (dirIndex - 2) % 8;
-                        currentPixel = nextPoint.CoordinateValue;
-                        sortedResult.Add(currentPixel.CoordinateValue);
-                        break;
-                    }
-                }
+                best = mpoly.Geometries
+                           .OfType<Polygon>()
+                           .OrderByDescending(p => p.Area)
+                           .First();
             }
-            sortedResult.Add(sortedResult[0]);
-            return sortedResult.ToArray();
+            else if (unioned is Polygon poly)
+            {
+                best = poly;
+            }
+
+            return best!;
         }
     }
+
 }

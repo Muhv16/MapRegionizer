@@ -8,10 +8,12 @@ namespace MapRegionizer
 {
     public class MapOptions
     {
+        public double PixelSize { get; set; } = 1;
+        public double SimplifyTolerance { get; set; } = 1;
         /// <summary>
         /// Целевая площадь региона
         /// </summary>
-        public uint TargetSize { get; set; } = 200;
+        public uint TargetSize { get; set; } = 1000;
         private double _pointsMultiplier = 4;
         /// <summary>
         /// Множитель, влияющий на количество изначально генерируемых регионов
@@ -28,7 +30,7 @@ namespace MapRegionizer
 
         private double _maxDownward = 0.75;
         /// <summary>
-        /// Максимальное отклонение плозади региона от целевой в меньшую сторону
+        /// Максимальное отклонение площади региона от целевой в меньшую сторону
         /// </summary>
         public double MaxDownward
         {
@@ -42,7 +44,7 @@ namespace MapRegionizer
 
         private double _maxUpward = 1.75;
         /// <summary>
-        /// Максимальное отклонение плозади региона от целевой в большую сторону
+        /// Максимальное отклонение площади региона от целевой в большую сторону
         /// </summary>
         public double MaxUpward
         {
@@ -54,21 +56,7 @@ namespace MapRegionizer
             }
         }
 
-        private double _thresholdToSplit = 2;
-        /// <summary>
-        /// Максимальное отклонение плозади региона от целевой, при которой тот будет разделен
-        /// </summary>
-        public double ThresholdToSplit
-        {
-            get => _thresholdToSplit;
-            set
-            {
-                if (value > 0)
-                    _thresholdToSplit = value;
-            }
-        }
-
-        private double _distortionDetail = 0.4;
+        private double _distortionDetail = 0.25;
         /// <summary>
         /// Детализация (кол-во точек на пиксель) разбиения прямой на отдельные точки, по которым будет происходить искривление
         /// </summary>
@@ -85,11 +73,11 @@ namespace MapRegionizer
         /// <summary>
         /// Максимальный отступ при искривлении прямой
         /// </summary>
-        public double MaxOffst { get; set; } = 2;
+        public double MaxOffst { get; set; } = 3.25;
 
         /// <summary>
         /// Минимальная длина, начиная от которой линия будет искривляться
         /// </summary>
-        public double MinLineLenghtToCurve { get; set; } = 7;
+        public double MinLineLenghtToCurve { get; set; } = 14;
     }
 }

@@ -10,11 +10,11 @@ namespace MapRegionizer.Domain
     public class Continent
     {
         public Polygon ContinentPolygon { get; }
-        public List<LineString> ContinentBoundaries { get; }
-        public Continent(Polygon polygon, List<LineString> continentBoundaries)
+        public List<Polygon> Regions { get; }
+        public Continent(Polygon polygon, List<Polygon> regions)
         {
             ContinentPolygon = polygon;
-            ContinentBoundaries = continentBoundaries;
+            Regions = regions;
         }
     }
 }
