@@ -13,7 +13,7 @@ namespace MapRegionizer
         /// <summary>
         /// Целевая площадь региона
         /// </summary>
-        public uint TargetSize { get; set; } = 1000;
+        public uint TargetSize { get; set; } = 400;
         private double _pointsMultiplier = 4;
         /// <summary>
         /// Множитель, влияющий на количество изначально генерируемых регионов
@@ -37,7 +37,7 @@ namespace MapRegionizer
             get => _maxDownward;
             set
             {
-                if (value > 0)
+                if (value > 0 && value <= 1)
                     _maxDownward = value;
             }
         }
@@ -51,7 +51,7 @@ namespace MapRegionizer
             get => _maxUpward;
             set
             {
-                if (value > 0)
+                if (value >= 1)
                     _maxUpward = value;
             }
         }
@@ -78,6 +78,6 @@ namespace MapRegionizer
         /// <summary>
         /// Минимальная длина, начиная от которой линия будет искривляться
         /// </summary>
-        public double MinLineLenghtToCurve { get; set; } = 14;
+        public double MinLineLenghtToCurve { get; set; } = 7;
     }
 }

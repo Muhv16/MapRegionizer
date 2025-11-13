@@ -90,7 +90,7 @@ namespace MapRegionizer
 
         private Polygon BuildPolygonFromPixels(Coordinate[] pixels)
         {
-            // 1) Для каждого пикселя создаём unit‑квадрат [x,y]–[x+1,y+1]
+            // 1) Для каждого пикселя создаём unit-квадрат [x,y]–[x+1,y+1]
             var quads = pixels.Select(p =>
             {
                 var x = p.X * _options.PixelSize;
@@ -99,34 +99,78 @@ namespace MapRegionizer
 
                 var ring = new LinearRing(new[]
                 {
-                new Coordinate(x, y),
-                new Coordinate(x + sz, y),
-                new Coordinate(x + sz, y + sz),
-                new Coordinate(x, y + sz),
-                new Coordinate(x, y)
-            });
+            new Coordinate(x, y),
+            new Coordinate(x + sz, y),
+            new Coordinate(x + sz, y + sz),
+            new Coordinate(x, y + sz),
+            new Coordinate(x, y)
+        });
                 return _factory.CreatePolygon(ring);
             }).ToList<Geometry>();
 
-            // 2) Геометрически объединяем все квадраты единым Union‑ом
+            // 2) Геометрически объединяем все квадраты единым Union-ом
             var unioned = CascadedPolygonUnion.Union(quads);
 
-            // 3) Если получилось несколько полигонов, берём самый большой по площади
-            Polygon? best = null;
-            if (unioned is MultiPolygon mpoly)
+            // 3) Собираем все Polygon'ы из результата (поддерживаем Polygon / MultiPolygon / GeometryCollection)
+            var polygons = new List<Polygon>();
+            if (unioned == null) throw new InvalidOperationException("Union produced null geometry.");
+
+            if (unioned is Polygon polySingle)
             {
-                best = mpoly.Geometries
-                           .OfType<Polygon>()
-                           .OrderByDescending(p => p.Area)
-                           .First();
+                polygons.Add(polySingle);
             }
-            else if (unioned is Polygon poly)
+            else if (unioned is MultiPolygon mpoly)
             {
-                best = poly;
+                polygons.AddRange(mpoly.Geometries.OfType<Polygon>());
+            }
+            else if (unioned is GeometryCollection gcol)
+            {
+                for (int i = 0; i < gcol.NumGeometries; i++)
+                {
+                    if (gcol.GetGeometryN(i) is Polygon p) polygons.Add(p);
+                }
             }
 
-            return best!;
+            if (!polygons.Any())
+                throw new InvalidOperationException("No polygons produced by union.");
+
+            // 4) Выбираем самый большой полигон как внешний
+            var outer = polygons.OrderByDescending(p => p.Area).First();
+
+            // 5) Собираем внутренние кольца:
+            var holeRings = new List<LinearRing>();
+
+            // 5a) Уже существующие внутренние кольца у внешнего полигона
+            for (int i = 0; i < outer.NumInteriorRings; i++)
+            {
+                var interior = outer.GetInteriorRingN(i);
+                holeRings.Add(_factory.CreateLinearRing(interior.Coordinates));
+            }
+
+            // 5b) Другие Polygon'ы, полностью находящиеся внутри outer, считаем дырами
+            foreach (var p in polygons)
+            {
+                // Пропускаем сам outer (сравниваем по точности)
+                if (p.EqualsExact(outer)) continue;
+
+                // Если полигон полностью внутри внешнего — добавляем его внешнюю границу как внутреннее кольцо
+                if (p.Within(outer))
+                {
+                    var candidate = _factory.CreateLinearRing(p.ExteriorRing.Coordinates);
+
+                    // Избегаем дублей (простая проверка через EqualsExact)
+                    if (!holeRings.Any(hr => hr.EqualsExact(candidate)))
+                        holeRings.Add(candidate);
+                }
+            }
+
+            // 6) Строим итоговый полигон через фабрику (outerRing + holes)
+            var outerRing = _factory.CreateLinearRing(outer.ExteriorRing.Coordinates);
+            var result = _factory.CreatePolygon(outerRing, holeRings.ToArray());
+
+            return result;
         }
+
     }
 
 }

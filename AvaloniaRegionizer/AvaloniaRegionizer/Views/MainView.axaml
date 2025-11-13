@@ -1,0 +1,120 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+			 xmlns:vm="clr-namespace:AvaloniaRegionizer.ViewModels"
+			 xmlns:converters="clr-namespace:AvaloniaRegionizer.Services"
+			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+			 x:Class="AvaloniaRegionizer.Views.MainView"
+			 x:DataType="vm:MainViewModel">
+
+	<UserControl.Resources>
+		<converters:StatusToColorConverter x:Key="StatusConverter"/>
+	</UserControl.Resources>
+
+	<Grid ColumnDefinitions="350,*">
+		<!-- Левая панель настроек -->
+		<ScrollViewer Grid.Column="0" Margin="10">
+			<StackPanel Spacing="8">
+				<TextBlock Text="Настройки генерации" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+
+				<StackPanel>
+					<TextBlock Text="Целевой размер региона:" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding TargetSize, Mode=TwoWay}" Minimum="10" IsEnabled="{Binding !IsGenerating}"/>
+				</StackPanel>
+
+				<!-- MaxDownward с валидацией -->
+				<StackPanel>
+					<TextBlock Text="Max Downward (отклонение вниз):" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding MaxDownward, Mode=TwoWay}" Minimum="0.1" Maximum="0.9" IsEnabled="{Binding !IsGenerating}"/>
+					<TextBlock Text="{Binding MaxDownwardError}" Foreground="Red" FontSize="11"
+							   IsVisible="{Binding MaxDownwardError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+				</StackPanel>
+
+				<!-- MaxUpward с валидацией -->
+				<StackPanel>
+					<TextBlock Text="Max Upward (отклонение вверх):" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding MaxUpward, Mode=TwoWay}" Minimum="1.1" IsEnabled="{Binding !IsGenerating}"/>
+					<TextBlock Text="{Binding MaxUpwardError}" Foreground="Red" FontSize="11"
+							   IsVisible="{Binding MaxUpwardError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+				</StackPanel>
+
+				<StackPanel>
+					<TextBlock Text="Максимальный отступ при обработке границ:" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding MaxOffset, Mode=TwoWay}" Minimum="0" IsEnabled="{Binding !IsGenerating}"/>
+				</StackPanel>
+
+
+				<StackPanel>
+					<TextBlock Text="Минимальная длина отрезки границы для её обработки:" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding MinLineLenghtToCurve, Mode=TwoWay}" Minimum="0" IsEnabled="{Binding !IsGenerating}"/>
+				</StackPanel>
+
+				<!-- DistortionDetail с валидацией -->
+				<StackPanel>
+					<TextBlock Text="Distortion Detail (детализация):" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding DistortionDetail, Mode=TwoWay}" Minimum="0" Maximum="0.3" IsEnabled="{Binding !IsGenerating}"/>
+					<TextBlock Text="{Binding DistortionDetailError}" Foreground="Red" FontSize="11"
+							   IsVisible="{Binding DistortionDetailError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+				</StackPanel>
+
+				<!-- PointsMultiplier с валидацией -->
+				<StackPanel>
+					<TextBlock Text="Points Multiplier:" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding PointsMultiplier, Mode=TwoWay}" Minimum="0.01" FormatString="N2" IsEnabled="{Binding !IsGenerating}"/>
+					<TextBlock Text="{Binding PointsMultiplierError}" Foreground="Red" FontSize="11"
+							   IsVisible="{Binding PointsMultiplierError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+				</StackPanel>
+
+				<StackPanel>
+					<TextBlock Text="Степень упрощение при парсинге:" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding SimplifyTolerance, Mode=TwoWay}" Minimum="1" FormatString="N2" IsEnabled="{Binding !IsGenerating}"/>
+				</StackPanel>
+
+				<StackPanel>
+					<TextBlock Text="Масштаб пикселя:" FontWeight="SemiBold"/>
+					<NumericUpDown Value="{Binding PixelSize, Mode=TwoWay}" Maximum="1"  Minimum="0.01" FormatString="N2" IsEnabled="{Binding !IsGenerating}"/>
+				</StackPanel>
+
+				<!-- Маска карты -->
+				<StackPanel Margin="0,10,0,0">
+					<TextBlock Text="Маска карты:" FontWeight="Bold"/>
+					<Grid ColumnDefinitions="*,Auto">
+						<TextBox Grid.Column="0" Text="{Binding MaskPath}" IsReadOnly="True" Watermark="Файл не выбран"/>
+						<Button Grid.Column="1" Content="Обзор..." Command="{Binding BrowseMaskCommand}"
+								Margin="5,0,0,0"/>
+					</Grid>
+					<TextBlock Text="{Binding MaskPathError}" Foreground="Red" FontSize="11"
+							   IsVisible="{Binding MaskPathError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+							   TextWrapping="Wrap"/>
+				</StackPanel>
+			</StackPanel>
+		</ScrollViewer>
+
+		<!-- Правая часть -->
+		<Grid Grid.Column="1" RowDefinitions="*,Auto,Auto" Margin="10">
+			<!-- Область изображения -->
+			<Border BorderBrush="Gray" BorderThickness="1" Background="#F5F5F5">
+				<Grid>
+					<Image Source="{Binding ResultImage}" Stretch="Uniform"
+						   IsVisible="{Binding ResultImage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+					<TextBlock Text="Результат генерации" FontSize="20" Foreground="Gray"
+							   HorizontalAlignment="Center" VerticalAlignment="Center"
+							   IsVisible="{Binding ResultImage, Converter={x:Static ObjectConverters.IsNull}}"/>
+				</Grid>
+			</Border>
+
+			<!-- Кнопка Сгенерировать -->
+			<Button Grid.Row="1" Content="Сгенерировать" Command="{Binding GenerateCommand}"
+					Height="40" FontSize="16" Margin="0,10,0,0"
+					IsEnabled="{Binding !IsGenerating}"/>
+
+			<!-- Статус -->
+			<Border Grid.Row="2" Background="{Binding StatusMessage, Converter={StaticResource StatusConverter}}"
+					CornerRadius="4" Padding="10" Margin="0,10,0,0">
+				<TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
+						   Foreground="White" FontSize="14"/>
+			</Border>
+		</Grid>
+	</Grid>
+</UserControl>

@@ -42,7 +42,7 @@ namespace MapRegionizer
 
         public void CreateMapFromImage(string filePath)
         {
-            using var image = Image.Load<Rgba32>("source.png");
+            using var image = Image.Load<Rgba32>(filePath);
             CreateMapFromImage(image);
         }
 
@@ -73,7 +73,7 @@ namespace MapRegionizer
             {
                 Continent continent = Continents[i];
                 var internalBorders = borderFinder.FindSharedBorders(continent.Regions);
-                var distortedBorders = boundaryService.Distortion(internalBorders);
+                var distortedBorders = boundaryService.Distortion(internalBorders, continent.ContinentPolygon);
                 var newRegions = polygonUpdater.UpdatePolygons(continent.Regions, distortedBorders);
                 Continents[i] = new Continent(continent.ContinentPolygon, newRegions);
             }
@@ -85,6 +85,13 @@ namespace MapRegionizer
             BorderFinder borderFinder = new BorderFinder(factory);
             var mapBoundaries = borderFinder.FindSharedBorders(Continents.SelectMany(c => c.Regions).ToList());
             ImageService.DrawMap(ContinentShapePolygons, mapBoundaries, mapWidth, mapHeight, outputFile);
+        }
+
+        public void SaveMapToJson()
+        {
+            if (!Continents.Any()) return;
+            var saver = new JsonSaver();
+            saver.Save(Continents.ToArray());
         }
     }
 }
