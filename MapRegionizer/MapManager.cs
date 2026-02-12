@@ -33,7 +33,9 @@ namespace MapRegionizer
         {
             mapHeight = image.Height;
             mapWidth = image.Width;
-            var continentsCoords = ImageService.ParseMapContinents(image);
+
+            var parser = new MapParser();
+            var continentsCoords = parser.ParseMapContinents(image);
 
             MapBuilder mapBuilder = new MapBuilder(factory, Options);
             mapBuilder.BuildMapFromCoords(continentsCoords);

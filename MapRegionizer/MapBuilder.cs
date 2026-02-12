@@ -1,16 +1,10 @@
 ﻿using NetTopologySuite.Geometries;
-using SixLabors.ImageSharp.PixelFormats;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using NetTopologySuite.Operation.Union;
+using NetTopologySuite.Simplify;
+
 
 namespace MapRegionizer
 {
-    using NetTopologySuite.Geometries;
-    using NetTopologySuite.Operation.Union;
-    using NetTopologySuite.Simplify;
 
     internal class MapBuilder
     {

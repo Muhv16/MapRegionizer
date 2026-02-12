@@ -3,40 +3,13 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace MapRegionizer
 {
     internal class ImageService
     {
-        public static List<Coordinate> ParseMapContinents(Image<Rgba32> image)
-        {
-            var terrainPixels = new List<NetTopologySuite.Geometries.Coordinate>();
-
-            image.ProcessPixelRows(accessor =>
-            {
-                for (int y = 0; y < accessor.Height; y++)
-                {
-                    Span<Rgba32> row = accessor.GetRowSpan(y);
-                    for (int x = 0; x < row.Length; x++)
-                    {
-                        var pixel = row[x];
-
-                        if (pixel.R >= 250 && pixel.G >= 250 && pixel.B >= 250 && pixel.A > 0)
-                        {
-                            terrainPixels.Add(new Coordinate(x, y));
-                        }
-                    }
-                }
-            });
-            return terrainPixels;
-        }
-
         public static void DrawMap(List<Polygon> regions, List<LineString> bounds, int width, int height, string outFile)
         {
             float scaleX = 1;
