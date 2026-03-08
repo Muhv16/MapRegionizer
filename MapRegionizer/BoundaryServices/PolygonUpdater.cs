@@ -1,16 +1,19 @@
 ﻿using NetTopologySuite.Geometries;
+using System.Globalization;
 
 namespace MapRegionizer.BoundaryServices
 {
     internal class PolygonUpdater
     {
         private readonly GeometryFactory _factory;
+        private const int KeyDecimalPlaces = 6;
+
         public PolygonUpdater(GeometryFactory factory)
         {
             _factory = factory;
         }
 
-        public List<Polygon> UpdatePolygons(List<Polygon> originalPolygons, Dictionary<LineString, LineString> borderReplacements)
+        public List<Polygon> UpdatePolygons(List<Polygon> originalPolygons, Dictionary<string, LineString> borderReplacements)
         {
             var updatedPolygons = new List<Polygon>();
 
@@ -28,32 +31,50 @@ namespace MapRegionizer.BoundaryServices
             return updatedPolygons;
         }
 
-        private LinearRing UpdateRing(LinearRing ring, Dictionary<LineString, LineString> replacements)
+        private LinearRing UpdateRing(LinearRing ring, Dictionary<string, LineString> replacements)
         {
             var coordinates = ring.Coordinates;
             var newCoordinates = new List<Coordinate>();
 
             for (int i = 0; i < coordinates.Length - 1; i++)
             {
-                var segment = _factory.CreateLineString(new[] { coordinates[i], coordinates[i + 1] });
+                var a = coordinates[i];
+                var b = coordinates[i + 1];
+                var key = MakeKey(a, b);
 
-                if (replacements.TryGetValue(segment, out var replacedSegment))
+                if (replacements.TryGetValue(key, out var replacedSegment))
                 {
-                    newCoordinates.AddRange(replacedSegment.Coordinates.Take(replacedSegment.NumPoints - 1));
-                }
-                else if (replacements.TryGetValue((LineString)segment.Reverse(), out var replacedSegmentToReverse))
-                {
-                    LineString reverseReplacedSegment = (LineString)replacedSegmentToReverse.Reverse();
-                    newCoordinates.AddRange(reverseReplacedSegment.Coordinates.Take(reverseReplacedSegment.NumPoints - 1));
+                    // Добавляем все точки заменённого отрезка, кроме последней (чтобы не дублировать при следующем отрезке)
+                    var ptsToAdd = replacedSegment.Coordinates.Take(replacedSegment.NumPoints - 1);
+                    foreach (var c in ptsToAdd)
+                        newCoordinates.Add(c.Copy());
                 }
                 else
                 {
-                    newCoordinates.Add(coordinates[i]);
+                    // Если замены нет — просто добавляем начальную точку сегмента
+                    newCoordinates.Add(a.Copy());
                 }
             }
+
+            // Закрываем кольцо
+            if (newCoordinates.Count == 0)
+            {
+                // fallback: возьмём оригинальные координаты
+                return _factory.CreateLinearRing(coordinates);
+            }
+
+            // Добавляем закрывающуюся точку (копию первой)
             newCoordinates.Add(newCoordinates[0].Copy());
 
             return _factory.CreateLinearRing(newCoordinates.ToArray());
+        }
+
+        private string MakeKey(Coordinate a, Coordinate b)
+        {
+            string fmt = "F" + KeyDecimalPlaces.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var s1 = a.X.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture) + ":" + a.Y.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
+            var s2 = b.X.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture) + ":" + b.Y.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture);
+            return s1 + "|" + s2;
         }
     }
 }

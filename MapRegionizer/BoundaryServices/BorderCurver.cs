@@ -1,5 +1,6 @@
 ﻿using NetTopologySuite.Geometries;
 using NetTopologySuite.LinearReferencing;
+using System.Globalization;
 
 namespace MapRegionizer.BoundaryServices;
 
@@ -7,7 +8,8 @@ internal class BorderCurver
 {
     private readonly GeometryFactory _factory;
     private readonly MapOptions _options;
-    private Random random;
+    private readonly Random random;
+    private const int KeyDecimalPlaces = 6; // точность при формировании ключей (можно настроить)
 
     public BorderCurver(GeometryFactory factory, MapOptions options)
     {
@@ -16,17 +18,133 @@ internal class BorderCurver
         random = new Random();
     }
 
-    public Dictionary<LineString, LineString> Distortion(List<LineString> borders, Polygon continentPolygon)
+    /// <summary>
+    /// Возвращает словарь замен для атомарных сегментов в виде: key(segment A->B) => curved LineString (A->B)
+    /// Ключи формируются канонично с фиксированным округлением.
+    /// </summary>
+    public Dictionary<string, LineString> Distortion(List<LineString> borders, Polygon continentPolygon)
     {
-        var borderReplacements = new Dictionary<LineString, LineString>();
-        for (int i = 0; i < borders.Count; i++)
+        // Индекс исходных атомарных сегментов: key -> list of (parent border, index)
+        var segmentIndex = new Dictionary<string, List<(LineString parent, int index)>>(StringComparer.Ordinal);
+        foreach (var border in borders)
         {
-            var border = borders[i];
-            var newLine = CurveLine(border, continentPolygon);
-            borderReplacements[border] = newLine;
+            var coords = border.Coordinates;
+            for (int i = 0; i < coords.Length - 1; i++)
+            {
+                var k = MakeKey(coords[i], coords[i + 1]);
+                if (!segmentIndex.TryGetValue(k, out var list))
+                {
+                    list = new List<(LineString, int)>();
+                    segmentIndex[k] = list;
+                }
+                list.Add((border, i));
+                // также индексируем обратный ключ, чтобы мы знали, что такой сегмент существует с другой ориентацией
+                var kRev = MakeKey(coords[i + 1], coords[i]);
+                if (!segmentIndex.ContainsKey(kRev))
+                    segmentIndex[kRev] = new List<(LineString, int)>();
+            }
         }
 
-        return borderReplacements;
+        // Результирующая таблица для атомарных сегментов
+        var segmentReplacements = new Dictionary<string, LineString>(StringComparer.Ordinal);
+
+        // Обрабатываем каждую уникальную border (исходную полилинию) и создаём replacement подотрезки для её атомарных сегментов
+        foreach (var border in borders)
+        {
+            var newLine = CurveLine(border, continentPolygon);
+            // если замена не удалась, используем оригинал
+            if (newLine == null || newLine.IsEmpty)
+                newLine = border;
+
+            var parentCoords = border.Coordinates;
+            var indexed = new LengthIndexedLine(newLine);
+
+            for (int i = 0; i < parentCoords.Length - 1; i++)
+            {
+                var a = parentCoords[i];
+                var b = parentCoords[i + 1];
+
+                // Проецируем исходные точки на искривленную линию
+                double posA = indexed.Project(a);
+                double posB = indexed.Project(b);
+
+                // Если проекции получились одинаковыми (плохо сошлись) — попробуем слегка подобрать ближайшие
+                if (Math.Abs(posA - posB) < 1e-9)
+                {
+                    // попытаемся взять соседние позиции ±eps
+                    posA = Math.Max(0, posA - 1e-6);
+                    posB = Math.Min(indexed.EndIndex, posA + 1e-6);
+                    if (Math.Abs(posA - posB) < 1e-12)
+                    {
+                        // как fallback — используем прямой отрезок между a и b
+                        var fallback = _factory.CreateLineString(new[] { a.Copy(), b.Copy() });
+                        var fk = MakeKey(a, b);
+                        if (!segmentReplacements.ContainsKey(fk))
+                            segmentReplacements[fk] = fallback;
+                        var fkRev = MakeKey(b, a);
+                        if (!segmentReplacements.ContainsKey(fkRev))
+                            segmentReplacements[fkRev] = (LineString)fallback.Reverse();
+                        continue;
+                    }
+                }
+
+                double start = Math.Min(posA, posB);
+                double end = Math.Max(posA, posB);
+
+                Geometry extracted;
+                try
+                {
+                    extracted = indexed.ExtractLine(start, end);
+                }
+                catch
+                {
+                    // экстренная обработка — fallback на прямой отрезок
+                    extracted = _factory.CreateLineString(new[] { a.Copy(), b.Copy() });
+                }
+
+                LineString extractedLine;
+                if (extracted is LineString ls)
+                {
+                    extractedLine = ls;
+                }
+                else if (extracted is MultiLineString mls && mls.NumGeometries > 0)
+                {
+                    // Обычно результат будет одним LineString; берём первый непротиворечивый
+                    extractedLine = (LineString)mls.GetGeometryN(0);
+                }
+                else
+                {
+                    // fallback
+                    extractedLine = _factory.CreateLineString(new[] { a.Copy(), b.Copy() });
+                }
+
+                // Убедимся, что извлечённая линия покрывает оба конца — если нет, расширим/корректируем
+                if (extractedLine.NumPoints < 2)
+                {
+                    extractedLine = _factory.CreateLineString(new[] { a.Copy(), b.Copy() });
+                }
+
+                // Сохраняем замену для ключа A->B и для обратного ключа B->A (реверсированную геометрию)
+                var keyF = MakeKey(a, b);
+                if (!segmentReplacements.ContainsKey(keyF))
+                    segmentReplacements[keyF] = extractedLine;
+
+                var keyR = MakeKey(b, a);
+                if (!segmentReplacements.ContainsKey(keyR))
+                    segmentReplacements[keyR] = (LineString)extractedLine.Reverse();
+            }
+        }
+
+        return segmentReplacements;
+    }
+
+    private string MakeKey(Coordinate a, Coordinate b)
+    {
+        // Округляем координаты до фиксированного числа знаков, чтобы избежать мелкой плавающей погрешности
+        string fmt = "F" + KeyDecimalPlaces.ToString(CultureInfo.InvariantCulture);
+        var s1 = a.X.ToString(fmt, CultureInfo.InvariantCulture) + ":" + a.Y.ToString(fmt, CultureInfo.InvariantCulture);
+        var s2 = b.X.ToString(fmt, CultureInfo.InvariantCulture) + ":" + b.Y.ToString(fmt, CultureInfo.InvariantCulture);
+        return s1 + "|" + s2;
     }
 
     private LineString CurveLine(LineString line, Polygon continentPolygon)
@@ -53,7 +171,6 @@ internal class BorderCurver
             xOffsets = GenerateCurveOffsets(newPoints.Count);
         }
 
-        
         var offsetDir = random.Next(0, 2) == 0 ? -1 : 1;
         for (int i = 0; i < newPoints.Count; i++)
         {
@@ -68,7 +185,7 @@ internal class BorderCurver
             var clippedLine = newLine.Intersection(continentPolygon);
             if (clippedLine is MultiLineString mls)
             {
-                var firstLine = mls[0];
+                var firstLine = mls.GetGeometryN(0);
                 if (firstLine is LineString safeFirstLine)
                     newLine = safeFirstLine;
                 else newLine = line;
@@ -81,11 +198,6 @@ internal class BorderCurver
         return newLine;
     }
 
-    /// <summary>
-    /// Генерация отступов для искривления прямых
-    /// </summary>
-    /// <param name="pointsCount"></param>
-    /// <returns></returns>
     private double[] GenerateCurveOffsets(int pointsCount)
     {
         double noiseStrength = 0.2;
@@ -102,7 +214,6 @@ internal class BorderCurver
         }
         else
         {
-            //Параболоподобный набор отступов
             int centerIndex = result.Length / 2;
             bool evenLength = result.Length % 2 == 0;
 
@@ -115,7 +226,6 @@ internal class BorderCurver
                 if (evenLength) distance = i - centerIndex + 0.5;
                 double value = _options.MaxOffst * (1 - stretchFactor * distance * distance);
 
-                // Шум для длинных прямых
                 if (pointsCount > 9 && Math.Abs(distance) > 1)
                 {
                     double noise = (random.NextDouble() - 0.5) * noiseStrength;
@@ -124,7 +234,6 @@ internal class BorderCurver
                 result[i] = Math.Max(value, 0.1);
             }
 
-            // Корректировка для четных массивов
             if (evenLength)
             {
                 result[centerIndex - 1] = Math.Max(result[centerIndex - 1], result[centerIndex]);
@@ -132,8 +241,6 @@ internal class BorderCurver
         }
         return result;
     }
-
-
 
     private static List<Coordinate> GetEquidistantPoints(LineString line, int numberOfIntermediatePoints)
     {
@@ -155,6 +262,4 @@ internal class BorderCurver
 
         return points;
     }
-
-    
 }

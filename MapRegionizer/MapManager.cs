@@ -54,13 +54,12 @@ namespace MapRegionizer
 
             Regionizer regionzer = new Regionizer(factory, Options);
 
-            foreach(var continentsShape in ContinentShapePolygons.Where(p => p.IsValid))
+            Parallel.ForEach(ContinentShapePolygons.Where(p => p.IsValid), continentsShape =>
             {
                 var continentRegions = regionzer.Regionize(continentsShape);
 
                 Continents.Add(new Continent(continentsShape, continentRegions));
-            }
-
+            });
         }
 
         public void Distort()
@@ -70,15 +69,15 @@ namespace MapRegionizer
             BorderFinder borderFinder = new BorderFinder(factory);
             BorderCurver boundaryService = new BorderCurver(factory, Options);
             PolygonUpdater polygonUpdater = new PolygonUpdater(factory);
-            
-            for (int i = 0; i < Continents.Count; i++)
+
+            Parallel.For(0, Continents.Count, i =>
             {
                 Continent continent = Continents[i];
                 var internalBorders = borderFinder.FindSharedBorders(continent.Regions);
                 var distortedBorders = boundaryService.Distortion(internalBorders, continent.ContinentPolygon);
                 var newRegions = polygonUpdater.UpdatePolygons(continent.Regions, distortedBorders);
                 Continents[i] = new Continent(continent.ContinentPolygon, newRegions);
-            }
+            });
         }
 
         public void SaveMapToPng(string outputFile)

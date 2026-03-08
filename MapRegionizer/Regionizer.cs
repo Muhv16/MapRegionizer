@@ -31,18 +31,17 @@ namespace MapRegionizer
             do
             {
                 mergedAny = false;
+               
                 for (int i = 0; i < regions.Count; i++)
                 {
+                    var polygonNeghborFinder = new PolygonNeighborFinder(regions);
                     if (regions[i].Area < _options.TargetSize * _options.MaxDownward)
                     {
                         var polyI = regions[i];
-                        var index = new STRtree<Polygon>();
 
-                        var polygonNeghborFinder = new PolygonNeighborFinder(regions);
                         var neghborsSTR = polygonNeghborFinder
                             .FindNeighbors(polyI)
-                            .OrderByDescending(n => polyI.Boundary.Intersection(n.Boundary).Length)
-                            .ToList();
+                            .OrderByDescending(n => polyI.Boundary.Intersection(n.Boundary).Length);
 
                         var neighbor = neghborsSTR.FirstOrDefault(n => n.Area + polyI.Area < _options.TargetSize * _options.MaxUpward) ?? neghborsSTR.FirstOrDefault();
                         if (neighbor != null)
@@ -54,10 +53,6 @@ namespace MapRegionizer
                             regions.RemoveAt(i);
                             i--;
                             mergedAny = true;
-                        }
-                        else
-                        {
-
                         }
                     }
                 }
