@@ -279,4 +279,72 @@ internal class MapBuilder
         }
     }
 
+    /// <summary>
+    /// Возвращает список полигонов водной поверхности (фон + дыры/озера).
+    /// </summary>
+    public List<Polygon> BuildSeaPolygons(IEnumerable<Polygon> continentPolygons, int imageWidth, int imageHeight, double pixelSize, GeometryFactory factory, double simplifyTolerance = 0.0)
+    {
+        // 1) Создаём прямоугольник, покрывающий всю маску
+        double x0 = 0;
+        double y0 = 0;
+        double x1 = imageWidth * pixelSize;
+        double y1 = imageHeight * pixelSize;
+
+        var rectRing = factory.CreateLinearRing(new[]
+        {
+            new Coordinate(x0, y0),
+            new Coordinate(x1, y0),
+            new Coordinate(x1, y1),
+            new Coordinate(x0, y1),
+            new Coordinate(x0, y0)
+        });
+        var fullRect = factory.CreatePolygon(rectRing);
+
+        // 2) Объединяем континенты в одну геометрию (если есть)
+        Geometry? unionedContinents = null;
+        var continentList = continentPolygons?.ToList() ?? new List<Polygon>();
+        if (continentList.Count == 0)
+        {
+            unionedContinents = factory.CreateGeometryCollection(null);
+        }
+        else
+        {
+            if (simplifyTolerance > 0)
+                continentList = continentList.Select(p => (Polygon)DouglasPeuckerSimplifier.Simplify(p, simplifyTolerance)).ToList();
+
+            unionedContinents = CascadedPolygonUnion.Union(continentList.Cast<Geometry>().ToList()) ?? factory.CreateGeometryCollection(null);
+
+            // возможно исправление топологии (если union вернул невалидную геометрию)
+            if (!unionedContinents.IsValid)
+                unionedContinents = unionedContinents.Buffer(0);
+        }
+
+        // 3) Вычитаем континенты из прямоугольника — получаем водную поверхность
+        var seaGeom = fullRect.Difference(unionedContinents);
+
+        if (seaGeom == null || seaGeom.IsEmpty)
+            return new List<Polygon>();
+
+        // 4) На всякий случай починим валидность
+        if (!seaGeom.IsValid)
+            seaGeom = seaGeom.Buffer(0);
+
+        // 5) Развернём результат в список Polygon
+        var seaPolygons = new List<Polygon>();
+        switch (seaGeom)
+        {
+            case Polygon p: seaPolygons.Add(p); break;
+            case MultiPolygon mp:
+                seaPolygons.AddRange(mp.Geometries.OfType<Polygon>());
+                break;
+            case GeometryCollection gc:
+                for (int i = 0; i < gc.NumGeometries; i++)
+                    if (gc.GetGeometryN(i) is Polygon p2)
+                        seaPolygons.Add(p2);
+                break;
+        }
+
+        return seaPolygons;
+    }
+
 }

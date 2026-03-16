@@ -14,6 +14,7 @@ namespace MapRegionizer
         private int mapHeight;
         private int mapWidth;
         public List<Polygon>? ContinentShapePolygons { get; private set; }
+        public List<Polygon>? SeaShapePolygons { get; private set; }
 
         public List<Continent> Continents { get; private set; } = [];
 
@@ -40,6 +41,7 @@ namespace MapRegionizer
             MapBuilder mapBuilder = new MapBuilder(factory, Options);
             mapBuilder.BuildMapFromCoords(continentsCoords);
             ContinentShapePolygons = mapBuilder.MapPolygons;
+            SeaShapePolygons = mapBuilder.BuildSeaPolygons(ContinentShapePolygons, mapWidth, mapHeight, Options.PixelSize, factory, Options.SimplifyTolerance);
         }
 
         public void CreateMapFromImage(string filePath)
@@ -82,10 +84,10 @@ namespace MapRegionizer
 
         public void SaveMapToPng(string outputFile)
         {
-            if (ContinentShapePolygons == null) return;
+            if (ContinentShapePolygons == null || SeaShapePolygons == null) return;
             BorderFinder borderFinder = new BorderFinder(factory);
             var mapBoundaries = borderFinder.FindSharedBorders(Continents.SelectMany(c => c.Regions).ToList());
-            ImageService.DrawMap(ContinentShapePolygons, mapBoundaries, mapWidth, mapHeight, outputFile);
+            ImageService.DrawMap(ContinentShapePolygons, mapBoundaries, SeaShapePolygons, mapWidth, mapHeight, outputFile);
         }
 
         public void SaveMapToJson()
