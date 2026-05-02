@@ -1,20 +1,21 @@
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using System;
+using System.Globalization;
 
 namespace AvaloniaRegionizer.Services;
 
 public class StatusToColorConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        var status = (value ?? "").ToString().ToLower();
-        return status.Contains("îøèáêà") ? new SolidColorBrush(Colors.Red) :
-               status.Contains("ãåíåðàöèÿ") ? new SolidColorBrush(Colors.Blue) :
+        var status = (value ?? "").ToString()?.ToLowerInvariant() ?? string.Empty;
+        return status.Contains("Ð¾ÑˆÐ¸Ð±ÐºÐ°") ? new SolidColorBrush(Colors.Red) :
+               status.Contains("Ð³ÐµÐ½ÐµÑ€Ð°Ñ†Ð¸Ñ") ? new SolidColorBrush(Colors.Blue) :
                !string.IsNullOrWhiteSpace(status) ? new SolidColorBrush(Colors.Green) :
                new SolidColorBrush(Colors.Gray);
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotImplementedException();
 }

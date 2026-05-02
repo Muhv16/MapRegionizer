@@ -5,8 +5,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using MapRegionizer;
+using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Generation;
+using MapRegionizer.Core.Options;
+using MapRegionizer.GeoJson;
+using MapRegionizer.ImageSharp;
 using ReactiveUI;
 using System;
 using System.Collections.Generic;
@@ -19,12 +24,21 @@ using System.Threading.Tasks;
 
 public class MainViewModel : ReactiveObject
 {
-    private readonly MapOptions _options = new();
+    private GeneratedMap? _currentMap;
     private string _statusMessage = "Готов к работе";
     private bool _isGenerating;
     private Bitmap? _resultImage;
     private readonly Dictionary<string, string> _validationErrors = new();
-    private MapManager? _currentMapManager;
+
+    private double _pixelSize = 1;
+    private double _simplifyTolerance = 1;
+    private uint _targetSize = 400;
+    private double _pointsMultiplier = 4;
+    private double _maxDownward = 0.75;
+    private double _maxUpward = 1.75;
+    private double _distortionDetail = 0.25;
+    private double _maxOffset = 3.25;
+    private double _minLineLengthToCurve = 7;
 
     private string _maskPath = string.Empty;
     public string MaskPath
@@ -48,21 +62,20 @@ public class MainViewModel : ReactiveObject
         ValidateAll();
     }
 
-    // Свойства MapOptions
-    public double PixelSize { get => _options.PixelSize; set => _options.PixelSize = value; }
-    public double SimplifyTolerance { get => _options.SimplifyTolerance; set => _options.SimplifyTolerance = value; }
-    public uint TargetSize { get => _options.TargetSize; set => _options.TargetSize = value; }
-    public double PointsMultiplier { get => _options.PointsMultiplier; set { _options.PointsMultiplier = value; this.RaisePropertyChanged(); } }
-    public double MaxDownward { get => _options.MaxDownward; set { _options.MaxDownward = value; this.RaisePropertyChanged(); } }
-    public double MaxUpward { get => _options.MaxUpward; set { _options.MaxUpward = value; this.RaisePropertyChanged(); } }
-    public double DistortionDetail { get => _options.DistortionDetail; set { _options.DistortionDetail = value; this.RaisePropertyChanged(); } }
-    public double MaxOffset { get => _options.MaxOffst; set => _options.MaxOffst = value; }
-    public double MinLineLenghtToCurve { get => _options.MinLineLenghtToCurve; set => _options.MinLineLenghtToCurve = value; }
+    public double PixelSize { get => _pixelSize; set => this.RaiseAndSetIfChanged(ref _pixelSize, value); }
+    public double SimplifyTolerance { get => _simplifyTolerance; set => this.RaiseAndSetIfChanged(ref _simplifyTolerance, value); }
+    public uint TargetSize { get => _targetSize; set => this.RaiseAndSetIfChanged(ref _targetSize, value); }
+    public double PointsMultiplier { get => _pointsMultiplier; set => this.RaiseAndSetIfChanged(ref _pointsMultiplier, value); }
+    public double MaxDownward { get => _maxDownward; set => this.RaiseAndSetIfChanged(ref _maxDownward, value); }
+    public double MaxUpward { get => _maxUpward; set => this.RaiseAndSetIfChanged(ref _maxUpward, value); }
+    public double DistortionDetail { get => _distortionDetail; set => this.RaiseAndSetIfChanged(ref _distortionDetail, value); }
+    public double MaxOffset { get => _maxOffset; set => this.RaiseAndSetIfChanged(ref _maxOffset, value); }
+    public double MinLineLenghtToCurve { get => _minLineLengthToCurve; set => this.RaiseAndSetIfChanged(ref _minLineLengthToCurve, value); }
 
     // Статус и результат
     public string StatusMessage { get => _statusMessage; set => this.RaiseAndSetIfChanged(ref _statusMessage, value); }
     public bool IsGenerating { get => _isGenerating; set => this.RaiseAndSetIfChanged(ref _isGenerating, value); }
-    public Bitmap ResultImage { get => _resultImage; set => this.RaiseAndSetIfChanged(ref _resultImage, value); }
+    public Bitmap? ResultImage { get => _resultImage; set => this.RaiseAndSetIfChanged(ref _resultImage, value); }
 
     // Ошибки (для отображения в UI)
     public string MaxDownwardError => GetError(nameof(MaxDownward));
@@ -106,20 +119,21 @@ public class MainViewModel : ReactiveObject
         var window = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
         if (window == null) return;
 
-        var dialog = new OpenFileDialog
+        var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Выберите изображение маски карты",
-            Filters = new()
-            {
-                new() { Name = "Изображения", Extensions = { "png", "jpg", "jpeg", "bmp", "gif" } },
-                new() { Name = "Все файлы", Extensions = { "*" } }
-            }
-        };
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Изображения") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif"] },
+                FilePickerFileTypes.All
+            ]
+        });
 
-        var result = await dialog.ShowAsync(window);
-        if (result?.Length > 0)
+        var file = result.FirstOrDefault();
+        if (file?.Path.LocalPath is { Length: > 0 } path)
         {
-            MaskPath = result[0];
+            MaskPath = path;
             StatusMessage = $"Маска: {Path.GetFileName(MaskPath)}";
         }
     }
@@ -129,6 +143,7 @@ public class MainViewModel : ReactiveObject
         if (HasErrors)
         {
             StatusMessage = "Исправьте ошибки в настройках";
+            return;
         }
 
         IsGenerating = true;
@@ -136,16 +151,25 @@ public class MainViewModel : ReactiveObject
 
         try
         {
-            _currentMapManager = new MapManager(_options);
             StatusMessage = "Парсинг маски...";
-            await Task.Run(() => _currentMapManager.CreateMapFromImage(_maskPath));
-            StatusMessage = "Создание регионов...";
-            await Task.Run(() => _currentMapManager.CreateRegions());
-            StatusMessage = "Обработка границ регионов...";
-            await Task.Run(() => _currentMapManager.Distort());
+            var mask = await Task.Run(() => ImageMaskReader.Read(_maskPath));
+
+            StatusMessage = "Генерация карты...";
+            var generator = new MapGenerator();
+            var options = BuildGenerationOptions();
+            _currentMap = await Task.Run(() => generator.Generate(mask, options));
+
             StatusMessage = "Сохранение...";
             var resultPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/result.png";
-            await Task.Run(() => { _currentMapManager.SaveMapToPng(resultPath); _currentMapManager.SaveMapToJson(); });
+            var outputDirectory = Path.GetDirectoryName(resultPath) ?? AppContext.BaseDirectory;
+            await Task.Run(() =>
+            {
+                MapImageRenderer.RenderToFile(_currentMap, resultPath);
+                GeoJsonMapWriter.WriteRegionsToFile(_currentMap, Path.Combine(outputDirectory, "regions.geojson"));
+                GeoJsonMapWriter.WriteLandmassesToFile(_currentMap, Path.Combine(outputDirectory, "landmasses.geojson"));
+                GeoJsonMapWriter.WriteWaterBodiesToFile(_currentMap, Path.Combine(outputDirectory, "water-bodies.geojson"));
+            });
+
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 ResultImage = new Bitmap(resultPath);
@@ -160,5 +184,30 @@ public class MainViewModel : ReactiveObject
         {
             IsGenerating = false;
         }
+    }
+
+    private MapGenerationOptions BuildGenerationOptions()
+    {
+        return new MapGenerationOptions
+        {
+            PixelSize = PixelSize,
+            ShapeExtraction = new ShapeExtractionOptions
+            {
+                SimplifyTolerance = SimplifyTolerance
+            },
+            Regions = new RegionGenerationOptions
+            {
+                TargetArea = TargetSize,
+                PointsMultiplier = PointsMultiplier,
+                MinAreaRatio = MaxDownward,
+                MaxAreaRatio = MaxUpward
+            },
+            Boundaries = new BoundaryDistortionOptions
+            {
+                Detail = DistortionDetail,
+                MaxOffset = MaxOffset,
+                MinLineLengthToCurve = MinLineLenghtToCurve
+            }
+        };
     }
 }
