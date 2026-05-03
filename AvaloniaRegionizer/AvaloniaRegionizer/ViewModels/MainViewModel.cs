@@ -162,19 +162,22 @@ public class MainViewModel : ReactiveObject
             StatusMessage = "Сохранение...";
             var resultPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/result.png";
             var outputDirectory = Path.GetDirectoryName(resultPath) ?? AppContext.BaseDirectory;
+            var tectonicImagePath = Path.Combine(outputDirectory, "tectonic-plates.png");
             await Task.Run(() =>
             {
                 MapImageRenderer.RenderToFile(_currentMap, resultPath);
+                MapImageRenderer.RenderTectonicPlatesToFile(_currentMap, tectonicImagePath);
                 GeoJsonMapWriter.WriteRegionsToFile(_currentMap, Path.Combine(outputDirectory, "regions.geojson"));
                 GeoJsonMapWriter.WriteLandmassesToFile(_currentMap, Path.Combine(outputDirectory, "landmasses.geojson"));
                 GeoJsonMapWriter.WriteWaterBodiesToFile(_currentMap, Path.Combine(outputDirectory, "water-bodies.geojson"));
+                TectonicPlateJsonWriter.WriteToFile(_currentMap, Path.Combine(outputDirectory, "tectonic-plates.json"));
             });
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                ResultImage = new Bitmap(resultPath);
+                ResultImage = new Bitmap(tectonicImagePath);
             });
-            StatusMessage = "Генерация завершена успешно!";
+            StatusMessage = $"Генерация завершена успешно! Файлы сохранены в {outputDirectory}";
         }
         catch (Exception ex)
         {
@@ -191,6 +194,7 @@ public class MainViewModel : ReactiveObject
         return new MapGenerationOptions
         {
             PixelSize = PixelSize,
+            ProjectionMode = MapProjectionMode.EquirectangularWorld,
             ShapeExtraction = new ShapeExtractionOptions
             {
                 SimplifyTolerance = SimplifyTolerance

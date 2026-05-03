@@ -12,6 +12,7 @@ public static class MapDataKeys
     public static readonly MapDataKey WaterBodies = new("waterBodies");
     public static readonly MapDataKey RawRegions = new("rawRegions");
     public static readonly MapDataKey Regions = new("regions");
+    public static readonly MapDataKey TectonicPlates = new("tectonicPlates");
 }
 
 public static class MapStageIds
@@ -20,4 +21,5 @@ public static class MapStageIds
     public const string ExtractWaterBodies = "extractWaterBodies";
     public const string GenerateRegions = "generateRegions";
     public const string DistortRegionBoundaries = "distortRegionBoundaries";
+    public const string GenerateTectonicPlates = "generateTectonicPlates";
 }

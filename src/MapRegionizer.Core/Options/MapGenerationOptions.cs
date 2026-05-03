@@ -7,6 +7,8 @@ public sealed class MapGenerationOptions
     public ShapeExtractionOptions ShapeExtraction { get; init; } = new();
     public RegionGenerationOptions Regions { get; init; } = new();
     public BoundaryDistortionOptions Boundaries { get; init; } = new();
+    public MapProjectionMode ProjectionMode { get; init; } = MapProjectionMode.EquirectangularWorld;
+    public TectonicPlateGenerationOptions TectonicPlates { get; init; } = new();
 
     public void Validate()
     {
@@ -14,7 +16,15 @@ public sealed class MapGenerationOptions
         ShapeExtraction.Validate();
         Regions.Validate();
         Boundaries.Validate();
+        TectonicPlates.Validate();
     }
+}
+
+public enum MapProjectionMode
+{
+    EquirectangularWorld,
+    Flat,
+    Regional
 }
 
 public sealed class ShapeExtractionOptions
@@ -55,5 +65,25 @@ public sealed class BoundaryDistortionOptions
         if (Detail <= 0 || Detail > 1) throw new ArgumentOutOfRangeException(nameof(Detail), "Detail must be in (0, 1].");
         if (MaxOffset < 0) throw new ArgumentOutOfRangeException(nameof(MaxOffset), "Max offset cannot be negative.");
         if (MinLineLengthToCurve < 0) throw new ArgumentOutOfRangeException(nameof(MinLineLengthToCurve), "Minimum line length cannot be negative.");
+    }
+}
+
+public sealed class TectonicPlateGenerationOptions
+{
+    public int? PlateCount { get; init; }
+    public double ContinentalSeedRatio { get; init; } = 0.4;
+    public double BoundaryNoise { get; init; } = 0.3;
+    public double LandWaterTransitionPenalty { get; init; } = 0.2;
+    public double Activity { get; init; } = 1.0;
+    public double EarthLikeFactor { get; init; } = 0.8;
+
+    public void Validate()
+    {
+        if (PlateCount <= 0) throw new ArgumentOutOfRangeException(nameof(PlateCount), "Plate count must be greater than zero.");
+        if (ContinentalSeedRatio < 0 || ContinentalSeedRatio > 1) throw new ArgumentOutOfRangeException(nameof(ContinentalSeedRatio), "Continental seed ratio must be in [0, 1].");
+        if (BoundaryNoise < 0 || BoundaryNoise > 1) throw new ArgumentOutOfRangeException(nameof(BoundaryNoise), "Boundary noise must be in [0, 1].");
+        if (LandWaterTransitionPenalty < 0) throw new ArgumentOutOfRangeException(nameof(LandWaterTransitionPenalty), "Land-water transition penalty cannot be negative.");
+        if (Activity < 0) throw new ArgumentOutOfRangeException(nameof(Activity), "Activity cannot be negative.");
+        if (EarthLikeFactor < 0 || EarthLikeFactor > 1) throw new ArgumentOutOfRangeException(nameof(EarthLikeFactor), "Earth-like factor must be in [0, 1].");
     }
 }

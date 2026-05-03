@@ -22,6 +22,7 @@ Current core data keys:
 Mask
 Landmasses
 WaterBodies
+TectonicPlates
 RawRegions
 Regions
 ```
@@ -40,6 +41,7 @@ The default pipeline contains these stages:
 ```text
 ExtractLandmassesStage
  -> ExtractWaterBodiesStage
+ -> GenerateTectonicPlatesStage
  -> GenerateRegionsStage
  -> DistortRegionBoundariesStage
 ```
@@ -54,6 +56,10 @@ ExtractLandmassesStage
 ExtractWaterBodiesStage
   requires: Landmasses
   produces: WaterBodies
+
+GenerateTectonicPlatesStage
+  requires: Mask, Landmasses, WaterBodies
+  produces: TectonicPlates
 
 GenerateRegionsStage
   requires: Landmasses
@@ -127,7 +133,7 @@ This ensures:
 Mask -> Landmasses -> RawRegions -> Regions
 ```
 
-`WaterBodies` are not required for `Regions`, so they are not generated unless requested by `RunFull()` or `RunUntil(MapDataKeys.WaterBodies)`.
+`WaterBodies` and `TectonicPlates` are not required for `Regions`, so they are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.WaterBodies)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
 
 ## Regeneration
 
@@ -214,10 +220,11 @@ If the custom stage produces a different key, dependent default stages will not 
 
 ## Future Extension
 
-Future world-generation features should be added as new data keys and stages, for example:
+World-generation features should be added as new data keys and stages. Tectonic plates are currently generated as a grid-based world layer for equirectangular maps and can be used by future elevation, seismicity, volcanism, and resource stages.
+
+Future data keys may include:
 
 ```text
-TectonicPlates
 Elevation
 Rivers
 Climate
@@ -227,7 +234,7 @@ Potential dependencies:
 
 ```text
 GenerateTectonicPlatesStage
-  requires: Landmasses, Regions
+  requires: Mask, Landmasses, WaterBodies
   produces: TectonicPlates
 
 GenerateElevationStage
