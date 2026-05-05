@@ -30,18 +30,59 @@ public readonly record struct WaterBodyId(int Value);
 
 public readonly record struct RegionId(int Value);
 
+public sealed class TectonicPlateRaster
+{
+    private readonly short[] _plates;
+    private readonly byte[] _crust;
+
+    public int Width { get; }
+    public int Height { get; }
+
+    public TectonicPlateRaster(int width, int height, short[] plates, byte[] crust)
+    {
+        if (plates.Length != width * height)
+            throw new ArgumentException($"Plates array length must be {width * height}", nameof(plates));
+        if (crust.Length != width * height)
+            throw new ArgumentException($"Crust array length must be {width * height}", nameof(crust));
+
+        Width = width;
+        Height = height;
+        _plates = plates;
+        _crust = crust;
+    }
+
+    public TectonicPlateId GetPlate(int x, int y)
+    {
+        var index = y * Width + x;
+        return new TectonicPlateId(_plates[index]);
+    }
+
+    public TectonicPlateId GetPlate(GridPoint point) => GetPlate(point.X, point.Y);
+
+    public CrustKind GetCrust(int x, int y)
+    {
+        var index = y * Width + x;
+        return (CrustKind)_crust[index];
+    }
+
+    public CrustKind GetCrust(GridPoint point) => GetCrust(point.X, point.Y);
+
+    internal ReadOnlySpan<short> PlatesSpan => _plates;
+    internal ReadOnlySpan<byte> CrustSpan => _crust;
+}
+
 public sealed record TectonicPlateMap(
     int Width,
     int Height,
     IReadOnlyList<TectonicPlate> Plates,
     IReadOnlyList<PlateBoundary> Boundaries,
-    IReadOnlyDictionary<GridPoint, TectonicPlateId> PlateByPoint,
-    IReadOnlyDictionary<GridPoint, CrustKind> CrustByPoint);
+    TectonicPlateRaster Raster);
 
 public sealed record TectonicPlate(
     TectonicPlateId Id,
     TectonicPlateKind Kind,
-    IReadOnlySet<GridPoint> Points,
+    int PointCount,
+    GridPoint Centroid,
     GridVector Motion,
     double Activity,
     double Density,

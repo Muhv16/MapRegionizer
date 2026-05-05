@@ -98,34 +98,38 @@ public static class MapImageRenderer
 
     private static void DrawPlateBoundaries(Image<Rgba32> image, TectonicPlateMap tectonics, double pixelSize, TectonicPlateRenderOptions options)
     {
-        foreach (var point in EnumeratePoints(tectonics.Width, tectonics.Height))
+        for (var y = 0; y < tectonics.Height; y++)
         {
-            var currentPlate = tectonics.PlateByPoint[point];
-            var right = new GridPoint(point.X + 1 == tectonics.Width ? 0 : point.X + 1, point.Y);
-
-            if (tectonics.PlateByPoint[right] != currentPlate)
+            for (var x = 0; x < tectonics.Width; x++)
             {
-                if (point.X == tectonics.Width - 1)
+                var point = new GridPoint(x, y);
+                var currentPlate = tectonics.Raster.GetPlate(x, y);
+                var right = new GridPoint(x + 1 == tectonics.Width ? 0 : x + 1, y);
+
+                if (tectonics.Raster.GetPlate(right) != currentPlate)
                 {
-                    DrawLine(image, 0, point.Y * pixelSize, 0, (point.Y + 1) * pixelSize, options);
-                    DrawLine(image, tectonics.Width * pixelSize, point.Y * pixelSize, tectonics.Width * pixelSize, (point.Y + 1) * pixelSize, options);
+                    if (x == tectonics.Width - 1)
+                    {
+                        DrawLine(image, 0, y * pixelSize, 0, (y + 1) * pixelSize, options);
+                        DrawLine(image, tectonics.Width * pixelSize, y * pixelSize, tectonics.Width * pixelSize, (y + 1) * pixelSize, options);
+                    }
+                    else
+                    {
+                        var xPos = (x + 1) * pixelSize;
+                        DrawLine(image, xPos, y * pixelSize, xPos, (y + 1) * pixelSize, options);
+                    }
                 }
-                else
-                {
-                    var x = (point.X + 1) * pixelSize;
-                    DrawLine(image, x, point.Y * pixelSize, x, (point.Y + 1) * pixelSize, options);
-                }
+
+                if (y == tectonics.Height - 1)
+                    continue;
+
+                var down = new GridPoint(x, y + 1);
+                if (tectonics.Raster.GetPlate(down) == currentPlate)
+                    continue;
+
+                var yPos = (y + 1) * pixelSize;
+                DrawLine(image, x * pixelSize, yPos, (x + 1) * pixelSize, yPos, options);
             }
-
-            if (point.Y == tectonics.Height - 1)
-                continue;
-
-            var down = new GridPoint(point.X, point.Y + 1);
-            if (tectonics.PlateByPoint[down] == currentPlate)
-                continue;
-
-            var y = (point.Y + 1) * pixelSize;
-            DrawLine(image, point.X * pixelSize, y, (point.X + 1) * pixelSize, y, options);
         }
     }
 
@@ -142,11 +146,11 @@ public static class MapImageRenderer
     {
         foreach (var plate in tectonics.Plates)
         {
-            if (plate.Points.Count == 0)
+            if (plate.PointCount == 0)
                 continue;
 
-            var centerX = plate.Points.Average(p => p.X + 0.5) * pixelSize * options.Scale;
-            var centerY = plate.Points.Average(p => p.Y + 0.5) * pixelSize * options.Scale;
+            var centerX = (plate.Centroid.X + 0.5) * pixelSize * options.Scale;
+            var centerY = (plate.Centroid.Y + 0.5) * pixelSize * options.Scale;
             DrawDigits(image, plate.Id.Value.ToString(), (int)Math.Round(centerX), (int)Math.Round(centerY), options);
         }
     }

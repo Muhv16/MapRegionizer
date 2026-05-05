@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MapRegionizer.Core.Domain;
@@ -38,11 +39,75 @@ public static class TectonicPlateJsonWriter
             tectonicPlates.Height,
             tectonicPlates.Plates.Select(ToDto).ToArray(),
             tectonicPlates.Boundaries.Select(ToDto).ToArray(),
-            tectonicPlates.PlateByPoint
-                .OrderBy(kv => kv.Key.Y)
-                .ThenBy(kv => kv.Key.X)
-                .Select(kv => new PlatePointDto(kv.Key.X, kv.Key.Y, kv.Value.Value, tectonicPlates.CrustByPoint[kv.Key]))
-                .ToArray());
+            new RasterDto(
+                EncodePlateRows(tectonicPlates.Raster),
+                EncodeCrustRows(tectonicPlates.Raster)));
+    }
+
+    private static IReadOnlyList<string> EncodePlateRows(TectonicPlateRaster raster)
+    {
+        var rows = new string[raster.Height];
+        var sb = new StringBuilder();
+
+        for (var y = 0; y < raster.Height; y++)
+        {
+            sb.Clear();
+            var runStart = 0;
+            var current = raster.GetPlate(0, y).Value;
+
+            for (var x = 1; x < raster.Width; x++)
+            {
+                var value = raster.GetPlate(x, y).Value;
+                if (value == current)
+                    continue;
+
+                if (sb.Length > 0)
+                    sb.Append(',');
+                sb.Append(current).Append('x').Append(x - runStart);
+                current = value;
+                runStart = x;
+            }
+
+            if (sb.Length > 0)
+                sb.Append(',');
+            sb.Append(current).Append('x').Append(raster.Width - runStart);
+            rows[y] = sb.ToString();
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<string> EncodeCrustRows(TectonicPlateRaster raster)
+    {
+        var rows = new string[raster.Height];
+        var sb = new StringBuilder();
+
+        for (var y = 0; y < raster.Height; y++)
+        {
+            sb.Clear();
+            var runStart = 0;
+            var current = raster.GetCrust(0, y);
+
+            for (var x = 1; x < raster.Width; x++)
+            {
+                var value = raster.GetCrust(x, y);
+                if (value == current)
+                    continue;
+
+                if (sb.Length > 0)
+                    sb.Append(',');
+                sb.Append(current == CrustKind.Continental ? 'C' : 'O').Append('x').Append(x - runStart);
+                current = value;
+                runStart = x;
+            }
+
+            if (sb.Length > 0)
+                sb.Append(',');
+            sb.Append(current == CrustKind.Continental ? 'C' : 'O').Append('x').Append(raster.Width - runStart);
+            rows[y] = sb.ToString();
+        }
+
+        return rows;
     }
 
     private static TectonicPlateDto ToDto(TectonicPlate plate)
@@ -55,8 +120,8 @@ public static class TectonicPlateJsonWriter
             plate.Activity,
             plate.Density,
             plate.Thickness,
-            plate.Points.Count,
-            plate.Points.Select(p => new PointDto(p.X, p.Y)).OrderBy(p => p.Y).ThenBy(p => p.X).ToArray());
+            plate.PointCount,
+            new PointDto(plate.Centroid.X, plate.Centroid.Y));
     }
 
     private static PlateBoundaryDto ToDto(PlateBoundary boundary)
@@ -77,7 +142,11 @@ public static class TectonicPlateJsonWriter
         int Height,
         IReadOnlyList<TectonicPlateDto> Plates,
         IReadOnlyList<PlateBoundaryDto> Boundaries,
-        IReadOnlyList<PlatePointDto> PlateByPoint);
+        RasterDto Raster);
+
+    private sealed record RasterDto(
+        IReadOnlyList<string> PlateRows,
+        IReadOnlyList<string> CrustRows);
 
     private sealed record TectonicPlateDto(
         int Id,
@@ -88,7 +157,7 @@ public static class TectonicPlateJsonWriter
         double Density,
         double Thickness,
         int PointCount,
-        IReadOnlyList<PointDto> Points);
+        PointDto Centroid);
 
     private sealed record PlateBoundaryDto(
         int PlateA,
@@ -99,8 +168,6 @@ public static class TectonicPlateJsonWriter
         double Shear,
         int? SubductingPlate,
         IReadOnlyList<PointDto> Points);
-
-    private sealed record PlatePointDto(int X, int Y, int PlateId, CrustKind Crust);
 
     private sealed record PointDto(int X, int Y);
 }
