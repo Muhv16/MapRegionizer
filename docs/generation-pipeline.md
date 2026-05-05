@@ -23,6 +23,11 @@ Mask
 Landmasses
 WaterBodies
 TectonicPlates
+TectonicHistory
+CrustFields
+PlateDomains
+TectonicBoundaries
+TectonicFeatures
 RawRegions
 Regions
 ```
@@ -41,7 +46,12 @@ The default pipeline contains these stages:
 ```text
 ExtractLandmassesStage
  -> ExtractWaterBodiesStage
- -> GenerateTectonicPlatesStage
+ -> GenerateTectonicHistoryStage
+ -> GenerateCrustFieldsStage
+ -> GeneratePlateDomainsStage
+ -> GenerateTectonicBoundariesStage
+ -> GenerateTectonicFeaturesStage
+ -> AssembleTectonicPlateMapStage
  -> GenerateRegionsStage
  -> DistortRegionBoundariesStage
 ```
@@ -57,8 +67,28 @@ ExtractWaterBodiesStage
   requires: Landmasses
   produces: WaterBodies
 
-GenerateTectonicPlatesStage
+GenerateTectonicHistoryStage
   requires: Mask, Landmasses, WaterBodies
+  produces: TectonicHistory
+
+GenerateCrustFieldsStage
+  requires: Mask, TectonicHistory
+  produces: CrustFields
+
+GeneratePlateDomainsStage
+  requires: Mask, CrustFields, TectonicHistory
+  produces: PlateDomains
+
+GenerateTectonicBoundariesStage
+  requires: PlateDomains, CrustFields
+  produces: TectonicBoundaries
+
+GenerateTectonicFeaturesStage
+  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries
+  produces: TectonicFeatures
+
+AssembleTectonicPlateMapStage
+  requires: TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, TectonicFeatures
   produces: TectonicPlates
 
 GenerateRegionsStage
@@ -133,7 +163,7 @@ This ensures:
 Mask -> Landmasses -> RawRegions -> Regions
 ```
 
-`WaterBodies` and `TectonicPlates` are not required for `Regions`, so they are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.WaterBodies)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
+`WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.TectonicFeatures)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
 
 ## Regeneration
 
@@ -220,9 +250,11 @@ If the custom stage produces a different key, dependent default stages will not 
 
 ## Future Extension
 
-World-generation features should be added as new data keys and stages. Tectonic plates are currently generated as a grid-based world layer for equirectangular maps and can be used by future elevation, seismicity, volcanism, and resource stages.
+World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, derived features, and a compatible assembled `TectonicPlates` view.
 
-Future data keys may include:
+Tectonic GeoJSON export uses `Summary` mode by default. Summary output keeps runtime-friendly plate, boundary, crust, coastal, age, feature, and island metadata, but omits large diagnostic point clouds and writes compact JSON. Use `CompactDiagnostic` to include segment points without duplicate aggregate point lists, or `Diagnostic` for dense age rows and full feature point output.
+
+Current and future terrain-oriented data keys include:
 
 ```text
 Elevation
@@ -233,12 +265,8 @@ Climate
 Potential dependencies:
 
 ```text
-GenerateTectonicPlatesStage
-  requires: Mask, Landmasses, WaterBodies
-  produces: TectonicPlates
-
 GenerateElevationStage
-  requires: Landmasses, WaterBodies, TectonicPlates
+  requires: Landmasses, WaterBodies, CrustFields, TectonicBoundaries, TectonicFeatures
   produces: Elevation
 
 GenerateRiversStage

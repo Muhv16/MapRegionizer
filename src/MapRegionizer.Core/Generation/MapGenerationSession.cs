@@ -34,6 +34,11 @@ public sealed class MapGenerationSession
     public IReadOnlyList<WaterBody> WaterBodies => _context.WaterBodies;
     public IReadOnlyList<MapRegion> RawRegions => _context.RawRegions;
     public IReadOnlyList<MapRegion> Regions => _context.Regions;
+    public TectonicHistory? TectonicHistory => _context.TectonicHistory;
+    public CrustFieldMap? CrustFields => _context.CrustFields;
+    public PlateDomainMap? PlateDomains => _context.PlateDomains;
+    public TectonicBoundaryMap? TectonicBoundaries => _context.TectonicBoundaries;
+    public TectonicFeatureMap? TectonicFeatures => _context.TectonicFeatures;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;
 
     public bool IsAvailable(MapDataKey key) => _context.IsAvailable(key);

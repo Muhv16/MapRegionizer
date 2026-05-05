@@ -72,11 +72,20 @@ public sealed class TectonicPlateGenerationOptions
 {
     public int? PlateCount { get; init; }
     public double ContinentalSeedRatio { get; init; } = 0.4;
-    public double BoundaryNoise { get; init; } = 0.3;
-    public double BoundaryNoiseScale { get; init; } = 12.0;
+    public double BoundaryNoise { get; init; } = 0.2;
+    public double BoundaryNoiseScale { get; init; } = 8.0;
     public double LandWaterTransitionPenalty { get; init; } = 0.2;
     public double Activity { get; init; } = 1.0;
     public double EarthLikeFactor { get; init; } = 0.8;
+    public double HistoryDepth { get; init; } = 0.8;
+    public double MicroplateRatio { get; init; } = 0.18;
+    public double MinMicroplateAreaRatio { get; init; } = 0.0005;
+    public double MaxMicroplateAreaRatio { get; init; } = 0.008;
+    public int MinBoundarySegmentLength { get; init; } = 16;
+    public double ActiveMarginRatio { get; init; } = 0.45;
+    public double ShelfWidthFactor { get; init; } = 1.0;
+    public int? HotspotCount { get; init; }
+    public double RiftChance { get; init; } = 0.35;
     public bool ValidateGeometry { get; init; } = true;
     public int MaxValidationCycles { get; init; } = 3;
     public int MinPlateSize { get; init; } = 100;
@@ -91,6 +100,16 @@ public sealed class TectonicPlateGenerationOptions
         if (LandWaterTransitionPenalty < 0) throw new ArgumentOutOfRangeException(nameof(LandWaterTransitionPenalty), "Land-water transition penalty cannot be negative.");
         if (Activity < 0) throw new ArgumentOutOfRangeException(nameof(Activity), "Activity cannot be negative.");
         if (EarthLikeFactor < 0 || EarthLikeFactor > 1) throw new ArgumentOutOfRangeException(nameof(EarthLikeFactor), "Earth-like factor must be in [0, 1].");
+        if (HistoryDepth < 0 || HistoryDepth > 1) throw new ArgumentOutOfRangeException(nameof(HistoryDepth), "History depth must be in [0, 1].");
+        if (MicroplateRatio < 0 || MicroplateRatio > 1) throw new ArgumentOutOfRangeException(nameof(MicroplateRatio), "Microplate ratio must be in [0, 1].");
+        if (MinMicroplateAreaRatio < 0 || MinMicroplateAreaRatio > 1) throw new ArgumentOutOfRangeException(nameof(MinMicroplateAreaRatio), "Minimum microplate area ratio must be in [0, 1].");
+        if (MaxMicroplateAreaRatio < 0 || MaxMicroplateAreaRatio > 1) throw new ArgumentOutOfRangeException(nameof(MaxMicroplateAreaRatio), "Maximum microplate area ratio must be in [0, 1].");
+        if (MaxMicroplateAreaRatio > 0 && MaxMicroplateAreaRatio < MinMicroplateAreaRatio) throw new ArgumentOutOfRangeException(nameof(MaxMicroplateAreaRatio), "Maximum microplate area ratio must be greater than or equal to minimum microplate area ratio.");
+        if (MinBoundarySegmentLength < 1) throw new ArgumentOutOfRangeException(nameof(MinBoundarySegmentLength), "Minimum boundary segment length must be at least 1.");
+        if (ActiveMarginRatio < 0 || ActiveMarginRatio > 1) throw new ArgumentOutOfRangeException(nameof(ActiveMarginRatio), "Active margin ratio must be in [0, 1].");
+        if (ShelfWidthFactor < 0) throw new ArgumentOutOfRangeException(nameof(ShelfWidthFactor), "Shelf width factor cannot be negative.");
+        if (HotspotCount < 0) throw new ArgumentOutOfRangeException(nameof(HotspotCount), "Hotspot count cannot be negative.");
+        if (RiftChance < 0 || RiftChance > 1) throw new ArgumentOutOfRangeException(nameof(RiftChance), "Rift chance must be in [0, 1].");
         if (MaxValidationCycles < 0) throw new ArgumentOutOfRangeException(nameof(MaxValidationCycles), "Max validation cycles cannot be negative.");
         if (MinPlateSize < 0) throw new ArgumentOutOfRangeException(nameof(MinPlateSize), "Minimum plate size cannot be negative.");
         if (MinPlateSizeRatio < 0 || MinPlateSizeRatio > 1) throw new ArgumentOutOfRangeException(nameof(MinPlateSizeRatio), "Min plate size ratio must be in [0, 1].");

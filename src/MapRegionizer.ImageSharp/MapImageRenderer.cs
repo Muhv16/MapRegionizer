@@ -69,6 +69,98 @@ public static class MapImageRenderer
         return image;
     }
 
+    public static void RenderCrustToFile(GeneratedMap map, string filePath, CrustRenderOptions? options = null)
+    {
+        using var image = RenderCrust(map, options);
+        image.SaveAsPng(filePath);
+    }
+
+    public static Image<Rgba32> RenderCrust(GeneratedMap map, CrustRenderOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        var tectonics = map.TectonicPlates ?? throw new InvalidOperationException("The map does not contain tectonic plate data.");
+        var crustFields = tectonics.CrustFields ?? throw new InvalidOperationException("The map does not contain crust field data.");
+
+        options ??= new CrustRenderOptions();
+
+        var width = Math.Max(1, (int)Math.Ceiling(map.Bounds.Width * options.Scale));
+        var height = Math.Max(1, (int)Math.Ceiling(map.Bounds.Height * options.Scale));
+        var image = new Image<Rgba32>(width, height);
+        var pixelSize = Math.Max(double.Epsilon, map.Bounds.PixelSize * options.Scale);
+
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                var sourceY = Math.Clamp((int)(y / pixelSize), 0, crustFields.Height - 1);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var sourceX = Math.Clamp((int)(x / pixelSize), 0, crustFields.Width - 1);
+                    var crust = GetDominantCrust(crustFields, sourceX, sourceY, options.CrustSmoothingRadius);
+                    var color = GetCrustColor(crust, options);
+                    if (options.CoastalZoneTintStrength > 0)
+                    {
+                        var coastalZone = GetDominantCoastalZone(crustFields, sourceX, sourceY, options.CrustSmoothingRadius);
+                        color = ApplyCoastalZoneTint(color, coastalZone, options);
+                    }
+
+                    row[x] = color.ToPixel<Rgba32>();
+                }
+            }
+        });
+
+        if (options.DrawPlateBoundaries)
+            DrawPlateBoundaries(image, tectonics, map.Bounds.PixelSize, options);
+
+        return image;
+    }
+
+    public static void RenderTectonicFeaturesToFile(GeneratedMap map, string filePath, TectonicFeatureRenderOptions? options = null)
+    {
+        using var image = RenderTectonicFeatures(map, options);
+        image.SaveAsPng(filePath);
+    }
+
+    public static Image<Rgba32> RenderTectonicFeatures(GeneratedMap map, TectonicFeatureRenderOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        var tectonics = map.TectonicPlates ?? throw new InvalidOperationException("The map does not contain tectonic plate data.");
+        var featureMap = tectonics.Features ?? throw new InvalidOperationException("The map does not contain tectonic feature data.");
+
+        options ??= new TectonicFeatureRenderOptions();
+
+        var width = Math.Max(1, (int)Math.Ceiling(map.Bounds.Width * options.Scale));
+        var height = Math.Max(1, (int)Math.Ceiling(map.Bounds.Height * options.Scale));
+        var image = new Image<Rgba32>(width, height);
+        var pixelSize = Math.Max(double.Epsilon, map.Bounds.PixelSize * options.Scale);
+
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                var sourceY = Math.Clamp((int)(y / pixelSize), 0, featureMap.Height - 1);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var sourceX = Math.Clamp((int)(x / pixelSize), 0, featureMap.Width - 1);
+                    row[x] = GetFeatureFieldColor(featureMap, sourceX, sourceY, options).ToPixel<Rgba32>();
+                }
+            }
+        });
+
+        foreach (var feature in featureMap.Features.OrderBy(f => GetFeatureDrawOrder(f.Kind)))
+            DrawFeature(image, feature, featureMap.Width, map.Bounds.PixelSize, options);
+
+        foreach (var island in featureMap.Islands)
+            DrawIslandMarker(image, island, map.Bounds.PixelSize, options);
+
+        if (options.DrawPlateBoundaries)
+            DrawPlateBoundaries(image, tectonics, map.Bounds.PixelSize, options);
+
+        return image;
+    }
+
     private static void FillPolygon(Image<Rgba32> image, NtsPolygon polygon, Color color, float scale)
     {
         var path = BuildPath(polygon, scale);
@@ -141,6 +233,235 @@ public static class MapImageRenderer
             new PointF((float)(x1 * options.Scale), (float)(y1 * options.Scale)),
             new PointF((float)(x2 * options.Scale), (float)(y2 * options.Scale))));
     }
+
+    private static Color GetCrustColor(CrustKind kind, CrustRenderOptions options) => kind switch
+    {
+        CrustKind.Continental => options.ContinentalColor,
+        CrustKind.Oceanic => options.OceanicColor,
+        CrustKind.Shelf => options.ShelfColor,
+        CrustKind.Arc => options.ArcColor,
+        CrustKind.Rift => options.RiftColor,
+        CrustKind.Terrane => options.TerraneColor,
+        _ => options.UnknownColor
+    };
+
+    private static CrustKind GetDominantCrust(CrustFieldMap crustFields, int x, int y, int radius)
+    {
+        if (radius <= 0)
+            return crustFields.GetCrust(x, y);
+
+        Span<int> counts = stackalloc int[(int)CrustKind.Terrane + 1];
+        for (var yy = Math.Max(0, y - radius); yy <= Math.Min(crustFields.Height - 1, y + radius); yy++)
+        {
+            for (var xx = Math.Max(0, x - radius); xx <= Math.Min(crustFields.Width - 1, x + radius); xx++)
+                counts[(int)crustFields.GetCrust(xx, yy)]++;
+        }
+
+        var best = crustFields.GetCrust(x, y);
+        var bestCount = -1;
+        for (var index = 0; index < counts.Length; index++)
+        {
+            if (counts[index] <= bestCount)
+                continue;
+
+            best = (CrustKind)index;
+            bestCount = counts[index];
+        }
+
+        return best;
+    }
+
+    private static CoastalZoneKind GetDominantCoastalZone(CrustFieldMap crustFields, int x, int y, int radius)
+    {
+        if (radius <= 0)
+            return crustFields.GetCoastalZone(x, y);
+
+        Span<int> counts = stackalloc int[(int)CoastalZoneKind.ShallowSea + 1];
+        for (var yy = Math.Max(0, y - radius); yy <= Math.Min(crustFields.Height - 1, y + radius); yy++)
+        {
+            for (var xx = Math.Max(0, x - radius); xx <= Math.Min(crustFields.Width - 1, x + radius); xx++)
+                counts[(int)crustFields.GetCoastalZone(xx, yy)]++;
+        }
+
+        var best = crustFields.GetCoastalZone(x, y);
+        var bestCount = -1;
+        for (var index = 0; index < counts.Length; index++)
+        {
+            if (counts[index] <= bestCount)
+                continue;
+
+            best = (CoastalZoneKind)index;
+            bestCount = counts[index];
+        }
+
+        return best;
+    }
+
+    private static Rgba32 ApplyCoastalZoneTint(Color color, CoastalZoneKind zone, CrustRenderOptions options)
+    {
+        var baseColor = color.ToPixel<Rgba32>();
+        var tint = zone switch
+        {
+            CoastalZoneKind.Shelf => options.ShelfTintColor,
+            CoastalZoneKind.Slope => options.SlopeTintColor,
+            CoastalZoneKind.PassiveMargin => options.PassiveMarginTintColor,
+            CoastalZoneKind.ActiveMargin => options.ActiveMarginTintColor,
+            CoastalZoneKind.ShallowSea => options.ShallowSeaTintColor,
+            _ => (Color?)null
+        };
+
+        return tint is null ? baseColor : Blend(baseColor, tint.Value.ToPixel<Rgba32>(), options.CoastalZoneTintStrength);
+    }
+
+    private static Color GetFeatureFieldColor(TectonicFeatureMap features, int x, int y, TectonicFeatureRenderOptions options)
+    {
+        var uplift = Math.Clamp(features.GetUplift(x, y), 0, 1);
+        var subsidence = Math.Clamp(features.GetSubsidence(x, y), 0, 1);
+        var volcanism = Math.Clamp(features.GetVolcanism(x, y), 0, 1);
+        var seismicity = Math.Clamp(features.GetSeismicity(x, y), 0, 1);
+        var heatFlow = Math.Clamp(features.GetHeatFlow(x, y), 0, 1);
+
+        var color = options.BackgroundColor.ToPixel<Rgba32>();
+        color = Blend(color, options.SubsidenceColor.ToPixel<Rgba32>(), subsidence * options.FieldIntensity);
+        color = Blend(color, options.HeatFlowColor.ToPixel<Rgba32>(), heatFlow * options.FieldIntensity);
+        color = Blend(color, options.UpliftColor.ToPixel<Rgba32>(), uplift * options.FieldIntensity);
+        color = Blend(color, options.VolcanismColor.ToPixel<Rgba32>(), volcanism * options.FieldIntensity);
+        color = Blend(color, options.SeismicityColor.ToPixel<Rgba32>(), seismicity * options.FieldIntensity * 0.8);
+        return color;
+    }
+
+    private static Rgba32 Blend(Rgba32 from, Rgba32 to, double amount)
+    {
+        amount = Math.Clamp(amount, 0, 1);
+        var inverse = 1 - amount;
+        return new Rgba32(
+            (byte)Math.Round(from.R * inverse + to.R * amount),
+            (byte)Math.Round(from.G * inverse + to.G * amount),
+            (byte)Math.Round(from.B * inverse + to.B * amount),
+            255);
+    }
+
+    private static void DrawFeature(Image<Rgba32> image, TectonicFeature feature, int mapWidth, double pixelSize, TectonicFeatureRenderOptions options)
+    {
+        if (feature.Points.Count == 0)
+            return;
+
+        var color = GetFeatureColor(feature.Kind, options);
+        var width = GetFeatureWidth(feature.Kind, options);
+        var radius = Math.Max(1, (int)Math.Round(width / 2));
+
+        if (feature.Points.Count == 1)
+        {
+            DrawPointMarker(image, feature.Points[0], pixelSize, radius + 1, color, options.Scale);
+            return;
+        }
+
+        image.Mutate(ctx =>
+        {
+            for (var index = 1; index < feature.Points.Count; index++)
+            {
+                var previous = feature.Points[index - 1];
+                var current = feature.Points[index];
+                if (!CanConnectFeaturePoints(previous, current, mapWidth, options.MaxConnectedFeatureStep))
+                    continue;
+
+                ctx.DrawLine(
+                    color,
+                    width,
+                    ToPixelCenter(previous, pixelSize, options.Scale),
+                    ToPixelCenter(current, pixelSize, options.Scale));
+            }
+        });
+
+        if (feature.SourceSegmentId.HasValue)
+        {
+            var pointStep = Math.Max(1, feature.Points.Count / options.MaxBoundaryDerivedPointMarkers);
+            for (var index = 0; index < feature.Points.Count; index += pointStep)
+                DrawPointMarker(image, feature.Points[index], pixelSize, radius, color, options.Scale);
+        }
+    }
+
+    private static bool CanConnectFeaturePoints(GridPoint previous, GridPoint current, int mapWidth, int maxStep)
+    {
+        var dx = Math.Abs(previous.X - current.X);
+        var wrappedDx = Math.Min(dx, Math.Max(0, mapWidth - dx));
+        var dy = Math.Abs(previous.Y - current.Y);
+        return Math.Max(wrappedDx, dy) <= maxStep && dx <= maxStep;
+    }
+
+    private static void DrawIslandMarker(Image<Rgba32> image, TectonicIsland island, double pixelSize, TectonicFeatureRenderOptions options)
+    {
+        var color = island.Kind switch
+        {
+            IslandKind.VolcanicArc => options.ArcColor,
+            IslandKind.Hotspot => options.HotspotColor,
+            IslandKind.Microcontinent => options.CratonColor,
+            IslandKind.UpliftedRidge => options.RidgeColor,
+            IslandKind.ShelfArchipelago => options.PassiveMarginColor,
+            _ => options.IslandColor
+        };
+
+        var radius = Math.Clamp((int)Math.Round(Math.Sqrt(Math.Max(1, island.Area)) / 4), 2, 6);
+        DrawPointMarker(image, island.Center, pixelSize, radius, color, options.Scale);
+    }
+
+    private static void DrawPointMarker(Image<Rgba32> image, GridPoint point, double pixelSize, int radius, Color color, float scale)
+    {
+        var center = ToPixelCenter(point, pixelSize, scale);
+        var size = radius * 2 + 1;
+        image.Mutate(ctx => ctx.Fill(color, new RectangleF(center.X - radius, center.Y - radius, size, size)));
+    }
+
+    private static PointF ToPixelCenter(GridPoint point, double pixelSize, float scale)
+    {
+        return new PointF(
+            (float)((point.X + 0.5) * pixelSize * scale),
+            (float)((point.Y + 0.5) * pixelSize * scale));
+    }
+
+    private static Color GetFeatureColor(TectonicFeatureKind kind, TectonicFeatureRenderOptions options) => kind switch
+    {
+        TectonicFeatureKind.Ridge => options.RidgeColor,
+        TectonicFeatureKind.Trench => options.TrenchColor,
+        TectonicFeatureKind.Arc => options.ArcColor,
+        TectonicFeatureKind.Rift => options.RiftColor,
+        TectonicFeatureKind.Suture => options.SutureColor,
+        TectonicFeatureKind.Orogen => options.OrogenColor,
+        TectonicFeatureKind.Craton => options.CratonColor,
+        TectonicFeatureKind.PassiveMargin => options.PassiveMarginColor,
+        TectonicFeatureKind.Hotspot => options.HotspotColor,
+        TectonicFeatureKind.SedimentaryBasin => options.SedimentaryBasinColor,
+        TectonicFeatureKind.Microplate => options.MicroplateColor,
+        TectonicFeatureKind.BackArcBasin => options.BackArcBasinColor,
+        _ => options.UnknownFeatureColor
+    };
+
+    private static float GetFeatureWidth(TectonicFeatureKind kind, TectonicFeatureRenderOptions options) => kind switch
+    {
+        TectonicFeatureKind.Trench => options.MajorFeatureWidth,
+        TectonicFeatureKind.Ridge => options.MajorFeatureWidth,
+        TectonicFeatureKind.Orogen => options.MajorFeatureWidth,
+        TectonicFeatureKind.Microplate => options.MajorFeatureWidth,
+        TectonicFeatureKind.Hotspot => options.PointFeatureWidth,
+        _ => options.FeatureWidth
+    };
+
+    private static int GetFeatureDrawOrder(TectonicFeatureKind kind) => kind switch
+    {
+        TectonicFeatureKind.Craton => 0,
+        TectonicFeatureKind.SedimentaryBasin => 1,
+        TectonicFeatureKind.PassiveMargin => 2,
+        TectonicFeatureKind.BackArcBasin => 3,
+        TectonicFeatureKind.Ridge => 4,
+        TectonicFeatureKind.Rift => 5,
+        TectonicFeatureKind.Suture => 6,
+        TectonicFeatureKind.Orogen => 7,
+        TectonicFeatureKind.Trench => 8,
+        TectonicFeatureKind.Arc => 9,
+        TectonicFeatureKind.Microplate => 10,
+        TectonicFeatureKind.Hotspot => 11,
+        _ => 12
+    };
 
     private static void DrawPlateIds(Image<Rgba32> image, TectonicPlateMap tectonics, double pixelSize, TectonicPlateRenderOptions options)
     {
@@ -222,7 +543,7 @@ public sealed class MapRenderOptions
     public Color RegionBorderColor { get; init; } = Color.Black;
 }
 
-public sealed class TectonicPlateRenderOptions
+public class TectonicPlateRenderOptions
 {
     public float Scale { get; init; } = 1;
     public float PlateBoundaryWidth { get; init; } = 1;
@@ -232,4 +553,66 @@ public sealed class TectonicPlateRenderOptions
     public Color PlateBoundaryColor { get; init; } = Color.Red;
     public Color PlateIdColor { get; init; } = Color.Black;
     public Color PlateIdBackgroundColor { get; init; } = Color.FromRgba(255, 255, 255, 180);
+}
+
+public sealed class CrustRenderOptions : TectonicPlateRenderOptions
+{
+    public CrustRenderOptions()
+    {
+        PlateBoundaryColor = Color.FromRgb(190, 30, 42);
+        PlateBoundaryWidth = 0.75f;
+    }
+
+    public bool DrawPlateBoundaries { get; init; } = true;
+    public int CrustSmoothingRadius { get; init; } = 1;
+    public Color ContinentalColor { get; init; } = Color.FromRgb(213, 190, 142);
+    public Color OceanicColor { get; init; } = Color.FromRgb(25, 93, 154);
+    public Color ShelfColor { get; init; } = Color.FromRgb(83, 171, 185);
+    public Color ArcColor { get; init; } = Color.FromRgb(225, 113, 74);
+    public Color RiftColor { get; init; } = Color.FromRgb(202, 79, 132);
+    public Color TerraneColor { get; init; } = Color.FromRgb(159, 139, 198);
+    public Color UnknownColor { get; init; } = Color.DarkGray;
+    public Color ShelfTintColor { get; init; } = Color.FromRgb(162, 224, 218);
+    public Color SlopeTintColor { get; init; } = Color.FromRgb(49, 115, 158);
+    public Color PassiveMarginTintColor { get; init; } = Color.FromRgb(128, 190, 151);
+    public Color ActiveMarginTintColor { get; init; } = Color.FromRgb(232, 82, 77);
+    public Color ShallowSeaTintColor { get; init; } = Color.FromRgb(99, 213, 224);
+    public double CoastalZoneTintStrength { get; init; } = 0;
+}
+
+public sealed class TectonicFeatureRenderOptions : TectonicPlateRenderOptions
+{
+    public TectonicFeatureRenderOptions()
+    {
+        PlateBoundaryColor = Color.FromRgba(255, 80, 70, 150);
+        PlateBoundaryWidth = 0.75f;
+    }
+
+    public bool DrawPlateBoundaries { get; init; } = true;
+    public int MaxConnectedFeatureStep { get; init; } = 6;
+    public int MaxBoundaryDerivedPointMarkers { get; init; } = 1600;
+    public double FieldIntensity { get; init; } = 0.42;
+    public float FeatureWidth { get; init; } = 1.25f;
+    public float MajorFeatureWidth { get; init; } = 1.75f;
+    public float PointFeatureWidth { get; init; } = 3;
+    public Color BackgroundColor { get; init; } = Color.FromRgb(23, 36, 47);
+    public Color UpliftColor { get; init; } = Color.FromRgb(245, 191, 87);
+    public Color SubsidenceColor { get; init; } = Color.FromRgb(53, 113, 181);
+    public Color VolcanismColor { get; init; } = Color.FromRgb(235, 69, 67);
+    public Color SeismicityColor { get; init; } = Color.FromRgb(247, 241, 113);
+    public Color HeatFlowColor { get; init; } = Color.FromRgb(213, 102, 183);
+    public Color RidgeColor { get; init; } = Color.FromRgb(88, 214, 226);
+    public Color TrenchColor { get; init; } = Color.FromRgb(35, 24, 30);
+    public Color ArcColor { get; init; } = Color.FromRgb(255, 140, 74);
+    public Color RiftColor { get; init; } = Color.FromRgb(241, 77, 143);
+    public Color SutureColor { get; init; } = Color.FromRgb(202, 186, 118);
+    public Color OrogenColor { get; init; } = Color.FromRgb(245, 204, 105);
+    public Color CratonColor { get; init; } = Color.FromRgb(132, 176, 118);
+    public Color PassiveMarginColor { get; init; } = Color.FromRgb(142, 206, 171);
+    public Color HotspotColor { get; init; } = Color.FromRgb(255, 243, 119);
+    public Color SedimentaryBasinColor { get; init; } = Color.FromRgb(77, 125, 151);
+    public Color MicroplateColor { get; init; } = Color.FromRgb(255, 255, 255);
+    public Color BackArcBasinColor { get; init; } = Color.FromRgb(83, 152, 213);
+    public Color IslandColor { get; init; } = Color.White;
+    public Color UnknownFeatureColor { get; init; } = Color.LightGray;
 }

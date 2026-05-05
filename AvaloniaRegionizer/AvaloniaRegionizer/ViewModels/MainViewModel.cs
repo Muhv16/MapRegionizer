@@ -163,10 +163,14 @@ public class MainViewModel : ReactiveObject
             var resultPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/result.png";
             var outputDirectory = Path.GetDirectoryName(resultPath) ?? AppContext.BaseDirectory;
             var tectonicImagePath = Path.Combine(outputDirectory, "tectonic-plates.png");
+            var crustImagePath = Path.Combine(outputDirectory, "tectonic-crust.png");
+            var featuresImagePath = Path.Combine(outputDirectory, "tectonic-features.png");
             await Task.Run(() =>
             {
                 MapImageRenderer.RenderToFile(_currentMap, resultPath);
                 MapImageRenderer.RenderTectonicPlatesToFile(_currentMap, tectonicImagePath);
+                MapImageRenderer.RenderCrustToFile(_currentMap, crustImagePath);
+                MapImageRenderer.RenderTectonicFeaturesToFile(_currentMap, featuresImagePath);
                 GeoJsonMapWriter.WriteRegionsToFile(_currentMap, Path.Combine(outputDirectory, "regions.geojson"));
                 GeoJsonMapWriter.WriteLandmassesToFile(_currentMap, Path.Combine(outputDirectory, "landmasses.geojson"));
                 GeoJsonMapWriter.WriteWaterBodiesToFile(_currentMap, Path.Combine(outputDirectory, "water-bodies.geojson"));

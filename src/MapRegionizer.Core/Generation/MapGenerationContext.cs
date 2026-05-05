@@ -28,6 +28,11 @@ public sealed class MapGenerationContext
     public List<WaterBody> WaterBodies { get; } = [];
     public List<MapRegion> RawRegions { get; } = [];
     public List<MapRegion> Regions { get; } = [];
+    public TectonicHistory? TectonicHistory { get; set; }
+    public CrustFieldMap? CrustFields { get; set; }
+    public PlateDomainMap? PlateDomains { get; set; }
+    public TectonicBoundaryMap? TectonicBoundaries { get; set; }
+    public TectonicFeatureMap? TectonicFeatures { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
     public IReadOnlySet<MapDataKey> AvailableData => _availableData;
     public IReadOnlySet<MapDataKey> DirtyData => _dirtyData;
@@ -64,6 +69,16 @@ public sealed class MapGenerationContext
             RawRegions.Clear();
         else if (key == MapDataKeys.Regions)
             Regions.Clear();
+        else if (key == MapDataKeys.TectonicHistory)
+            TectonicHistory = null;
+        else if (key == MapDataKeys.CrustFields)
+            CrustFields = null;
+        else if (key == MapDataKeys.PlateDomains)
+            PlateDomains = null;
+        else if (key == MapDataKeys.TectonicBoundaries)
+            TectonicBoundaries = null;
+        else if (key == MapDataKeys.TectonicFeatures)
+            TectonicFeatures = null;
         else if (key == MapDataKeys.TectonicPlates)
             TectonicPlates = null;
     }

@@ -11,7 +11,12 @@ public sealed class MapGenerationPipelineBuilder
         return new MapGenerationPipelineBuilder()
             .AddStage(new ExtractLandmassesStage())
             .AddStage(new ExtractWaterBodiesStage())
-            .AddStage(new GenerateTectonicPlatesStage())
+            .AddStage(new GenerateTectonicHistoryStage())
+            .AddStage(new GenerateCrustFieldsStage())
+            .AddStage(new GeneratePlateDomainsStage())
+            .AddStage(new GenerateTectonicBoundariesStage())
+            .AddStage(new GenerateTectonicFeaturesStage())
+            .AddStage(new AssembleTectonicPlateMapStage())
             .AddStage(new GenerateRegionsStage())
             .AddStage(new DistortRegionBoundariesStage());
     }
