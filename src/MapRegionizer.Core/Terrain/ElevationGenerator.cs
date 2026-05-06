@@ -26,6 +26,11 @@ internal sealed class ElevationGenerator
         var tectonicElevation = new double[length];
         var roughness = new double[length];
         var erosionMask = new double[length];
+        var terrainClasses = new byte[length];
+        var mountainPassPotential = new double[length];
+        var ridgeContinuity = new double[length];
+        var foothillInfluence = new double[length];
+        var basinInfluence = new double[length];
         var ridgeMask = new double[length];
         var collisionMask = new double[length];
         var massifMask = new double[length];
@@ -55,6 +60,9 @@ internal sealed class ElevationGenerator
         var volcanism = BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15);
         var heatFlow = BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4);
         var sedimentSupply = BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35);
+
+        BuildMountainNetworkFields(mask, collisionMask, massifMask, forelandMask, ridgeContinuity, mountainPassPotential, foothillInfluence);
+        BuildBasinInfluence(mask, distanceToWater, shelfWidth, subsidence, sedimentSupply, passiveMask, riftMask, ridgeContinuity, foothillInfluence, basinInfluence);
 
         for (var y = 0; y < mask.Height; y++)
         {
@@ -87,6 +95,10 @@ internal sealed class ElevationGenerator
                     collisionMask[index],
                     massifMask[index],
                     forelandMask[index],
+                    mountainPassPotential[index],
+                    ridgeContinuity[index],
+                    foothillInfluence[index],
+                    basinInfluence[index],
                     subductionMask[index],
                     riftMask[index],
                     passiveMask[index],
@@ -102,6 +114,7 @@ internal sealed class ElevationGenerator
                     ridgeMask[index],
                     collisionMask[index],
                     riftMask[index],
+                    basinInfluence[index],
                     options);
 
                 var detail = FractalNoise(x, y, scale: 32.0, octaves: 5);
@@ -117,10 +130,25 @@ internal sealed class ElevationGenerator
             }
         }
 
+        ApplyLargeBasins(mask, elevation, basinInfluence, distanceToWater, shelfWidth);
+        ApplyIslandProfiles(mask, features.Islands, elevation, roughness, distanceToLand);
         SmoothElevation(mask, elevation, ridgeMask, collisionMask, options, erosionMask);
         LiftInteriorLowlands(mask, elevation, distanceToWater, shelfWidth);
         EnforceConstraints(mask, elevation, options);
-        return new ElevationMap(mask.Width, mask.Height, elevation, baseElevation, tectonicElevation, roughness, erosionMask);
+        ClassifyTerrain(mask, crustFields, elevation, roughness, distanceToWater, shelfWidth, sedimentSupply, heatFlow, basinInfluence, foothillInfluence, ridgeContinuity, terrainClasses);
+        return new ElevationMap(
+            mask.Width,
+            mask.Height,
+            elevation,
+            baseElevation,
+            tectonicElevation,
+            roughness,
+            erosionMask,
+            terrainClasses,
+            mountainPassPotential,
+            ridgeContinuity,
+            foothillInfluence,
+            basinInfluence);
     }
 
     private static double ComputeLandBase(double distanceToWater, double inlandScale, CrustKind crust, CoastalZoneKind coastal)
@@ -186,6 +214,10 @@ internal sealed class ElevationGenerator
         double collision,
         double massif,
         double foreland,
+        double mountainPassPotential,
+        double ridgeContinuity,
+        double foothillInfluence,
+        double basinInfluence,
         double subduction,
         double rift,
         double passive,
@@ -197,17 +229,20 @@ internal sealed class ElevationGenerator
         var contribution = 0.0;
 
         var landBasinDampening = isLand ? 0.08 + coastalInfluence * 0.92 : 1.0;
+        var passDampening = isLand ? 1.0 - mountainPassPotential * 0.58 : 1.0;
+        var ridgeStrength = isLand ? 0.55 + ridgeContinuity * 0.45 : 1.0;
 
-        contribution += Math.Clamp(uplift, 0, 2) * (isLand ? 650 : 35) * mountains;
-        contribution += collision * (isLand ? 1350 : 35) * mountains;
-        contribution += massif * (isLand ? 2800 : 45) * mountains;
-        contribution += foreland * (isLand ? 520 : 0) * mountains;
+        contribution += Math.Clamp(uplift, 0, 2) * (isLand ? 600 : 35) * mountains;
+        contribution += collision * passDampening * ridgeStrength * (isLand ? 1350 : 35) * mountains;
+        contribution += massif * passDampening * (0.72 + ridgeContinuity * 0.35) * (isLand ? 2800 : 45) * mountains;
+        contribution += Math.Max(foreland, foothillInfluence) * (isLand ? 430 : 0) * mountains;
         contribution += subduction * (isLand ? 470 : -55) * mountains;
         contribution += Math.Clamp(volcanism, 0, 2) * options.VolcanismInfluence * (isLand ? 660 : 90);
         contribution += ridge * (isLand ? 30 : 16);
         contribution += Math.Clamp(heatFlow, 0, 2) * (isLand ? 80 : 8);
         contribution -= Math.Clamp(subsidence, 0, 2) * (isLand ? 230 * landBasinDampening : 130);
         contribution -= Math.Clamp(sedimentSupply, 0, 2) * (isLand ? 45 * coastalInfluence : 10);
+        contribution -= basinInfluence * (isLand ? 205 : 0);
         contribution -= rift * options.RiftInfluence * (isLand ? 390 : 45);
         contribution -= passive * (isLand ? 120 * coastalInfluence : 24);
 
@@ -230,6 +265,7 @@ internal sealed class ElevationGenerator
         double ridge,
         double collision,
         double rift,
+        double basinInfluence,
         ElevationGenerationOptions options)
     {
         var roughness = isLand ? 0.35 : 0.22;
@@ -246,6 +282,7 @@ internal sealed class ElevationGenerator
         roughness += Math.Clamp(uplift, 0, 1) * 0.22;
         roughness += Math.Clamp(volcanism, 0, 1) * 0.16;
         roughness += ridge * 0.18 + collision * 0.28 + rift * 0.18;
+        roughness -= basinInfluence * (isLand ? 0.18 : 0.06);
 
         return Math.Clamp(roughness * (0.55 + options.Roughness), 0.05, 1.0);
     }
@@ -349,6 +386,259 @@ internal sealed class ElevationGenerator
         var local = SmoothNoise(point.X, point.Y, segmentId * 31 + 907, 11.0);
         var pass = SmoothNoise(point.X, point.Y, segmentId * 43 + 1201, 6.0);
         return Math.Clamp(broad * 0.64 + local * 0.24 + pass * 0.12, 0, 1);
+    }
+
+    private static void BuildMountainNetworkFields(
+        MapMask mask,
+        double[] collisionMask,
+        double[] massifMask,
+        double[] forelandMask,
+        double[] ridgeContinuity,
+        double[] mountainPassPotential,
+        double[] foothillInfluence)
+    {
+        var length = mask.Width * mask.Height;
+        var axis = new double[length];
+        for (var i = 0; i < length; i++)
+            axis[i] = Math.Max(collisionMask[i], massifMask[i]);
+
+        var broadAxis = SmoothField(axis, mask.Width, mask.Height, 4);
+        var broadFoothills = SmoothField(massifMask, mask.Width, mask.Height, 8);
+
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                if (!mask.IsLand(point))
+                    continue;
+
+                var index = y * mask.Width + x;
+                var localAxis = axis[index];
+                var continuityNoise = SmoothNoise(x, y, 1601, 18.0);
+                ridgeContinuity[index] = Math.Clamp(localAxis * 0.72 + broadAxis[index] * 0.45 + continuityNoise * 0.18 - 0.12, 0, 1);
+
+                var mountainContext = Math.Clamp((forelandMask[index] + broadAxis[index] + localAxis - 0.05) / 1.25, 0, 1);
+                var passNoise = SmoothNoise(x, y, 1603, 9.0);
+                mountainPassPotential[index] = Math.Clamp(mountainContext * (1.0 - ridgeContinuity[index]) * (0.55 + passNoise * 0.45), 0, 1);
+
+                foothillInfluence[index] = Math.Clamp(forelandMask[index] * 0.85 + broadFoothills[index] * 0.55 - localAxis * 0.25, 0, 1);
+            }
+        }
+    }
+
+    private static void BuildBasinInfluence(
+        MapMask mask,
+        double[] distanceToWater,
+        double shelfWidth,
+        double[] subsidence,
+        double[] sedimentSupply,
+        double[] passiveMask,
+        double[] riftMask,
+        double[] ridgeContinuity,
+        double[] foothillInfluence,
+        double[] basinInfluence)
+    {
+        var raw = new double[basinInfluence.Length];
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                if (!mask.IsLand(point))
+                    continue;
+
+                var index = y * mask.Width + x;
+                var interior = Math.Clamp((distanceToWater[index] - shelfWidth * 1.1) / Math.Max(1.0, shelfWidth * 5.0), 0, 1);
+                var quietRelief = 1.0 - Math.Clamp(ridgeContinuity[index] * 0.85 + foothillInfluence[index] * 0.35, 0, 1);
+                var continentalNoise = SmoothNoise(x, y, 1701, 72.0);
+                var tectonicBasin = subsidence[index] * 0.58 + sedimentSupply[index] * 0.28 + passiveMask[index] * 0.32 + riftMask[index] * 0.12;
+                var broadBasin = continentalNoise * interior * 0.72;
+                raw[index] = Math.Clamp((tectonicBasin + broadBasin) * quietRelief, 0, 1);
+            }
+        }
+
+        var smooth = SmoothField(raw, mask.Width, mask.Height, 12);
+        for (var i = 0; i < basinInfluence.Length; i++)
+        {
+            var normalized = Math.Clamp((smooth[i] - 0.06) / 0.78, 0, 1);
+            basinInfluence[i] = Math.Pow(normalized, 1.15);
+        }
+    }
+
+    private static void ApplyLargeBasins(MapMask mask, double[] elevation, double[] basinInfluence, double[] distanceToWater, double shelfWidth)
+    {
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                if (!mask.IsLand(point))
+                    continue;
+
+                var index = y * mask.Width + x;
+                var basin = basinInfluence[index];
+                if (basin <= 0.06)
+                    continue;
+
+                var interior = Math.Clamp((distanceToWater[index] - shelfWidth) / Math.Max(1.0, shelfWidth * 6.0), 0, 1);
+                var target = 150.0 + interior * 290.0;
+                var flatten = basin * (0.20 + interior * 0.26);
+                elevation[index] = elevation[index] * (1.0 - flatten) + target * flatten;
+            }
+        }
+    }
+
+    private void ApplyIslandProfiles(MapMask mask, IReadOnlyList<TectonicIsland> islands, double[] elevation, double[] roughness, double[] distanceToLand)
+    {
+        foreach (var island in islands)
+        {
+            var radius = Math.Clamp(Math.Sqrt(Math.Max(1.0, island.Area)) * 1.65, 3.0, 26.0);
+            var stampRadius = (int)Math.Ceiling(radius * 2.2);
+            var angle = Hash01(island.Center.X, island.Center.Y, island.PlateId.Value + 1901) * Math.PI * 2.0;
+            var axisX = Math.Cos(angle);
+            var axisY = Math.Sin(angle);
+
+            foreach (var point in PointsInRadius(mask.Width, mask.Height, island.Center, stampRadius))
+            {
+                var index = point.Y * mask.Width + point.X;
+                var dx = WrappedDeltaX(point.X - island.Center.X, mask.Width);
+                var dy = point.Y - island.Center.Y;
+                var radialDistance = Math.Sqrt(dx * dx + dy * dy);
+                var radial = Math.Clamp(1.0 - radialDistance / Math.Max(1.0, radius), 0, 1);
+                var projection = dx * axisX + dy * axisY;
+                var sideDistance = Math.Abs(dx * -axisY + dy * axisX);
+                var axial = Math.Clamp(1.0 - Math.Abs(projection) / Math.Max(1.0, radius * 1.8), 0, 1);
+                var narrowRidge = Math.Clamp(1.0 - sideDistance / Math.Max(1.0, radius * 0.32), 0, 1) * axial;
+
+                switch (island.Kind)
+                {
+                    case IslandKind.VolcanicArc:
+                        if (mask.IsLand(point))
+                        {
+                            var cone = Math.Pow(radial, 1.55);
+                            elevation[index] += cone * 920;
+                            roughness[index] = Math.Clamp(roughness[index] + cone * 0.28, 0, 1);
+                        }
+                        break;
+                    case IslandKind.ShelfArchipelago:
+                        if (mask.IsLand(point))
+                        {
+                            var lowTarget = 60 + SmoothNoise(point.X, point.Y, island.PlateId.Value + 1911, 7.0) * 120;
+                            elevation[index] = elevation[index] * 0.45 + lowTarget * 0.55;
+                            roughness[index] = Math.Clamp(roughness[index] * 0.62, 0.04, 1);
+                        }
+                        else if (distanceToLand[index] <= radius * 1.7)
+                        {
+                            var shelf = Math.Clamp(1.0 - distanceToLand[index] / Math.Max(1.0, radius * 1.7), 0, 1);
+                            elevation[index] = Math.Max(elevation[index], -210 + shelf * 155);
+                        }
+                        break;
+                    case IslandKind.Microcontinent:
+                        if (mask.IsLand(point))
+                        {
+                            var relief = (FractalNoise(point.X + 41, point.Y - 17, 18.0, 4) - 0.35) * 420;
+                            elevation[index] += radial * 160 + relief;
+                            roughness[index] = Math.Clamp(roughness[index] + 0.10 + radial * 0.08, 0, 1);
+                        }
+                        break;
+                    case IslandKind.UpliftedRidge:
+                        if (mask.IsLand(point))
+                        {
+                            var ridge = Math.Pow(narrowRidge, 1.2);
+                            elevation[index] += ridge * 520;
+                            roughness[index] = Math.Clamp(roughness[index] + ridge * 0.18, 0, 1);
+                        }
+                        break;
+                    case IslandKind.Hotspot:
+                        if (mask.IsLand(point))
+                        {
+                            var chain = Math.Max(Math.Pow(radial, 1.8), Math.Pow(narrowRidge, 1.35) * 0.72);
+                            var ageGradient = Math.Clamp(0.65 + projection / Math.Max(1.0, radius * 3.2), 0.35, 1.15);
+                            elevation[index] += chain * ageGradient * 820;
+                            roughness[index] = Math.Clamp(roughness[index] + chain * 0.24, 0, 1);
+                        }
+                        break;
+                }
+            }
+        }
+    }
+
+    private static void ClassifyTerrain(
+        MapMask mask,
+        CrustFieldMap crustFields,
+        double[] elevation,
+        double[] roughness,
+        double[] distanceToWater,
+        double shelfWidth,
+        double[] sedimentSupply,
+        double[] heatFlow,
+        double[] basinInfluence,
+        double[] foothillInfluence,
+        double[] ridgeContinuity,
+        byte[] terrainClasses)
+    {
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                var index = y * mask.Width + x;
+                if (!mask.IsLand(point))
+                {
+                    terrainClasses[index] = (byte)(elevation[index] > -900 ? TerrainClassKind.ShelfSea : TerrainClassKind.Ocean);
+                    continue;
+                }
+
+                var value = elevation[index];
+                var coastalInfluence = Math.Clamp(1.0 - distanceToWater[index] / Math.Max(1.0, shelfWidth * 3.0), 0, 1);
+                var interior = Math.Clamp((distanceToWater[index] - shelfWidth * 1.2) / Math.Max(1.0, shelfWidth * 5.0), 0, 1);
+                var sediment = sedimentSupply[index];
+                var basin = basinInfluence[index];
+                var foothill = foothillInfluence[index];
+                var ridge = ridgeContinuity[index];
+                var heat = heatFlow[index];
+                var crust = crustFields.GetCrust(point);
+
+                var terrainClass = value switch
+                {
+                    < 45 => TerrainClassKind.Beach,
+                    < 150 when coastalInfluence > 0.45 && sediment > 0.36 => TerrainClassKind.DeltaCandidate,
+                    < 260 when coastalInfluence > 0.34 => TerrainClassKind.CoastalPlain,
+                    < 720 when foothill > 0.18 && sediment > 0.18 => TerrainClassKind.AlluvialPlain,
+                    < 850 when basin > 0.48 && interior > 0.35 && sediment < 0.28 && heat > 0.16 => TerrainClassKind.DryBasin,
+                    < 820 when basin > 0.28 => TerrainClassKind.SedimentaryBasin,
+                    < 760 when ridge < 0.35 => TerrainClassKind.InteriorLowland,
+                    < 1700 when ridge > 0.58 && value > 1050 => TerrainClassKind.Mountain,
+                    < 1620 when value >= 900 && interior > 0.48 && ridge < 0.42 && roughness[index] < 0.42 && sediment < 0.28 && basin < 0.40 && crust is (CrustKind.Continental or CrustKind.Terrane) => TerrainClassKind.DesertPlateauCandidate,
+                    < 1750 => TerrainClassKind.Highland,
+                    _ => TerrainClassKind.Mountain
+                };
+
+                terrainClasses[index] = (byte)terrainClass;
+                roughness[index] = AdjustRoughnessForTerrainClass(roughness[index], terrainClass, ridge);
+            }
+        }
+    }
+
+    private static double AdjustRoughnessForTerrainClass(double roughness, TerrainClassKind terrainClass, double ridgeContinuity)
+    {
+        var target = terrainClass switch
+        {
+            TerrainClassKind.Beach => 0.07,
+            TerrainClassKind.CoastalPlain => 0.14,
+            TerrainClassKind.AlluvialPlain => 0.16,
+            TerrainClassKind.InteriorLowland => 0.17,
+            TerrainClassKind.SedimentaryBasin => 0.10,
+            TerrainClassKind.DryBasin => 0.19,
+            TerrainClassKind.DeltaCandidate => 0.10,
+            TerrainClassKind.DesertPlateauCandidate => 0.22,
+            TerrainClassKind.Highland => 0.30,
+            TerrainClassKind.Mountain => 0.56 + ridgeContinuity * 0.24,
+            _ => roughness
+        };
+
+        return Math.Clamp(roughness * 0.45 + target * 0.55, 0.03, 1.0);
     }
 
     private static void SmoothElevation(MapMask mask, double[] elevation, double[] ridgeMask, double[] collisionMask, ElevationGenerationOptions options, double[] erosionMask)
@@ -680,6 +970,14 @@ internal sealed class ElevationGenerator
         dx = Math.Min(dx, Math.Max(0, width - dx));
         var dy = a.Y - b.Y;
         return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private static double WrappedDeltaX(int dx, int width)
+    {
+        if (Math.Abs(dx) <= width / 2.0)
+            return dx;
+
+        return dx > 0 ? dx - width : dx + width;
     }
 
     private static int WrapX(int x, int width) => (x % width + width) % width;

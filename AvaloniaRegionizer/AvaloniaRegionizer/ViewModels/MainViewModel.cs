@@ -173,6 +173,7 @@ public class MainViewModel : ReactiveObject
                 MapImageRenderer.RenderCrustToFile(_currentMap, crustImagePath);
                 MapImageRenderer.RenderTectonicFeaturesToFile(_currentMap, featuresImagePath);
                 MapImageRenderer.RenderElevationToFile(_currentMap, elevationImagePath);
+                MapImageRenderer.RenderElevationDebugToFiles(_currentMap, outputDirectory);
                 GeoJsonMapWriter.WriteRegionsToFile(_currentMap, Path.Combine(outputDirectory, "regions.geojson"));
                 GeoJsonMapWriter.WriteLandmassesToFile(_currentMap, Path.Combine(outputDirectory, "landmasses.geojson"));
                 GeoJsonMapWriter.WriteWaterBodiesToFile(_currentMap, Path.Combine(outputDirectory, "water-bodies.geojson"));

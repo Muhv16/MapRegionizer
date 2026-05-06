@@ -48,10 +48,15 @@ public static class ElevationJsonWriter
             elevation.Height,
             EncodeRows(elevation, elevation.GetElevation, diagnostic ? 1 : 10),
             EncodeZoneRows(elevation),
+            EncodeTerrainClassRows(elevation),
             diagnostic ? EncodeRows(elevation, elevation.GetBaseElevation, 1) : null,
             diagnostic ? EncodeRows(elevation, elevation.GetTectonicElevation, 1) : null,
             diagnostic ? EncodeUnitRows(elevation, elevation.GetRoughness, 1000) : null,
-            diagnostic ? EncodeUnitRows(elevation, elevation.GetErosionMask, 1000) : null);
+            diagnostic ? EncodeUnitRows(elevation, elevation.GetErosionMask, 1000) : null,
+            diagnostic ? EncodeUnitRows(elevation, elevation.GetMountainPassPotential, 1000) : null,
+            diagnostic ? EncodeUnitRows(elevation, elevation.GetRidgeContinuity, 1000) : null,
+            diagnostic ? EncodeUnitRows(elevation, elevation.GetFoothillInfluence, 1000) : null,
+            diagnostic ? EncodeUnitRows(elevation, elevation.GetBasinInfluence, 1000) : null);
     }
 
     private static IReadOnlyList<string> EncodeRows(ElevationMap elevation, Func<int, int, double> readValue, int binSize)
@@ -141,6 +146,35 @@ public static class ElevationJsonWriter
         return rows;
     }
 
+    private static IReadOnlyList<string> EncodeTerrainClassRows(ElevationMap elevation)
+    {
+        var rows = new string[elevation.Height];
+        var sb = new StringBuilder();
+
+        for (var y = 0; y < elevation.Height; y++)
+        {
+            sb.Clear();
+            var runStart = 0;
+            var current = TerrainClassCode(elevation.GetTerrainClass(0, y));
+
+            for (var x = 1; x < elevation.Width; x++)
+            {
+                var value = TerrainClassCode(elevation.GetTerrainClass(x, y));
+                if (value == current)
+                    continue;
+
+                AppendRun(sb, current.ToString(), x - runStart);
+                current = value;
+                runStart = x;
+            }
+
+            AppendRun(sb, current.ToString(), elevation.Width - runStart);
+            rows[y] = sb.ToString();
+        }
+
+        return rows;
+    }
+
     private static void AppendRun(StringBuilder sb, string value, int length)
     {
         if (sb.Length > 0)
@@ -173,15 +207,37 @@ public static class ElevationJsonWriter
         _ => '?'
     };
 
+    private static char TerrainClassCode(TerrainClassKind terrainClass) => terrainClass switch
+    {
+        TerrainClassKind.Ocean => 'O',
+        TerrainClassKind.ShelfSea => 'S',
+        TerrainClassKind.Beach => 'B',
+        TerrainClassKind.CoastalPlain => 'C',
+        TerrainClassKind.AlluvialPlain => 'A',
+        TerrainClassKind.InteriorLowland => 'I',
+        TerrainClassKind.SedimentaryBasin => 'E',
+        TerrainClassKind.DryBasin => 'D',
+        TerrainClassKind.DeltaCandidate => 'T',
+        TerrainClassKind.DesertPlateauCandidate => 'P',
+        TerrainClassKind.Highland => 'H',
+        TerrainClassKind.Mountain => 'M',
+        _ => '?'
+    };
+
     private sealed record ElevationMapDto(
         int Width,
         int Height,
         IReadOnlyList<string> ElevationRows,
         IReadOnlyList<string> ZoneRows,
+        IReadOnlyList<string> TerrainClassRows,
         IReadOnlyList<string>? BaseElevationRows,
         IReadOnlyList<string>? TectonicElevationRows,
         IReadOnlyList<string>? RoughnessRows,
-        IReadOnlyList<string>? ErosionMaskRows);
+        IReadOnlyList<string>? ErosionMaskRows,
+        IReadOnlyList<string>? MountainPassPotentialRows,
+        IReadOnlyList<string>? RidgeContinuityRows,
+        IReadOnlyList<string>? FoothillInfluenceRows,
+        IReadOnlyList<string>? BasinInfluenceRows);
 }
 
 public sealed class ElevationJsonExportOptions

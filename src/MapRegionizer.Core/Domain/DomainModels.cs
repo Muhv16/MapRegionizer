@@ -365,6 +365,11 @@ public sealed class ElevationMap
     private readonly double[] _tectonicElevationMeters;
     private readonly double[] _roughness;
     private readonly double[] _erosionMask;
+    private readonly byte[] _terrainClasses;
+    private readonly double[] _mountainPassPotential;
+    private readonly double[] _ridgeContinuity;
+    private readonly double[] _foothillInfluence;
+    private readonly double[] _basinInfluence;
 
     public int Width { get; }
     public int Height { get; }
@@ -376,7 +381,12 @@ public sealed class ElevationMap
         double[] baseElevationMeters,
         double[] tectonicElevationMeters,
         double[] roughness,
-        double[] erosionMask)
+        double[] erosionMask,
+        byte[] terrainClasses,
+        double[] mountainPassPotential,
+        double[] ridgeContinuity,
+        double[] foothillInfluence,
+        double[] basinInfluence)
     {
         var expectedLength = width * height;
         ValidateLength(elevationMeters, expectedLength, nameof(elevationMeters));
@@ -384,6 +394,11 @@ public sealed class ElevationMap
         ValidateLength(tectonicElevationMeters, expectedLength, nameof(tectonicElevationMeters));
         ValidateLength(roughness, expectedLength, nameof(roughness));
         ValidateLength(erosionMask, expectedLength, nameof(erosionMask));
+        ValidateLength(terrainClasses, expectedLength, nameof(terrainClasses));
+        ValidateLength(mountainPassPotential, expectedLength, nameof(mountainPassPotential));
+        ValidateLength(ridgeContinuity, expectedLength, nameof(ridgeContinuity));
+        ValidateLength(foothillInfluence, expectedLength, nameof(foothillInfluence));
+        ValidateLength(basinInfluence, expectedLength, nameof(basinInfluence));
 
         Width = width;
         Height = height;
@@ -392,6 +407,11 @@ public sealed class ElevationMap
         _tectonicElevationMeters = tectonicElevationMeters;
         _roughness = roughness;
         _erosionMask = erosionMask;
+        _terrainClasses = terrainClasses;
+        _mountainPassPotential = mountainPassPotential;
+        _ridgeContinuity = ridgeContinuity;
+        _foothillInfluence = foothillInfluence;
+        _basinInfluence = basinInfluence;
     }
 
     public double GetElevation(int x, int y) => _elevationMeters[y * Width + x];
@@ -413,6 +433,26 @@ public sealed class ElevationMap
     public double GetErosionMask(int x, int y) => _erosionMask[y * Width + x];
 
     public double GetErosionMask(GridPoint point) => GetErosionMask(point.X, point.Y);
+
+    public TerrainClassKind GetTerrainClass(int x, int y) => (TerrainClassKind)_terrainClasses[y * Width + x];
+
+    public TerrainClassKind GetTerrainClass(GridPoint point) => GetTerrainClass(point.X, point.Y);
+
+    public double GetMountainPassPotential(int x, int y) => _mountainPassPotential[y * Width + x];
+
+    public double GetMountainPassPotential(GridPoint point) => GetMountainPassPotential(point.X, point.Y);
+
+    public double GetRidgeContinuity(int x, int y) => _ridgeContinuity[y * Width + x];
+
+    public double GetRidgeContinuity(GridPoint point) => GetRidgeContinuity(point.X, point.Y);
+
+    public double GetFoothillInfluence(int x, int y) => _foothillInfluence[y * Width + x];
+
+    public double GetFoothillInfluence(GridPoint point) => GetFoothillInfluence(point.X, point.Y);
+
+    public double GetBasinInfluence(int x, int y) => _basinInfluence[y * Width + x];
+
+    public double GetBasinInfluence(GridPoint point) => GetBasinInfluence(point.X, point.Y);
 
     public ElevationZoneKind GetZone(int x, int y)
     {
@@ -436,6 +476,11 @@ public sealed class ElevationMap
     internal ReadOnlySpan<double> TectonicElevationMetersSpan => _tectonicElevationMeters;
     internal ReadOnlySpan<double> RoughnessSpan => _roughness;
     internal ReadOnlySpan<double> ErosionMaskSpan => _erosionMask;
+    internal ReadOnlySpan<byte> TerrainClassSpan => _terrainClasses;
+    internal ReadOnlySpan<double> MountainPassPotentialSpan => _mountainPassPotential;
+    internal ReadOnlySpan<double> RidgeContinuitySpan => _ridgeContinuity;
+    internal ReadOnlySpan<double> FoothillInfluenceSpan => _foothillInfluence;
+    internal ReadOnlySpan<double> BasinInfluenceSpan => _basinInfluence;
 
     private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
@@ -557,4 +602,20 @@ public enum ElevationZoneKind
     Highland,
     Mountain,
     IceCapCandidate
+}
+
+public enum TerrainClassKind
+{
+    Ocean,
+    ShelfSea,
+    Beach,
+    CoastalPlain,
+    AlluvialPlain,
+    InteriorLowland,
+    SedimentaryBasin,
+    DryBasin,
+    DeltaCandidate,
+    DesertPlateauCandidate,
+    Highland,
+    Mountain
 }
