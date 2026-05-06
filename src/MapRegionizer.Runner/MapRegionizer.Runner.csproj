@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MapRegionizer.Core\MapRegionizer.Core.csproj" />
+    <ProjectReference Include="..\MapRegionizer.GeoJson\MapRegionizer.GeoJson.csproj" />
+    <ProjectReference Include="..\MapRegionizer.ImageSharp\MapRegionizer.ImageSharp.csproj" />
+  </ItemGroup>
+
+</Project>

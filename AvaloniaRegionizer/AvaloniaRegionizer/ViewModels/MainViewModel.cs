@@ -8,10 +8,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using MapRegionizer.Core.Domain;
-using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.Options;
-using MapRegionizer.GeoJson;
-using MapRegionizer.ImageSharp;
+using MapRegionizer.Runner;
 using ReactiveUI;
 using System;
 using System.Collections.Generic;
@@ -151,39 +149,15 @@ public class MainViewModel : ReactiveObject
 
         try
         {
-            StatusMessage = "Парсинг маски...";
-            var mask = await Task.Run(() => ImageMaskReader.Read(_maskPath));
-
             StatusMessage = "Генерация карты...";
-            var generator = new MapGenerator();
-            var options = BuildGenerationOptions();
-            _currentMap = await Task.Run(() => generator.Generate(mask, options));
-
-            StatusMessage = "Сохранение...";
-            var resultPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "/result.png";
-            var outputDirectory = Path.GetDirectoryName(resultPath) ?? AppContext.BaseDirectory;
-            var tectonicImagePath = Path.Combine(outputDirectory, "tectonic-plates.png");
-            var crustImagePath = Path.Combine(outputDirectory, "tectonic-crust.png");
-            var featuresImagePath = Path.Combine(outputDirectory, "tectonic-features.png");
-            var elevationImagePath = Path.Combine(outputDirectory, "elevation.png");
-            await Task.Run(() =>
-            {
-                MapImageRenderer.RenderToFile(_currentMap, resultPath);
-                MapImageRenderer.RenderTectonicPlatesToFile(_currentMap, tectonicImagePath);
-                MapImageRenderer.RenderCrustToFile(_currentMap, crustImagePath);
-                MapImageRenderer.RenderTectonicFeaturesToFile(_currentMap, featuresImagePath);
-                MapImageRenderer.RenderElevationToFile(_currentMap, elevationImagePath);
-                MapImageRenderer.RenderElevationDebugToFiles(_currentMap, outputDirectory);
-                GeoJsonMapWriter.WriteRegionsToFile(_currentMap, Path.Combine(outputDirectory, "regions.geojson"));
-                GeoJsonMapWriter.WriteLandmassesToFile(_currentMap, Path.Combine(outputDirectory, "landmasses.geojson"));
-                GeoJsonMapWriter.WriteWaterBodiesToFile(_currentMap, Path.Combine(outputDirectory, "water-bodies.geojson"));
-                TectonicPlateJsonWriter.WriteToFile(_currentMap, Path.Combine(outputDirectory, "tectonic-plates.json"));
-                ElevationJsonWriter.WriteToFile(_currentMap, Path.Combine(outputDirectory, "elevation.json"));
-            });
+            var outputDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? AppContext.BaseDirectory;
+            var runOptions = BuildRunOptions(outputDirectory);
+            var result = await Task.Run(() => new MapGenerationRunner().Run(runOptions));
+            _currentMap = result.Map;
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                ResultImage = new Bitmap(tectonicImagePath);
+                ResultImage = new Bitmap(result.Artifacts.TectonicPlatesImage ?? result.Artifacts.ResultImage);
             });
             StatusMessage = $"Генерация завершена успешно! Файлы сохранены в {outputDirectory}";
         }
@@ -197,29 +171,22 @@ public class MainViewModel : ReactiveObject
         }
     }
 
-    private MapGenerationOptions BuildGenerationOptions()
+    private MapGenerationRunOptions BuildRunOptions(string outputDirectory)
     {
-        return new MapGenerationOptions
+        return new MapGenerationRunOptions
         {
+            MaskPath = MaskPath,
+            OutputDirectory = outputDirectory,
             PixelSize = PixelSize,
             ProjectionMode = MapProjectionMode.EquirectangularWorld,
-            ShapeExtraction = new ShapeExtractionOptions
-            {
-                SimplifyTolerance = SimplifyTolerance
-            },
-            Regions = new RegionGenerationOptions
-            {
-                TargetArea = TargetSize,
-                PointsMultiplier = PointsMultiplier,
-                MinAreaRatio = MaxDownward,
-                MaxAreaRatio = MaxUpward
-            },
-            Boundaries = new BoundaryDistortionOptions
-            {
-                Detail = DistortionDetail,
-                MaxOffset = MaxOffset,
-                MinLineLengthToCurve = MinLineLenghtToCurve
-            }
+            SimplifyTolerance = SimplifyTolerance,
+            TargetArea = TargetSize,
+            PointsMultiplier = PointsMultiplier,
+            MinAreaRatio = MaxDownward,
+            MaxAreaRatio = MaxUpward,
+            BoundaryDetail = DistortionDetail,
+            MaxOffset = MaxOffset,
+            MinLineLengthToCurve = MinLineLenghtToCurve
         };
     }
 }
