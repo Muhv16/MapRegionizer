@@ -250,7 +250,7 @@ If the custom stage produces a different key, dependent default stages will not 
 
 ## Future Extension
 
-World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, derived features, and a compatible assembled `TectonicPlates` view.
+World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, derived features, and a compatible assembled `TectonicPlates` view. See [tectonics.md](tectonics.md) for the current tectonic domain models, options, algorithm, exports, and output map legends.
 
 Tectonic GeoJSON export uses `Summary` mode by default. Summary output keeps runtime-friendly plate, boundary, crust, coastal, age, feature, and island metadata, but omits large diagnostic point clouds and writes compact JSON. Use `CompactDiagnostic` to include segment points without duplicate aggregate point lists, or `Diagnostic` for dense age rows and full feature point output.
 

@@ -88,6 +88,7 @@ public static class TectonicPlateJsonWriter
             plate.Activity,
             plate.Density,
             plate.Thickness,
+            plate.MeanOceanicAge,
             plate.PointCount,
             new PointDto(plate.Centroid.X, plate.Centroid.Y));
     }
@@ -99,9 +100,13 @@ public static class TectonicPlateJsonWriter
             boundary.PlateA.Value,
             boundary.PlateB.Value,
             boundary.Kind,
+            boundary.BoundaryMode,
             boundary.Convergence,
             boundary.Divergence,
             boundary.Shear,
+            boundary.Activity,
+            boundary.MeanOceanicAge,
+            boundary.SubductingOceanicAge,
             boundary.SubductingPlate?.Value,
             boundary.SegmentIds,
             includeAggregatePoints ? ToPoints(boundary.Points) : null,
@@ -116,9 +121,13 @@ public static class TectonicPlateJsonWriter
             segment.PlateA.Value,
             segment.PlateB.Value,
             segment.Kind,
+            segment.BoundaryMode,
             segment.Convergence,
             segment.Divergence,
             segment.Shear,
+            segment.Activity,
+            segment.MeanOceanicAge,
+            segment.SubductingOceanicAge,
             segment.SubductingPlate?.Value,
             includePoints ? ToPoints(segment.Points) : null);
     }
@@ -366,6 +375,7 @@ public static class TectonicPlateJsonWriter
         double Activity,
         double Density,
         double Thickness,
+        double? MeanOceanicAge,
         int PointCount,
         PointDto Centroid);
 
@@ -373,9 +383,13 @@ public static class TectonicPlateJsonWriter
         int PlateA,
         int PlateB,
         PlateBoundaryKind Kind,
+        BoundaryMode BoundaryMode,
         double Convergence,
         double Divergence,
         double Shear,
+        double Activity,
+        double? MeanOceanicAge,
+        double? SubductingOceanicAge,
         int? SubductingPlate,
         IReadOnlyList<int>? SegmentIds,
         IReadOnlyList<PointDto>? Points,
@@ -386,9 +400,13 @@ public static class TectonicPlateJsonWriter
         int PlateA,
         int PlateB,
         BoundarySegmentKind Kind,
+        BoundaryMode BoundaryMode,
         double Convergence,
         double Divergence,
         double Shear,
+        double Activity,
+        double? MeanOceanicAge,
+        double? SubductingOceanicAge,
         int? SubductingPlate,
         IReadOnlyList<PointDto>? Points);
 

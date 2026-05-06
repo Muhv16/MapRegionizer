@@ -91,16 +91,21 @@ public sealed record TectonicPlate(
     GridVector Motion,
     double Activity,
     double Density,
-    double Thickness);
+    double Thickness,
+    double? MeanOceanicAge);
 
 public sealed record PlateBoundary(
     TectonicPlateId PlateA,
     TectonicPlateId PlateB,
     IReadOnlyList<GridPoint> Points,
     PlateBoundaryKind Kind,
+    BoundaryMode BoundaryMode,
     double Convergence,
     double Divergence,
     double Shear,
+    double Activity,
+    double? MeanOceanicAge,
+    double? SubductingOceanicAge,
     TectonicPlateId? SubductingPlate,
     IReadOnlyList<PlateBoundarySegment>? Segments = null,
     IReadOnlyList<int>? SegmentIds = null);
@@ -250,6 +255,7 @@ public sealed record PlateDomain(
     double Activity,
     double Density,
     double Thickness,
+    double? MeanOceanicAge,
     bool IsMicroplate);
 
 public sealed record TectonicBoundaryMap(
@@ -263,9 +269,13 @@ public sealed record PlateBoundarySegment(
     TectonicPlateId PlateB,
     IReadOnlyList<GridPoint> Points,
     BoundarySegmentKind Kind,
+    BoundaryMode BoundaryMode,
     double Convergence,
     double Divergence,
     double Shear,
+    double Activity,
+    double? MeanOceanicAge,
+    double? SubductingOceanicAge,
     TectonicPlateId? SubductingPlate);
 
 public sealed class TectonicFeatureMap
@@ -385,6 +395,24 @@ public enum BoundarySegmentKind
     Transform,
     BackArcBasin,
     PassiveMargin
+}
+
+public enum BoundaryMode
+{
+    PureTransform,
+    Transpression,
+    Transtension,
+    ObliqueSubduction,
+    MidOceanRidge,
+    ContinentalRift,
+    OceanOceanSubduction,
+    OceanContinentSubduction,
+    ContinentContinentCollision,
+    PassiveMargin,
+    DiffuseIntraplateBoundary,
+    AccretionaryBoundary,
+    BackArcSpreading,
+    MixedSegmentBoundary
 }
 
 public enum CoastalZoneKind

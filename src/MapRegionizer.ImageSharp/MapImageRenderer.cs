@@ -149,7 +149,9 @@ public static class MapImageRenderer
             }
         });
 
-        foreach (var feature in featureMap.Features.OrderBy(f => GetFeatureDrawOrder(f.Kind)))
+        foreach (var feature in featureMap.Features
+            .Where(f => ShouldDrawFeature(f, options))
+            .OrderBy(f => GetFeatureDrawOrder(f.Kind)))
             DrawFeature(image, feature, featureMap.Width, map.Bounds.PixelSize, options);
 
         foreach (var island in featureMap.Islands)
@@ -315,6 +317,9 @@ public static class MapImageRenderer
 
     private static Color GetFeatureFieldColor(TectonicFeatureMap features, int x, int y, TectonicFeatureRenderOptions options)
     {
+        if (!options.DrawFeatureFields)
+            return options.BackgroundColor;
+
         var uplift = Math.Clamp(features.GetUplift(x, y), 0, 1);
         var subsidence = Math.Clamp(features.GetSubsidence(x, y), 0, 1);
         var volcanism = Math.Clamp(features.GetVolcanism(x, y), 0, 1);
@@ -322,12 +327,48 @@ public static class MapImageRenderer
         var heatFlow = Math.Clamp(features.GetHeatFlow(x, y), 0, 1);
 
         var color = options.BackgroundColor.ToPixel<Rgba32>();
-        color = Blend(color, options.SubsidenceColor.ToPixel<Rgba32>(), subsidence * options.FieldIntensity);
-        color = Blend(color, options.HeatFlowColor.ToPixel<Rgba32>(), heatFlow * options.FieldIntensity);
-        color = Blend(color, options.UpliftColor.ToPixel<Rgba32>(), uplift * options.FieldIntensity);
-        color = Blend(color, options.VolcanismColor.ToPixel<Rgba32>(), volcanism * options.FieldIntensity);
-        color = Blend(color, options.SeismicityColor.ToPixel<Rgba32>(), seismicity * options.FieldIntensity * 0.8);
+        if (options.Mode == TectonicFeatureRenderMode.Diagnostic)
+        {
+            color = Blend(color, options.SubsidenceColor.ToPixel<Rgba32>(), subsidence * options.FieldIntensity);
+            color = Blend(color, options.HeatFlowColor.ToPixel<Rgba32>(), heatFlow * options.FieldIntensity);
+            color = Blend(color, options.UpliftColor.ToPixel<Rgba32>(), uplift * options.FieldIntensity);
+            color = Blend(color, options.VolcanismColor.ToPixel<Rgba32>(), volcanism * options.FieldIntensity);
+            color = Blend(color, options.SeismicityColor.ToPixel<Rgba32>(), seismicity * options.FieldIntensity * 0.8);
+            return color;
+        }
+
+        var normalizedSubsidence = NormalizeFeatureField(subsidence, options.SubsidenceFieldThreshold, options.FieldSaturation, options.FieldGamma);
+        var normalizedHeatFlow = NormalizeFeatureField(heatFlow, options.HeatFlowFieldThreshold, options.FieldSaturation, options.FieldGamma);
+        var normalizedUplift = options.DrawUpliftFieldInSummary
+            ? NormalizeFeatureField(uplift, options.UpliftFieldThreshold, options.FieldSaturation, options.FieldGamma)
+            : 0;
+        var normalizedVolcanism = NormalizeFeatureField(volcanism, options.VolcanismFieldThreshold, options.FieldSaturation, options.FieldGamma);
+        var normalizedSeismicity = options.DrawSeismicityFieldInSummary
+            ? NormalizeFeatureField(seismicity, options.SeismicityFieldThreshold, options.FieldSaturation, options.FieldGamma)
+            : 0;
+        var strongest = Math.Max(
+            Math.Max(normalizedSubsidence, normalizedHeatFlow),
+            Math.Max(Math.Max(normalizedUplift, normalizedVolcanism), normalizedSeismicity));
+
+        if (strongest < options.MinimumVisibleFieldStrength)
+            return color;
+
+        color = Blend(color, options.SubsidenceColor.ToPixel<Rgba32>(), normalizedSubsidence * options.FieldIntensity);
+        color = Blend(color, options.HeatFlowColor.ToPixel<Rgba32>(), normalizedHeatFlow * options.FieldIntensity);
+        color = Blend(color, options.UpliftColor.ToPixel<Rgba32>(), normalizedUplift * options.FieldIntensity);
+        color = Blend(color, options.VolcanismColor.ToPixel<Rgba32>(), normalizedVolcanism * options.FieldIntensity);
+        color = Blend(color, options.SeismicityColor.ToPixel<Rgba32>(), normalizedSeismicity * options.SeismicityFieldIntensity);
         return color;
+    }
+
+    private static double NormalizeFeatureField(double value, double threshold, double saturation, double gamma)
+    {
+        if (value <= threshold)
+            return 0;
+
+        var range = Math.Max(0.0001, saturation - threshold);
+        var normalized = Math.Clamp((value - threshold) / range, 0, 1);
+        return Math.Pow(normalized, gamma);
     }
 
     private static Rgba32 Blend(Rgba32 from, Rgba32 to, double amount)
@@ -349,10 +390,11 @@ public static class MapImageRenderer
         var color = GetFeatureColor(feature.Kind, options);
         var width = GetFeatureWidth(feature.Kind, options);
         var radius = Math.Max(1, (int)Math.Round(width / 2));
+        var drawAsLine = ShouldDrawFeatureAsLine(feature, mapWidth, options);
 
-        if (feature.Points.Count == 1)
+        if (!drawAsLine)
         {
-            DrawPointMarker(image, feature.Points[0], pixelSize, radius + 1, color, options.Scale);
+            DrawSparseFeatureMarkers(image, feature, pixelSize, radius, color, options);
             return;
         }
 
@@ -373,12 +415,113 @@ public static class MapImageRenderer
             }
         });
 
-        if (feature.SourceSegmentId.HasValue)
+        if (feature.SourceSegmentId.HasValue && options.Mode == TectonicFeatureRenderMode.Diagnostic)
         {
             var pointStep = Math.Max(1, feature.Points.Count / options.MaxBoundaryDerivedPointMarkers);
             for (var index = 0; index < feature.Points.Count; index += pointStep)
                 DrawPointMarker(image, feature.Points[index], pixelSize, radius, color, options.Scale);
         }
+    }
+
+    private static bool ShouldDrawFeature(TectonicFeature feature, TectonicFeatureRenderOptions options)
+    {
+        if (options.Mode == TectonicFeatureRenderMode.Diagnostic)
+            return true;
+
+        if (!IsSummaryFeatureKind(feature.Kind))
+            return false;
+
+        if (!feature.SourceSegmentId.HasValue)
+            return IsHistoricalSummaryFeatureKind(feature.Kind);
+
+        return IsImportantBoundaryFeatureKind(feature.Kind) &&
+               feature.Points.Count >= options.MinBoundaryDerivedLinePoints;
+    }
+
+    private static bool ShouldDrawFeatureAsLine(TectonicFeature feature, int mapWidth, TectonicFeatureRenderOptions options)
+    {
+        if (feature.Points.Count < 2)
+            return false;
+
+        if (options.Mode == TectonicFeatureRenderMode.Diagnostic)
+            return true;
+
+        if (feature.Kind is TectonicFeatureKind.Hotspot)
+            return false;
+
+        if (feature.SourceSegmentId.HasValue)
+        {
+            return IsImportantBoundaryFeatureKind(feature.Kind) &&
+                   feature.Points.Count >= options.MinBoundaryDerivedLinePoints &&
+                   ConnectedStepRatio(feature.Points, mapWidth, options.MaxConnectedFeatureStep) >= options.MinConnectedStepRatio;
+        }
+
+        if (feature.Kind == TectonicFeatureKind.Orogen)
+            return false;
+
+        return IsSummaryLineamentKind(feature.Kind) &&
+               feature.Points.Count >= options.MinHistoricalLinePoints &&
+               ConnectedStepRatio(feature.Points, mapWidth, options.MaxConnectedFeatureStep) >= options.MinConnectedStepRatio;
+    }
+
+    private static void DrawSparseFeatureMarkers(Image<Rgba32> image, TectonicFeature feature, double pixelSize, int radius, Color color, TectonicFeatureRenderOptions options)
+    {
+        var maxMarkers = feature.SourceSegmentId.HasValue
+            ? options.MaxBoundaryDerivedSummaryMarkers
+            : feature.Kind == TectonicFeatureKind.Hotspot
+                ? options.MaxHotspotSummaryMarkers
+            : options.MaxHistoricalSummaryMarkers;
+
+        var step = Math.Max(1, feature.Points.Count / Math.Max(1, maxMarkers));
+        for (var index = 0; index < feature.Points.Count; index += step)
+            DrawPointMarker(image, feature.Points[index], pixelSize, radius + 1, color, options.Scale);
+    }
+
+    private static bool IsSummaryFeatureKind(TectonicFeatureKind kind) => kind is
+        TectonicFeatureKind.Ridge or
+        TectonicFeatureKind.Trench or
+        TectonicFeatureKind.Arc or
+        TectonicFeatureKind.Rift or
+        TectonicFeatureKind.Hotspot or
+        TectonicFeatureKind.Microplate or
+        TectonicFeatureKind.BackArcBasin;
+
+    private static bool IsSummaryLineamentKind(TectonicFeatureKind kind) => kind is
+        TectonicFeatureKind.Ridge or
+        TectonicFeatureKind.Trench or
+        TectonicFeatureKind.Arc or
+        TectonicFeatureKind.Rift or
+        TectonicFeatureKind.Microplate or
+        TectonicFeatureKind.BackArcBasin;
+
+    private static bool IsHistoricalSummaryFeatureKind(TectonicFeatureKind kind) => kind is
+        TectonicFeatureKind.Ridge or
+        TectonicFeatureKind.Trench or
+        TectonicFeatureKind.Arc or
+        TectonicFeatureKind.Rift or
+        TectonicFeatureKind.Hotspot or
+        TectonicFeatureKind.Microplate or
+        TectonicFeatureKind.BackArcBasin;
+
+    private static bool IsImportantBoundaryFeatureKind(TectonicFeatureKind kind) => kind is
+        TectonicFeatureKind.Trench or
+        TectonicFeatureKind.Ridge or
+        TectonicFeatureKind.Rift or
+        TectonicFeatureKind.BackArcBasin;
+
+    private static double ConnectedStepRatio(IReadOnlyList<GridPoint> points, int mapWidth, int maxStep)
+    {
+        if (points.Count < 2)
+            return 1;
+
+        var connected = 0;
+        for (var index = 1; index < points.Count; index++)
+        {
+            if (CanConnectFeaturePoints(points[index - 1], points[index], mapWidth, maxStep))
+                connected++;
+        }
+
+        return connected / (double)(points.Count - 1);
     }
 
     private static bool CanConnectFeaturePoints(GridPoint previous, GridPoint current, int mapWidth, int maxStep)
@@ -440,7 +583,6 @@ public static class MapImageRenderer
     {
         TectonicFeatureKind.Trench => options.MajorFeatureWidth,
         TectonicFeatureKind.Ridge => options.MajorFeatureWidth,
-        TectonicFeatureKind.Orogen => options.MajorFeatureWidth,
         TectonicFeatureKind.Microplate => options.MajorFeatureWidth,
         TectonicFeatureKind.Hotspot => options.PointFeatureWidth,
         _ => options.FeatureWidth
@@ -588,25 +730,46 @@ public sealed class TectonicFeatureRenderOptions : TectonicPlateRenderOptions
         PlateBoundaryWidth = 0.75f;
     }
 
+    public TectonicFeatureRenderMode Mode { get; init; } = TectonicFeatureRenderMode.Summary;
     public bool DrawPlateBoundaries { get; init; } = true;
     public int MaxConnectedFeatureStep { get; init; } = 6;
     public int MaxBoundaryDerivedPointMarkers { get; init; } = 1600;
-    public double FieldIntensity { get; init; } = 0.42;
+    public int MaxBoundaryDerivedSummaryMarkers { get; init; } = 90;
+    public int MaxHistoricalSummaryMarkers { get; init; } = 260;
+    public int MaxHotspotSummaryMarkers { get; init; } = 3;
+    public int MinBoundaryDerivedLinePoints { get; init; } = 24;
+    public int MinHistoricalLinePoints { get; init; } = 8;
+    public int MinOrogenLinePoints { get; init; } = 28;
+    public double MinConnectedStepRatio { get; init; } = 0.75;
+    public bool DrawFeatureFields { get; init; } = true;
+    public double MinimumVisibleFieldStrength { get; init; } = 0.08;
+    public double UpliftFieldThreshold { get; init; } = 0.42;
+    public double SubsidenceFieldThreshold { get; init; } = 0.32;
+    public double VolcanismFieldThreshold { get; init; } = 0.28;
+    public double HeatFlowFieldThreshold { get; init; } = 0.34;
+    public double SeismicityFieldThreshold { get; init; } = 0.68;
+    public double FieldSaturation { get; init; } = 1.0;
+    public double FieldGamma { get; init; } = 1.35;
+    public double FieldIntensity { get; init; } = 0.34;
+    public double SeismicityFieldIntensity { get; init; } = 0.12;
     public float FeatureWidth { get; init; } = 1.25f;
     public float MajorFeatureWidth { get; init; } = 1.75f;
+    public float OrogenFeatureWidth { get; init; } = 1.1f;
     public float PointFeatureWidth { get; init; } = 3;
+    public bool DrawUpliftFieldInSummary { get; init; } = false;
+    public bool DrawSeismicityFieldInSummary { get; init; } = false;
     public Color BackgroundColor { get; init; } = Color.FromRgb(23, 36, 47);
-    public Color UpliftColor { get; init; } = Color.FromRgb(245, 191, 87);
+    public Color UpliftColor { get; init; } = Color.FromRgb(226, 164, 72);
     public Color SubsidenceColor { get; init; } = Color.FromRgb(53, 113, 181);
     public Color VolcanismColor { get; init; } = Color.FromRgb(235, 69, 67);
-    public Color SeismicityColor { get; init; } = Color.FromRgb(247, 241, 113);
+    public Color SeismicityColor { get; init; } = Color.FromRgb(204, 176, 91);
     public Color HeatFlowColor { get; init; } = Color.FromRgb(213, 102, 183);
     public Color RidgeColor { get; init; } = Color.FromRgb(88, 214, 226);
     public Color TrenchColor { get; init; } = Color.FromRgb(35, 24, 30);
     public Color ArcColor { get; init; } = Color.FromRgb(255, 140, 74);
     public Color RiftColor { get; init; } = Color.FromRgb(241, 77, 143);
-    public Color SutureColor { get; init; } = Color.FromRgb(202, 186, 118);
-    public Color OrogenColor { get; init; } = Color.FromRgb(245, 204, 105);
+    public Color SutureColor { get; init; } = Color.FromRgb(126, 113, 88);
+    public Color OrogenColor { get; init; } = Color.FromRgb(219, 158, 74);
     public Color CratonColor { get; init; } = Color.FromRgb(132, 176, 118);
     public Color PassiveMarginColor { get; init; } = Color.FromRgb(142, 206, 171);
     public Color HotspotColor { get; init; } = Color.FromRgb(255, 243, 119);
@@ -615,4 +778,10 @@ public sealed class TectonicFeatureRenderOptions : TectonicPlateRenderOptions
     public Color BackArcBasinColor { get; init; } = Color.FromRgb(83, 152, 213);
     public Color IslandColor { get; init; } = Color.White;
     public Color UnknownFeatureColor { get; init; } = Color.LightGray;
+}
+
+public enum TectonicFeatureRenderMode
+{
+    Summary,
+    Diagnostic
 }

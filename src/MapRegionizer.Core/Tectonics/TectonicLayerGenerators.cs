@@ -275,7 +275,12 @@ internal sealed class CrustFieldGenerator
         var distanceToLand = ComputeDistance(mask, sourceIsLand: true);
         var distanceToWater = ComputeDistance(mask, sourceIsLand: false);
         var ridgeDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Ridge);
+        var trenchDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Trench);
+        var arcDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Arc);
+        var riftDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Rift);
         var shelfWidth = Math.Max(2, (int)Math.Round(Math.Min(mask.Width, mask.Height) * 0.025 * options.ShelfWidthFactor));
+        var innerShelfWidth = Math.Max(1, shelfWidth / 2);
+        var activeMarginWidth = Math.Max(1, shelfWidth);
 
         for (var y = 0; y < mask.Height; y++)
         {
@@ -289,19 +294,38 @@ internal sealed class CrustFieldGenerator
                 if (isLand)
                 {
                     crust[index] = (byte)CrustKind.Continental;
-                    coastal[index] = distanceToWater[index] <= shelfWidth ? (byte)CoastalZoneKind.PassiveMargin : (byte)CoastalZoneKind.None;
+                    if (distanceToWater[index] <= shelfWidth)
+                    {
+                        var activeMargin = Math.Min(trenchDistance[index], arcDistance[index]) <= activeMarginWidth;
+                        coastal[index] = activeMargin ? (byte)CoastalZoneKind.ActiveMargin : (byte)CoastalZoneKind.PassiveMargin;
+                    }
+                    else
+                    {
+                        coastal[index] = (byte)CoastalZoneKind.None;
+                    }
+
                     continentalAge[index] = 350 + continentalNoise * 3200 * (0.35 + options.HistoryDepth * 0.65);
+                }
+                else if (Math.Min(trenchDistance[index], arcDistance[index]) <= activeMarginWidth && distanceToLand[index] <= shelfWidth * 2)
+                {
+                    crust[index] = distanceToLand[index] <= shelfWidth ? (byte)CrustKind.Shelf : (byte)CrustKind.Oceanic;
+                    coastal[index] = (byte)CoastalZoneKind.ActiveMargin;
+                    continentalAge[index] = distanceToLand[index] <= shelfWidth ? 250 + continentalNoise * 2500 : double.NaN;
+                    if (crust[index] == (byte)CrustKind.Oceanic)
+                        oceanicAge[index] = Math.Clamp(ridgeDistance[index] * 4.0 + Hash01(x, y, 23) * 18.0, 0, 220);
                 }
                 else if (distanceToLand[index] <= shelfWidth)
                 {
                     crust[index] = (byte)CrustKind.Shelf;
-                    coastal[index] = distanceToLand[index] <= Math.Max(1, shelfWidth / 2) ? (byte)CoastalZoneKind.Shelf : (byte)CoastalZoneKind.Slope;
+                    coastal[index] = distanceToLand[index] <= innerShelfWidth ? (byte)CoastalZoneKind.Shelf : (byte)CoastalZoneKind.Slope;
                     continentalAge[index] = 250 + continentalNoise * 2500;
                 }
                 else
                 {
                     crust[index] = (byte)CrustKind.Oceanic;
-                    coastal[index] = distanceToLand[index] <= shelfWidth * 2 ? (byte)CoastalZoneKind.ShallowSea : (byte)CoastalZoneKind.None;
+                    coastal[index] = distanceToLand[index] <= shelfWidth * 2 || riftDistance[index] <= innerShelfWidth
+                        ? (byte)CoastalZoneKind.ShallowSea
+                        : (byte)CoastalZoneKind.None;
                     oceanicAge[index] = Math.Clamp(ridgeDistance[index] * 4.0 + Hash01(x, y, 23) * 18.0, 0, 220);
                 }
             }
@@ -1152,6 +1176,8 @@ internal sealed class PlateDomainGenerator
         var pointCounts = new int[maxPlateId + 1];
         var continentalCounts = new int[maxPlateId + 1];
         var oceanicCounts = new int[maxPlateId + 1];
+        var oceanicAgeSums = new double[maxPlateId + 1];
+        var oceanicAgeCounts = new int[maxPlateId + 1];
         var sumSinX = new double[maxPlateId + 1];
         var sumCosX = new double[maxPlateId + 1];
         var sumY = new long[maxPlateId + 1];
@@ -1168,6 +1194,15 @@ internal sealed class PlateDomainGenerator
                     continentalCounts[plateId]++;
                 if (crust == CrustKind.Oceanic)
                     oceanicCounts[plateId]++;
+                if (crust is CrustKind.Oceanic or CrustKind.Arc)
+                {
+                    var oceanicAge = crustFields.GetOceanicAge(x, y);
+                    if (!double.IsNaN(oceanicAge))
+                    {
+                        oceanicAgeSums[plateId] += oceanicAge;
+                        oceanicAgeCounts[plateId]++;
+                    }
+                }
 
                 var angle = 2.0 * Math.PI * x / mask.Width;
                 sumSinX[plateId] += Math.Sin(angle);
@@ -1207,8 +1242,11 @@ internal sealed class PlateDomainGenerator
             var meanAngle = Math.Atan2(sumSinX[plateId] / count, sumCosX[plateId] / count);
             var centroidX = (int)Math.Round((meanAngle / (2.0 * Math.PI) * mask.Width + mask.Width) % mask.Width);
             var centroidY = (int)(sumY[plateId] / count);
+            var meanOceanicAge = oceanicAgeCounts[plateId] == 0
+                ? (double?)null
+                : oceanicAgeSums[plateId] / oceanicAgeCounts[plateId];
 
-            domains.Add(new PlateDomain(seed.Id, kind, count, new GridPoint(centroidX, centroidY), seed.Motion, seed.Activity * options.Activity, density, thickness, seed.IsMicroplate));
+            domains.Add(new PlateDomain(seed.Id, kind, count, new GridPoint(centroidX, centroidY), seed.Motion, seed.Activity * options.Activity, density, thickness, meanOceanicAge, seed.IsMicroplate));
         }
 
         return domains;
@@ -1419,50 +1457,79 @@ internal sealed class TectonicBoundaryGenerator
         var shear = Math.Abs(tangentMotion);
         var crustA = crustFields.GetCrust(a);
         var crustB = crustFields.GetCrust(b);
-        var kind = Classify(crustFields, a, b, crustA, crustB, convergence, divergence, shear);
-        var subductingPlate = kind == BoundarySegmentKind.Subduction
+        var boundaryMode = ClassifyBoundaryMode(crustFields, a, b, crustA, crustB, convergence, divergence, shear);
+        var kind = ToSegmentKind(boundaryMode);
+        var subductingPlate = IsSubductionMode(boundaryMode)
             ? ChooseSubductingPlate(crustFields, a, b, plateA, plateB, domainA, domainB, crustA, crustB)
             : (TectonicPlateId?)null;
+        var activity = ComputeActivity(convergence, divergence, shear);
+        var meanOceanicAge = MeanOceanicAge(crustFields, a, b, crustA, crustB);
+        var subductingOceanicAge = subductingPlate.HasValue
+            ? OceanicAgeForPlateSide(crustFields, a, b, plateA, plateB, subductingPlate.Value)
+            : null;
 
-        samples.Add(new BoundarySample(a, b, plateA, plateB, kind, convergence, divergence, shear, subductingPlate));
+        samples.Add(new BoundarySample(a, b, plateA, plateB, kind, boundaryMode, convergence, divergence, shear, activity, meanOceanicAge, subductingOceanicAge, subductingPlate));
     }
 
-    private static BoundarySegmentKind Classify(CrustFieldMap crustFields, GridPoint a, GridPoint b, CrustKind crustA, CrustKind crustB, double convergence, double divergence, double shear)
+    private static BoundaryMode ClassifyBoundaryMode(CrustFieldMap crustFields, GridPoint a, GridPoint b, CrustKind crustA, CrustKind crustB, double convergence, double divergence, double shear)
     {
         var strongestNormal = Math.Max(convergence, divergence);
-        if (strongestNormal < 0.1 && shear < 0.1)
-            return BoundarySegmentKind.PassiveMargin;
+        const double passiveThreshold = 0.1;
+        const double strongNormalThreshold = 0.18;
+        var hasObliqueShear = shear >= strongestNormal * 0.35 && shear >= passiveThreshold;
+        var oceanicA = IsOceanicLike(crustA);
+        var oceanicB = IsOceanicLike(crustB);
+        var continentalA = IsContinentalLike(crustA);
+        var continentalB = IsContinentalLike(crustB);
 
-        if (shear > strongestNormal * 1.25)
-            return BoundarySegmentKind.Transform;
+        if (strongestNormal < passiveThreshold && shear < passiveThreshold)
+            return IsPassiveMarginContext(crustA, crustB) ? BoundaryMode.PassiveMargin : BoundaryMode.DiffuseIntraplateBoundary;
+
+        if (shear > strongestNormal * 1.75 && strongestNormal < strongNormalThreshold)
+            return BoundaryMode.PureTransform;
 
         if (convergence >= divergence)
         {
-            if (IsContinentalLike(crustA) && IsContinentalLike(crustB))
-                return BoundarySegmentKind.Collision;
+            if (hasObliqueShear && (oceanicA || oceanicB))
+                return BoundaryMode.ObliqueSubduction;
 
-            if (crustA == CrustKind.Oceanic || crustB == CrustKind.Oceanic || crustA == CrustKind.Arc || crustB == CrustKind.Arc)
-                return BoundarySegmentKind.Subduction;
+            if (hasObliqueShear)
+                return BoundaryMode.Transpression;
 
-            return BoundarySegmentKind.Collision;
-        }
+            if (oceanicA && oceanicB)
+                return BoundaryMode.OceanOceanSubduction;
 
-        if ((crustA == CrustKind.Oceanic || crustA == CrustKind.Arc) && (crustB == CrustKind.Oceanic || crustB == CrustKind.Arc))
-        {
-            var age = AverageKnown(crustFields.GetOceanicAge(a), crustFields.GetOceanicAge(b));
-            return age < 35 ? BoundarySegmentKind.MidOceanRidge : BoundarySegmentKind.BackArcBasin;
+            if (oceanicA || oceanicB)
+                return BoundaryMode.OceanContinentSubduction;
+
+            if (continentalA && continentalB)
+                return BoundaryMode.ContinentContinentCollision;
+
+            return BoundaryMode.AccretionaryBoundary;
         }
 
         if (crustA == CrustKind.Arc || crustB == CrustKind.Arc)
-            return BoundarySegmentKind.BackArcBasin;
+            return BoundaryMode.BackArcSpreading;
 
-        return BoundarySegmentKind.ContinentalRift;
+        if (oceanicA && oceanicB)
+        {
+            var age = AverageKnown(crustFields.GetOceanicAge(a), crustFields.GetOceanicAge(b));
+            if (age < 35)
+                return BoundaryMode.MidOceanRidge;
+
+            return hasObliqueShear ? BoundaryMode.Transtension : BoundaryMode.BackArcSpreading;
+        }
+
+        if (hasObliqueShear)
+            return BoundaryMode.Transtension;
+
+        return BoundaryMode.ContinentalRift;
     }
 
     private static TectonicPlateId ChooseSubductingPlate(CrustFieldMap crustFields, GridPoint a, GridPoint b, TectonicPlateId plateA, TectonicPlateId plateB, PlateDomain domainA, PlateDomain domainB, CrustKind crustA, CrustKind crustB)
     {
-        var aOceanic = crustA is CrustKind.Oceanic or CrustKind.Arc;
-        var bOceanic = crustB is CrustKind.Oceanic or CrustKind.Arc;
+        var aOceanic = IsOceanicLike(crustA);
+        var bOceanic = IsOceanicLike(crustB);
         if (aOceanic && !bOceanic)
             return plateA;
         if (bOceanic && !aOceanic)
@@ -1476,11 +1543,84 @@ internal sealed class TectonicBoundaryGenerator
         return domainA.Density >= domainB.Density ? plateA : plateB;
     }
 
+    private static BoundarySegmentKind ToSegmentKind(BoundaryMode mode) => mode switch
+    {
+        BoundaryMode.OceanOceanSubduction or
+        BoundaryMode.OceanContinentSubduction or
+        BoundaryMode.ObliqueSubduction or
+        BoundaryMode.AccretionaryBoundary => BoundarySegmentKind.Subduction,
+        BoundaryMode.ContinentContinentCollision or
+        BoundaryMode.Transpression => BoundarySegmentKind.Collision,
+        BoundaryMode.MidOceanRidge => BoundarySegmentKind.MidOceanRidge,
+        BoundaryMode.ContinentalRift or
+        BoundaryMode.Transtension => BoundarySegmentKind.ContinentalRift,
+        BoundaryMode.BackArcSpreading => BoundarySegmentKind.BackArcBasin,
+        BoundaryMode.PureTransform => BoundarySegmentKind.Transform,
+        _ => BoundarySegmentKind.PassiveMargin
+    };
+
+    private static bool IsSubductionMode(BoundaryMode mode) => mode is
+        BoundaryMode.OceanOceanSubduction or
+        BoundaryMode.OceanContinentSubduction or
+        BoundaryMode.ObliqueSubduction or
+        BoundaryMode.AccretionaryBoundary;
+
+    private static double ComputeActivity(double convergence, double divergence, double shear)
+    {
+        var normal = Math.Max(convergence, divergence);
+        return Math.Max(normal, shear * 0.85);
+    }
+
+    private static bool IsOceanicLike(CrustKind crust) => crust is CrustKind.Oceanic or CrustKind.Arc;
+
+    private static bool IsPassiveMarginContext(CrustKind crustA, CrustKind crustB)
+    {
+        return (IsContinentalLike(crustA) && IsOceanicLike(crustB)) ||
+               (IsContinentalLike(crustB) && IsOceanicLike(crustA)) ||
+               crustA == CrustKind.Shelf ||
+               crustB == CrustKind.Shelf;
+    }
+
+    private static double? MeanOceanicAge(CrustFieldMap crustFields, GridPoint a, GridPoint b, CrustKind crustA, CrustKind crustB)
+    {
+        var sum = 0.0;
+        var count = 0;
+        AddAge(crustFields.GetOceanicAge(a), crustA);
+        AddAge(crustFields.GetOceanicAge(b), crustB);
+        return count == 0 ? null : sum / count;
+
+        void AddAge(double age, CrustKind crust)
+        {
+            if (!IsOceanicLike(crust) || double.IsNaN(age))
+                return;
+
+            sum += age;
+            count++;
+        }
+    }
+
+    private static double? OceanicAgeForPlateSide(CrustFieldMap crustFields, GridPoint a, GridPoint b, TectonicPlateId plateA, TectonicPlateId plateB, TectonicPlateId targetPlate)
+    {
+        if (targetPlate == plateA)
+        {
+            var age = crustFields.GetOceanicAge(a);
+            return double.IsNaN(age) ? null : age;
+        }
+
+        if (targetPlate == plateB)
+        {
+            var age = crustFields.GetOceanicAge(b);
+            return double.IsNaN(age) ? null : age;
+        }
+
+        return null;
+    }
+
     private static IReadOnlyList<PlateBoundarySegment> BuildSegments(IReadOnlyList<BoundarySample> samples, int width, int height, int minSegmentLength)
     {
         var result = new List<PlateBoundarySegment>();
         var nextId = 1;
-        foreach (var group in samples.GroupBy(s => new SegmentGroupKey(PlatePair.Create(s.PlateA, s.PlateB), s.Kind)))
+        foreach (var group in samples.GroupBy(s => new SegmentGroupKey(PlatePair.Create(s.PlateA, s.PlateB), s.BoundaryMode)))
         {
             var pointToSamples = new Dictionary<GridPoint, List<BoundarySample>>();
             foreach (var sample in group)
@@ -1522,11 +1662,15 @@ internal sealed class TectonicBoundaryGenerator
                     pair.A,
                     pair.B,
                     pointList,
-                    group.Key.Kind,
+                    ToSegmentKind(group.Key.BoundaryMode),
+                    group.Key.BoundaryMode,
                     componentSamples.Average(s => s.Convergence),
                     componentSamples.Average(s => s.Divergence),
                     componentSamples.Average(s => s.Shear),
-                    DominantSubductingPlate(componentSamples)));
+                    componentSamples.Average(s => s.Activity),
+                    AverageKnown(componentSamples.Select(s => s.MeanOceanicAge)),
+                    AverageKnown(componentSamples.Select(s => s.SubductingOceanicAge)),
+                    DominantSubductingPlate(group.Key.BoundaryMode, componentSamples)));
             }
         }
 
@@ -1561,7 +1705,22 @@ internal sealed class TectonicBoundaryGenerator
             }
 
             var buckets = longSegments
-                .Select(s => new SegmentBucket(s.Kind, s.PlateA, s.PlateB, s.Points.ToList(), s.Convergence * s.Points.Count, s.Divergence * s.Points.Count, s.Shear * s.Points.Count, s.Points.Count, s.SubductingPlate))
+                .Select(s => new SegmentBucket(
+                    s.Kind,
+                    s.BoundaryMode,
+                    s.PlateA,
+                    s.PlateB,
+                    s.Points.ToList(),
+                    s.Convergence * s.Points.Count,
+                    s.Divergence * s.Points.Count,
+                    s.Shear * s.Points.Count,
+                    s.Activity * s.Points.Count,
+                    NullableWeightedSum(s.MeanOceanicAge, s.Points.Count),
+                    NullableWeightedSum(s.SubductingOceanicAge, s.Points.Count),
+                    s.MeanOceanicAge.HasValue ? s.Points.Count : 0,
+                    s.SubductingOceanicAge.HasValue ? s.Points.Count : 0,
+                    s.Points.Count,
+                    s.SubductingPlate))
                 .ToList();
 
             foreach (var segment in shortSegments)
@@ -1575,22 +1734,37 @@ internal sealed class TectonicBoundaryGenerator
                 target.ConvergenceSum += segment.Convergence * segment.Points.Count;
                 target.DivergenceSum += segment.Divergence * segment.Points.Count;
                 target.ShearSum += segment.Shear * segment.Points.Count;
+                target.ActivitySum += segment.Activity * segment.Points.Count;
+                target.MeanOceanicAgeSum += NullableWeightedSum(segment.MeanOceanicAge, segment.Points.Count);
+                target.SubductingOceanicAgeSum += NullableWeightedSum(segment.SubductingOceanicAge, segment.Points.Count);
+                target.MeanOceanicAgeWeight += segment.MeanOceanicAge.HasValue ? segment.Points.Count : 0;
+                target.SubductingOceanicAgeWeight += segment.SubductingOceanicAge.HasValue ? segment.Points.Count : 0;
+                target.ModeWeights[segment.BoundaryMode] = target.ModeWeights.GetValueOrDefault(segment.BoundaryMode) + segment.Points.Count;
                 target.Weight += segment.Points.Count;
                 target.SubductingPlate ??= segment.SubductingPlate;
             }
 
             foreach (var bucket in buckets)
             {
+                var boundaryMode = DominantBoundaryMode(bucket.ModeWeights, bucket.Weight);
+                var subductingPlate = IsSubductionMode(boundaryMode) ? bucket.SubductingPlate : null;
+                var subductingOceanicAge = IsSubductionMode(boundaryMode)
+                    ? AverageFromWeightedSum(bucket.SubductingOceanicAgeSum, bucket.SubductingOceanicAgeWeight)
+                    : null;
                 merged.Add(new PlateBoundarySegment(
                     nextId++,
                     bucket.PlateA,
                     bucket.PlateB,
                     bucket.Points.Distinct().ToArray(),
-                    bucket.Kind,
+                    ToSegmentKind(boundaryMode),
+                    boundaryMode,
                     bucket.ConvergenceSum / bucket.Weight,
                     bucket.DivergenceSum / bucket.Weight,
                     bucket.ShearSum / bucket.Weight,
-                    bucket.SubductingPlate));
+                    bucket.ActivitySum / bucket.Weight,
+                    AverageFromWeightedSum(bucket.MeanOceanicAgeSum, bucket.MeanOceanicAgeWeight),
+                    subductingOceanicAge,
+                    subductingPlate));
             }
         }
 
@@ -1603,22 +1777,26 @@ internal sealed class TectonicBoundaryGenerator
         var first = array[0];
         var points = array.SelectMany(s => s.Points).Distinct().ToArray();
         var weight = Math.Max(1, array.Sum(s => s.Points.Count));
-        var kind = array
-            .GroupBy(s => s.Kind)
-            .OrderByDescending(g => g.Sum(s => s.Points.Count))
-            .First()
-            .Key;
+        var mode = DominantBoundaryMode(array, weight);
+        var subductingPlate = IsSubductionMode(mode) ? DominantSubductingPlate(array) : null;
+        var subductingOceanicAge = IsSubductionMode(mode)
+            ? WeightedAverageKnown(array.Select(s => (s.SubductingOceanicAge, s.Points.Count)))
+            : null;
 
         return new PlateBoundarySegment(
             id,
             first.PlateA,
             first.PlateB,
             points,
-            kind,
+            ToSegmentKind(mode),
+            mode,
             array.Sum(s => s.Convergence * s.Points.Count) / weight,
             array.Sum(s => s.Divergence * s.Points.Count) / weight,
             array.Sum(s => s.Shear * s.Points.Count) / weight,
-            DominantSubductingPlate(array));
+            array.Sum(s => s.Activity * s.Points.Count) / weight,
+            WeightedAverageKnown(array.Select(s => (s.MeanOceanicAge, s.Points.Count))),
+            subductingOceanicAge,
+            subductingPlate);
     }
 
     private static PlateBoundarySegment Renumber(PlateBoundarySegment segment, int id)
@@ -1640,8 +1818,67 @@ internal sealed class TectonicBoundaryGenerator
         return dx * dx + dy * dy;
     }
 
-    private static TectonicPlateId? DominantSubductingPlate(IEnumerable<BoundarySample> samples)
+    private static BoundaryMode DominantBoundaryMode(IEnumerable<PlateBoundarySegment> segments, int weight)
     {
+        var weights = segments
+            .GroupBy(s => s.BoundaryMode)
+            .ToDictionary(g => g.Key, g => g.Sum(s => s.Points.Count));
+
+        return DominantBoundaryMode(weights, weight);
+    }
+
+    private static BoundaryMode DominantBoundaryMode(IReadOnlyDictionary<BoundaryMode, int> weights, int totalWeight)
+    {
+        if (weights.Count == 0 || totalWeight <= 0)
+            return BoundaryMode.MixedSegmentBoundary;
+
+        var dominant = weights.OrderByDescending(kv => kv.Value).First();
+        return dominant.Value / (double)totalWeight >= 0.6
+            ? dominant.Key
+            : BoundaryMode.MixedSegmentBoundary;
+    }
+
+    private static double NullableWeightedSum(double? value, int weight) => value.HasValue ? value.Value * weight : 0;
+
+    private static double? AverageFromWeightedSum(double sum, int weight) => weight == 0 ? null : sum / weight;
+
+    private static double? AverageKnown(IEnumerable<double?> values)
+    {
+        var sum = 0.0;
+        var count = 0;
+        foreach (var value in values)
+        {
+            if (!value.HasValue)
+                continue;
+
+            sum += value.Value;
+            count++;
+        }
+
+        return count == 0 ? null : sum / count;
+    }
+
+    private static double? WeightedAverageKnown(IEnumerable<(double? Value, int Weight)> values)
+    {
+        var sum = 0.0;
+        var weight = 0;
+        foreach (var (value, itemWeight) in values)
+        {
+            if (!value.HasValue || itemWeight <= 0)
+                continue;
+
+            sum += value.Value * itemWeight;
+            weight += itemWeight;
+        }
+
+        return weight == 0 ? null : sum / weight;
+    }
+
+    private static TectonicPlateId? DominantSubductingPlate(BoundaryMode mode, IEnumerable<BoundarySample> samples)
+    {
+        if (!IsSubductionMode(mode))
+            return null;
+
         return samples
             .Where(s => s.SubductingPlate.HasValue)
             .GroupBy(s => s.SubductingPlate!.Value)
@@ -1696,31 +1933,74 @@ internal sealed class TectonicBoundaryGenerator
     }
 
     private static int WrapX(int x, int width) => (x % width + width) % width;
-    private sealed record BoundarySample(GridPoint PointA, GridPoint PointB, TectonicPlateId PlateA, TectonicPlateId PlateB, BoundarySegmentKind Kind, double Convergence, double Divergence, double Shear, TectonicPlateId? SubductingPlate);
+    private sealed record BoundarySample(
+        GridPoint PointA,
+        GridPoint PointB,
+        TectonicPlateId PlateA,
+        TectonicPlateId PlateB,
+        BoundarySegmentKind Kind,
+        BoundaryMode BoundaryMode,
+        double Convergence,
+        double Divergence,
+        double Shear,
+        double Activity,
+        double? MeanOceanicAge,
+        double? SubductingOceanicAge,
+        TectonicPlateId? SubductingPlate);
+
     private sealed class SegmentBucket
     {
-        public SegmentBucket(BoundarySegmentKind kind, TectonicPlateId plateA, TectonicPlateId plateB, List<GridPoint> points, double convergenceSum, double divergenceSum, double shearSum, int weight, TectonicPlateId? subductingPlate)
+        public SegmentBucket(
+            BoundarySegmentKind kind,
+            BoundaryMode boundaryMode,
+            TectonicPlateId plateA,
+            TectonicPlateId plateB,
+            List<GridPoint> points,
+            double convergenceSum,
+            double divergenceSum,
+            double shearSum,
+            double activitySum,
+            double meanOceanicAgeSum,
+            double subductingOceanicAgeSum,
+            int meanOceanicAgeWeight,
+            int subductingOceanicAgeWeight,
+            int weight,
+            TectonicPlateId? subductingPlate)
         {
             Kind = kind;
+            BoundaryMode = boundaryMode;
             PlateA = plateA;
             PlateB = plateB;
             Points = points;
             ConvergenceSum = convergenceSum;
             DivergenceSum = divergenceSum;
             ShearSum = shearSum;
+            ActivitySum = activitySum;
+            MeanOceanicAgeSum = meanOceanicAgeSum;
+            SubductingOceanicAgeSum = subductingOceanicAgeSum;
+            MeanOceanicAgeWeight = meanOceanicAgeWeight;
+            SubductingOceanicAgeWeight = subductingOceanicAgeWeight;
             Weight = weight;
             SubductingPlate = subductingPlate;
+            ModeWeights = new Dictionary<BoundaryMode, int> { [boundaryMode] = weight };
         }
 
         public BoundarySegmentKind Kind { get; }
+        public BoundaryMode BoundaryMode { get; }
         public TectonicPlateId PlateA { get; }
         public TectonicPlateId PlateB { get; }
         public List<GridPoint> Points { get; }
         public double ConvergenceSum { get; set; }
         public double DivergenceSum { get; set; }
         public double ShearSum { get; set; }
+        public double ActivitySum { get; set; }
+        public double MeanOceanicAgeSum { get; set; }
+        public double SubductingOceanicAgeSum { get; set; }
+        public int MeanOceanicAgeWeight { get; set; }
+        public int SubductingOceanicAgeWeight { get; set; }
         public int Weight { get; set; }
         public TectonicPlateId? SubductingPlate { get; set; }
+        public Dictionary<BoundaryMode, int> ModeWeights { get; }
         public GridPoint Centroid => SegmentCentroid(Points);
     }
 
@@ -1728,7 +2008,7 @@ internal sealed class TectonicBoundaryGenerator
     {
         public static PlatePair Create(TectonicPlateId first, TectonicPlateId second) => first.Value <= second.Value ? new PlatePair(first, second) : new PlatePair(second, first);
     }
-    private readonly record struct SegmentGroupKey(PlatePair Pair, BoundarySegmentKind Kind);
+    private readonly record struct SegmentGroupKey(PlatePair Pair, BoundaryMode BoundaryMode);
 }
 
 internal sealed class TectonicFeatureGenerator
@@ -1753,8 +2033,8 @@ internal sealed class TectonicFeatureGenerator
 
         foreach (var segment in boundaries.Segments)
         {
-            var kind = ToFeatureKind(segment.Kind);
-            features.Add(new TectonicFeature(nextId++, kind, segment.Points, 0, Math.Max(segment.Convergence, Math.Max(segment.Divergence, segment.Shear)), segment.Id));
+            var kind = ToFeatureKind(segment.BoundaryMode);
+            features.Add(new TectonicFeature(nextId++, kind, segment.Points, 0, segment.Activity, segment.Id));
             StampSegment(mask, segment, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
         }
 
@@ -1835,29 +2115,41 @@ internal sealed class TectonicFeatureGenerator
             foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, 2))
             {
                 var index = stamped.Y * mask.Width + stamped.X;
-                var strength = Math.Max(segment.Convergence, Math.Max(segment.Divergence, segment.Shear));
+                var strength = segment.Activity;
                 seismicity[index] += strength;
-                switch (segment.Kind)
+                switch (segment.BoundaryMode)
                 {
-                    case BoundarySegmentKind.Subduction:
+                    case BoundaryMode.OceanOceanSubduction:
+                    case BoundaryMode.OceanContinentSubduction:
+                    case BoundaryMode.ObliqueSubduction:
+                    case BoundaryMode.AccretionaryBoundary:
                         subsidence[index] += 0.55 * strength;
                         volcanism[index] += 0.45 * strength;
+                        if (segment.BoundaryMode is BoundaryMode.ObliqueSubduction or BoundaryMode.AccretionaryBoundary)
+                            uplift[index] += 0.2 * strength;
                         break;
-                    case BoundarySegmentKind.Collision:
+                    case BoundaryMode.ContinentContinentCollision:
+                    case BoundaryMode.Transpression:
                         uplift[index] += 0.85 * strength;
                         break;
-                    case BoundarySegmentKind.MidOceanRidge:
+                    case BoundaryMode.MidOceanRidge:
                         uplift[index] += 0.25 * strength;
                         heatFlow[index] += 0.65 * strength;
                         volcanism[index] += 0.35 * strength;
                         break;
-                    case BoundarySegmentKind.ContinentalRift:
-                    case BoundarySegmentKind.BackArcBasin:
+                    case BoundaryMode.ContinentalRift:
+                    case BoundaryMode.Transtension:
+                    case BoundaryMode.BackArcSpreading:
                         subsidence[index] += 0.45 * strength;
                         heatFlow[index] += 0.45 * strength;
                         break;
-                    case BoundarySegmentKind.PassiveMargin:
+                    case BoundaryMode.PassiveMargin:
                         sedimentSupply[index] += 0.3 * strength;
+                        break;
+                    case BoundaryMode.PureTransform:
+                    case BoundaryMode.DiffuseIntraplateBoundary:
+                    case BoundaryMode.MixedSegmentBoundary:
+                        uplift[index] += 0.08 * strength;
                         break;
                 }
             }
@@ -1889,14 +2181,19 @@ internal sealed class TectonicFeatureGenerator
         return islands;
     }
 
-    private static TectonicFeatureKind ToFeatureKind(BoundarySegmentKind kind) => kind switch
+    private static TectonicFeatureKind ToFeatureKind(BoundaryMode mode) => mode switch
     {
-        BoundarySegmentKind.Subduction => TectonicFeatureKind.Trench,
-        BoundarySegmentKind.Collision => TectonicFeatureKind.Orogen,
-        BoundarySegmentKind.ContinentalRift => TectonicFeatureKind.Rift,
-        BoundarySegmentKind.MidOceanRidge => TectonicFeatureKind.Ridge,
-        BoundarySegmentKind.BackArcBasin => TectonicFeatureKind.BackArcBasin,
-        BoundarySegmentKind.PassiveMargin => TectonicFeatureKind.PassiveMargin,
+        BoundaryMode.OceanOceanSubduction or
+        BoundaryMode.OceanContinentSubduction or
+        BoundaryMode.ObliqueSubduction or
+        BoundaryMode.AccretionaryBoundary => TectonicFeatureKind.Trench,
+        BoundaryMode.ContinentContinentCollision or
+        BoundaryMode.Transpression => TectonicFeatureKind.Orogen,
+        BoundaryMode.ContinentalRift or
+        BoundaryMode.Transtension => TectonicFeatureKind.Rift,
+        BoundaryMode.MidOceanRidge => TectonicFeatureKind.Ridge,
+        BoundaryMode.BackArcSpreading => TectonicFeatureKind.BackArcBasin,
+        BoundaryMode.PassiveMargin => TectonicFeatureKind.PassiveMargin,
         _ => TectonicFeatureKind.Suture
     };
 
@@ -1926,7 +2223,7 @@ internal sealed class TectonicPlateAssembler
     public TectonicPlateMap Assemble(TectonicHistory history, CrustFieldMap crustFields, PlateDomainMap plateDomains, TectonicBoundaryMap boundaries, TectonicFeatureMap features)
     {
         var plates = plateDomains.Domains
-            .Select(d => new TectonicPlate(d.Id, d.Kind, d.PointCount, d.Centroid, d.Motion, d.Activity, d.Density, d.Thickness))
+            .Select(d => new TectonicPlate(d.Id, d.Kind, d.PointCount, d.Centroid, d.Motion, d.Activity, d.Density, d.Thickness, d.MeanOceanicAge))
             .ToArray();
         var plateBoundaries = BuildPlateBoundaries(boundaries);
         var raster = new TectonicPlateRaster(plateDomains.Width, plateDomains.Height, plateDomains.PlatesSpan.ToArray(), crustFields.CrustSpan.ToArray());
@@ -1942,34 +2239,100 @@ internal sealed class TectonicPlateAssembler
             {
                 var segments = group.ToArray();
                 var points = segments.SelectMany(s => s.Points).Distinct().ToArray();
-                var dominantSegmentKind = segments
-                    .GroupBy(s => s.Kind)
-                    .OrderByDescending(g => g.Sum(s => s.Points.Count))
-                    .First()
-                    .Key;
+                var weight = Math.Max(1, segments.Sum(s => s.Points.Count));
+                var boundaryMode = DominantBoundaryMode(segments, weight);
+                var convergence = segments.Sum(s => s.Convergence * s.Points.Count) / weight;
+                var divergence = segments.Sum(s => s.Divergence * s.Points.Count) / weight;
+                var shear = segments.Sum(s => s.Shear * s.Points.Count) / weight;
+                var subductingPlate = IsSubductionMode(boundaryMode) ? DominantSubductingPlate(segments) : null;
+                var subductingOceanicAge = IsSubductionMode(boundaryMode)
+                    ? WeightedAverageKnown(segments.Select(s => (s.SubductingOceanicAge, s.Points.Count)))
+                    : null;
                 var pair = group.Key;
                 return new PlateBoundary(
                     pair.A,
                     pair.B,
                     points,
-                    ToLegacyKind(dominantSegmentKind),
-                    segments.Average(s => s.Convergence),
-                    segments.Average(s => s.Divergence),
-                    segments.Average(s => s.Shear),
-                    DominantSubductingPlate(segments),
+                    ToLegacyKind(boundaryMode, convergence, divergence, shear),
+                    boundaryMode,
+                    convergence,
+                    divergence,
+                    shear,
+                    segments.Sum(s => s.Activity * s.Points.Count) / weight,
+                    WeightedAverageKnown(segments.Select(s => (s.MeanOceanicAge, s.Points.Count))),
+                    subductingOceanicAge,
+                    subductingPlate,
                     segments,
                     segments.Select(s => s.Id).ToArray());
             })
             .ToArray();
     }
 
-    private static PlateBoundaryKind ToLegacyKind(BoundarySegmentKind kind) => kind switch
+    private static PlateBoundaryKind ToLegacyKind(BoundaryMode mode, double convergence, double divergence, double shear) => mode switch
     {
-        BoundarySegmentKind.Subduction or BoundarySegmentKind.Collision => PlateBoundaryKind.Convergent,
-        BoundarySegmentKind.ContinentalRift or BoundarySegmentKind.MidOceanRidge or BoundarySegmentKind.BackArcBasin => PlateBoundaryKind.Divergent,
-        BoundarySegmentKind.Transform => PlateBoundaryKind.Transform,
+        BoundaryMode.OceanOceanSubduction or
+        BoundaryMode.OceanContinentSubduction or
+        BoundaryMode.ObliqueSubduction or
+        BoundaryMode.AccretionaryBoundary or
+        BoundaryMode.ContinentContinentCollision or
+        BoundaryMode.Transpression => PlateBoundaryKind.Convergent,
+        BoundaryMode.ContinentalRift or
+        BoundaryMode.MidOceanRidge or
+        BoundaryMode.BackArcSpreading or
+        BoundaryMode.Transtension => PlateBoundaryKind.Divergent,
+        BoundaryMode.PureTransform => PlateBoundaryKind.Transform,
+        BoundaryMode.MixedSegmentBoundary => ToLegacyKindFromMotion(convergence, divergence, shear),
         _ => PlateBoundaryKind.Passive
     };
+
+    private static PlateBoundaryKind ToLegacyKindFromMotion(double convergence, double divergence, double shear)
+    {
+        var normal = Math.Max(convergence, divergence);
+        if (normal < 0.1 && shear < 0.1)
+            return PlateBoundaryKind.Passive;
+
+        if (shear > normal * 1.75 && normal < 0.18)
+            return PlateBoundaryKind.Transform;
+
+        return convergence >= divergence ? PlateBoundaryKind.Convergent : PlateBoundaryKind.Divergent;
+    }
+
+    private static BoundaryMode DominantBoundaryMode(IEnumerable<PlateBoundarySegment> segments, int weight)
+    {
+        var weights = segments
+            .GroupBy(s => s.BoundaryMode)
+            .ToDictionary(g => g.Key, g => g.Sum(s => s.Points.Count));
+
+        if (weights.Count == 0 || weight <= 0)
+            return BoundaryMode.MixedSegmentBoundary;
+
+        var dominant = weights.OrderByDescending(kv => kv.Value).First();
+        return dominant.Value / (double)weight >= 0.6
+            ? dominant.Key
+            : BoundaryMode.MixedSegmentBoundary;
+    }
+
+    private static bool IsSubductionMode(BoundaryMode mode) => mode is
+        BoundaryMode.OceanOceanSubduction or
+        BoundaryMode.OceanContinentSubduction or
+        BoundaryMode.ObliqueSubduction or
+        BoundaryMode.AccretionaryBoundary;
+
+    private static double? WeightedAverageKnown(IEnumerable<(double? Value, int Weight)> values)
+    {
+        var sum = 0.0;
+        var weight = 0;
+        foreach (var (value, itemWeight) in values)
+        {
+            if (!value.HasValue || itemWeight <= 0)
+                continue;
+
+            sum += value.Value * itemWeight;
+            weight += itemWeight;
+        }
+
+        return weight == 0 ? null : sum / weight;
+    }
 
     private static TectonicPlateId? DominantSubductingPlate(IEnumerable<PlateBoundarySegment> segments)
     {
