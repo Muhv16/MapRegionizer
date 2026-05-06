@@ -33,13 +33,14 @@ public sealed class MapGenerationContext
     public PlateDomainMap? PlateDomains { get; set; }
     public TectonicBoundaryMap? TectonicBoundaries { get; set; }
     public TectonicFeatureMap? TectonicFeatures { get; set; }
+    public ElevationMap? Elevation { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
     public IReadOnlySet<MapDataKey> AvailableData => _availableData;
     public IReadOnlySet<MapDataKey> DirtyData => _dirtyData;
 
     public RegionId CreateRegionId() => new(_nextRegionId++);
 
-    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates);
+    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation);
 
     public bool Has(MapDataKey key) => _availableData.Contains(key) && !_dirtyData.Contains(key);
 
@@ -79,6 +80,8 @@ public sealed class MapGenerationContext
             TectonicBoundaries = null;
         else if (key == MapDataKeys.TectonicFeatures)
             TectonicFeatures = null;
+        else if (key == MapDataKeys.Elevation)
+            Elevation = null;
         else if (key == MapDataKeys.TectonicPlates)
             TectonicPlates = null;
     }

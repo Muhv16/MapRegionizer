@@ -17,6 +17,7 @@ public static class MapDataKeys
     public static readonly MapDataKey PlateDomains = new("plateDomains");
     public static readonly MapDataKey TectonicBoundaries = new("tectonicBoundaries");
     public static readonly MapDataKey TectonicFeatures = new("tectonicFeatures");
+    public static readonly MapDataKey Elevation = new("elevation");
     public static readonly MapDataKey TectonicPlates = new("tectonicPlates");
 }
 
@@ -31,5 +32,6 @@ public static class MapStageIds
     public const string GeneratePlateDomains = "generatePlateDomains";
     public const string GenerateTectonicBoundaries = "generateTectonicBoundaries";
     public const string GenerateTectonicFeatures = "generateTectonicFeatures";
+    public const string GenerateElevation = "generateElevation";
     public const string GenerateTectonicPlates = "generateTectonicPlates";
 }

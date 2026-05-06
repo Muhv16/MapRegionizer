@@ -16,6 +16,7 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new GeneratePlateDomainsStage())
             .AddStage(new GenerateTectonicBoundariesStage())
             .AddStage(new GenerateTectonicFeaturesStage())
+            .AddStage(new GenerateElevationStage())
             .AddStage(new AssembleTectonicPlateMapStage())
             .AddStage(new GenerateRegionsStage())
             .AddStage(new DistortRegionBoundariesStage());

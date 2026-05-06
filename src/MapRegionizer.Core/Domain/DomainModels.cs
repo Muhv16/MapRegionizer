@@ -14,7 +14,8 @@ public sealed record GeneratedMap(
     IReadOnlyList<Landmass> Landmasses,
     IReadOnlyList<WaterBody> WaterBodies,
     IReadOnlyList<MapRegion> Regions,
-    TectonicPlateMap? TectonicPlates = null);
+    TectonicPlateMap? TectonicPlates = null,
+    ElevationMap? Elevation = null);
 
 public sealed record MapBounds(double Width, double Height, double PixelSize);
 
@@ -357,6 +358,92 @@ public sealed record TectonicIsland(
     double Area,
     TectonicPlateId PlateId);
 
+public sealed class ElevationMap
+{
+    private readonly double[] _elevationMeters;
+    private readonly double[] _baseElevationMeters;
+    private readonly double[] _tectonicElevationMeters;
+    private readonly double[] _roughness;
+    private readonly double[] _erosionMask;
+
+    public int Width { get; }
+    public int Height { get; }
+
+    public ElevationMap(
+        int width,
+        int height,
+        double[] elevationMeters,
+        double[] baseElevationMeters,
+        double[] tectonicElevationMeters,
+        double[] roughness,
+        double[] erosionMask)
+    {
+        var expectedLength = width * height;
+        ValidateLength(elevationMeters, expectedLength, nameof(elevationMeters));
+        ValidateLength(baseElevationMeters, expectedLength, nameof(baseElevationMeters));
+        ValidateLength(tectonicElevationMeters, expectedLength, nameof(tectonicElevationMeters));
+        ValidateLength(roughness, expectedLength, nameof(roughness));
+        ValidateLength(erosionMask, expectedLength, nameof(erosionMask));
+
+        Width = width;
+        Height = height;
+        _elevationMeters = elevationMeters;
+        _baseElevationMeters = baseElevationMeters;
+        _tectonicElevationMeters = tectonicElevationMeters;
+        _roughness = roughness;
+        _erosionMask = erosionMask;
+    }
+
+    public double GetElevation(int x, int y) => _elevationMeters[y * Width + x];
+
+    public double GetElevation(GridPoint point) => GetElevation(point.X, point.Y);
+
+    public double GetBaseElevation(int x, int y) => _baseElevationMeters[y * Width + x];
+
+    public double GetBaseElevation(GridPoint point) => GetBaseElevation(point.X, point.Y);
+
+    public double GetTectonicElevation(int x, int y) => _tectonicElevationMeters[y * Width + x];
+
+    public double GetTectonicElevation(GridPoint point) => GetTectonicElevation(point.X, point.Y);
+
+    public double GetRoughness(int x, int y) => _roughness[y * Width + x];
+
+    public double GetRoughness(GridPoint point) => GetRoughness(point.X, point.Y);
+
+    public double GetErosionMask(int x, int y) => _erosionMask[y * Width + x];
+
+    public double GetErosionMask(GridPoint point) => GetErosionMask(point.X, point.Y);
+
+    public ElevationZoneKind GetZone(int x, int y)
+    {
+        var elevation = GetElevation(x, y);
+        return elevation switch
+        {
+            <= -3000 => ElevationZoneKind.DeepOcean,
+            < 0 => ElevationZoneKind.ShelfSea,
+            < 180 => ElevationZoneKind.CoastalLowland,
+            < 900 => ElevationZoneKind.Lowland,
+            < 2200 => ElevationZoneKind.Highland,
+            < 5200 => ElevationZoneKind.Mountain,
+            _ => ElevationZoneKind.IceCapCandidate
+        };
+    }
+
+    public ElevationZoneKind GetZone(GridPoint point) => GetZone(point.X, point.Y);
+
+    internal ReadOnlySpan<double> ElevationMetersSpan => _elevationMeters;
+    internal ReadOnlySpan<double> BaseElevationMetersSpan => _baseElevationMeters;
+    internal ReadOnlySpan<double> TectonicElevationMetersSpan => _tectonicElevationMeters;
+    internal ReadOnlySpan<double> RoughnessSpan => _roughness;
+    internal ReadOnlySpan<double> ErosionMaskSpan => _erosionMask;
+
+    private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
+    {
+        if (array.Length != expectedLength)
+            throw new ArgumentException($"Array length must be {expectedLength}", parameterName);
+    }
+}
+
 public readonly record struct TectonicPlateId(int Value);
 
 public readonly record struct GridVector(double X, double Y);
@@ -459,4 +546,15 @@ public enum TectonicEventKind
     Volcanism,
     CratonStabilization,
     TerraneAccretion
+}
+
+public enum ElevationZoneKind
+{
+    DeepOcean,
+    ShelfSea,
+    CoastalLowland,
+    Lowland,
+    Highland,
+    Mountain,
+    IceCapCandidate
 }

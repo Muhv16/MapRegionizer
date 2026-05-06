@@ -163,6 +163,45 @@ public static class MapImageRenderer
         return image;
     }
 
+    public static void RenderElevationToFile(GeneratedMap map, string filePath, ElevationRenderOptions? options = null)
+    {
+        using var image = RenderElevation(map, options);
+        image.SaveAsPng(filePath);
+    }
+
+    public static Image<Rgba32> RenderElevation(GeneratedMap map, ElevationRenderOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        var elevation = map.Elevation ?? throw new InvalidOperationException("The map does not contain elevation data.");
+
+        options ??= new ElevationRenderOptions();
+
+        var width = Math.Max(1, (int)Math.Ceiling(map.Bounds.Width * options.Scale));
+        var height = Math.Max(1, (int)Math.Ceiling(map.Bounds.Height * options.Scale));
+        var image = new Image<Rgba32>(width, height);
+        var pixelSize = Math.Max(double.Epsilon, map.Bounds.PixelSize * options.Scale);
+
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                var sourceY = Math.Clamp((int)(y / pixelSize), 0, elevation.Height - 1);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var sourceX = Math.Clamp((int)(x / pixelSize), 0, elevation.Width - 1);
+                    var shade = options.DrawHillshade ? ComputeHillshade(elevation, sourceX, sourceY, options) : 1.0;
+                    row[x] = GetElevationColor(elevation.GetElevation(sourceX, sourceY), shade, options);
+                }
+            }
+        });
+
+        if (options.DrawPlateBoundaries && map.TectonicPlates is not null)
+            DrawPlateBoundaries(image, map.TectonicPlates, map.Bounds.PixelSize, options);
+
+        return image;
+    }
+
     private static void FillPolygon(Image<Rgba32> image, NtsPolygon polygon, Color color, float scale)
     {
         var path = BuildPath(polygon, scale);
@@ -369,6 +408,57 @@ public static class MapImageRenderer
         var range = Math.Max(0.0001, saturation - threshold);
         var normalized = Math.Clamp((value - threshold) / range, 0, 1);
         return Math.Pow(normalized, gamma);
+    }
+
+    private static Rgba32 GetElevationColor(double elevation, double shade, ElevationRenderOptions options)
+    {
+        Rgba32 color;
+        if (elevation < 0)
+        {
+            var depth = Math.Clamp(-elevation / Math.Max(1.0, Math.Abs(options.DeepOceanDepthMeters)), 0, 1);
+            color = depth < 0.35
+                ? LerpColor(options.ShallowWaterColor, options.ShelfWaterColor, depth / 0.35)
+                : LerpColor(options.ShelfWaterColor, options.DeepWaterColor, (depth - 0.35) / 0.65);
+        }
+        else
+        {
+            color = elevation switch
+            {
+                < 90 => LerpColor(options.BeachColor, options.LowlandColor, elevation / 90.0),
+                < 950 => LerpColor(options.LowlandColor, options.HighlandColor, (elevation - 90.0) / 860.0),
+                < 2100 => LerpColor(options.HighlandColor, options.MountainColor, (elevation - 950.0) / 1150.0),
+                _ => LerpColor(options.MountainColor, options.SnowColor, Math.Clamp((elevation - 2100.0) / Math.Max(1.0, options.SnowElevationMeters - 2100.0), 0, 1))
+            };
+        }
+
+        var shadeStrength = elevation < 0 ? options.OceanHillshadeStrength : options.HillshadeStrength;
+        return ApplyShade(color, shade, shadeStrength);
+    }
+
+    private static double ComputeHillshade(ElevationMap elevation, int x, int y, ElevationRenderOptions options)
+    {
+        var left = elevation.GetElevation(WrapX(x - 1, elevation.Width), y);
+        var right = elevation.GetElevation(WrapX(x + 1, elevation.Width), y);
+        var up = elevation.GetElevation(x, Math.Max(0, y - 1));
+        var down = elevation.GetElevation(x, Math.Min(elevation.Height - 1, y + 1));
+        var eastSlope = (left - right) / Math.Max(1.0, options.HillshadeElevationScale);
+        var southSlope = (up - down) / Math.Max(1.0, options.HillshadeElevationScale);
+        return Math.Clamp(0.9 + eastSlope * 0.18 + southSlope * 0.24, 0.58, 1.22);
+    }
+
+    private static Rgba32 LerpColor(Color from, Color to, double amount)
+    {
+        return Blend(from.ToPixel<Rgba32>(), to.ToPixel<Rgba32>(), amount);
+    }
+
+    private static Rgba32 ApplyShade(Rgba32 color, double shade, double strength)
+    {
+        strength = Math.Clamp(strength, 0, 1);
+        shade = 1.0 + (shade - 1.0) * strength;
+        if (shade < 1.0)
+            return Blend(color, new Rgba32(0, 0, 0, 255), 1.0 - shade);
+
+        return Blend(color, new Rgba32(255, 255, 255, 255), Math.Clamp(shade - 1.0, 0, 1));
     }
 
     private static Rgba32 Blend(Rgba32 from, Rgba32 to, double amount)
@@ -674,6 +764,8 @@ public static class MapImageRenderer
                 yield return new GridPoint(x, y);
         }
     }
+
+    private static int WrapX(int x, int width) => (x % width + width) % width;
 }
 
 public sealed class MapRenderOptions
@@ -720,6 +812,31 @@ public sealed class CrustRenderOptions : TectonicPlateRenderOptions
     public Color ActiveMarginTintColor { get; init; } = Color.FromRgb(232, 82, 77);
     public Color ShallowSeaTintColor { get; init; } = Color.FromRgb(99, 213, 224);
     public double CoastalZoneTintStrength { get; init; } = 0;
+}
+
+public sealed class ElevationRenderOptions : TectonicPlateRenderOptions
+{
+    public ElevationRenderOptions()
+    {
+        PlateBoundaryColor = Color.FromRgba(40, 30, 25, 120);
+        PlateBoundaryWidth = 0.65f;
+    }
+
+    public bool DrawHillshade { get; init; } = true;
+    public bool DrawPlateBoundaries { get; init; }
+    public double HillshadeStrength { get; init; } = 0.38;
+    public double OceanHillshadeStrength { get; init; } = 0.035;
+    public double HillshadeElevationScale { get; init; } = 3200;
+    public double DeepOceanDepthMeters { get; init; } = -6500;
+    public double SnowElevationMeters { get; init; } = 3200;
+    public Color DeepWaterColor { get; init; } = Color.FromRgb(16, 53, 105);
+    public Color ShelfWaterColor { get; init; } = Color.FromRgb(47, 133, 169);
+    public Color ShallowWaterColor { get; init; } = Color.FromRgb(113, 198, 196);
+    public Color BeachColor { get; init; } = Color.FromRgb(214, 199, 136);
+    public Color LowlandColor { get; init; } = Color.FromRgb(96, 156, 88);
+    public Color HighlandColor { get; init; } = Color.FromRgb(163, 146, 92);
+    public Color MountainColor { get; init; } = Color.FromRgb(130, 123, 118);
+    public Color SnowColor { get; init; } = Color.FromRgb(238, 241, 235);
 }
 
 public sealed class TectonicFeatureRenderOptions : TectonicPlateRenderOptions

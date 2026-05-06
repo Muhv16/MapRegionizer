@@ -277,7 +277,6 @@ internal sealed class CrustFieldGenerator
         var ridgeDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Ridge);
         var trenchDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Trench);
         var arcDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Arc);
-        var riftDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Rift);
         var shelfWidth = Math.Max(2, (int)Math.Round(Math.Min(mask.Width, mask.Height) * 0.025 * options.ShelfWidthFactor));
         var innerShelfWidth = Math.Max(1, shelfWidth / 2);
         var activeMarginWidth = Math.Max(1, shelfWidth);
@@ -290,11 +289,16 @@ internal sealed class CrustFieldGenerator
                 var index = y * mask.Width + x;
                 var isLand = mask.IsLand(point);
                 var continentalNoise = Hash01(x, y, 17);
+                var shelfNoise = SmoothNoise(x, y, 71, 9.0);
+                var shallowNoise = SmoothNoise(x, y, 73, 13.0);
+                var localShelfWidth = Math.Max(1.0, shelfWidth * (0.86 + shelfNoise * 0.28));
+                var localInnerShelfWidth = Math.Max(1.0, innerShelfWidth * (0.82 + shelfNoise * 0.28));
+                var localShallowSeaWidth = Math.Max(localShelfWidth + 1.0, shelfWidth * (1.45 + shallowNoise * 0.42));
 
                 if (isLand)
                 {
                     crust[index] = (byte)CrustKind.Continental;
-                    if (distanceToWater[index] <= shelfWidth)
+                    if (distanceToWater[index] <= localShelfWidth)
                     {
                         var activeMargin = Math.Min(trenchDistance[index], arcDistance[index]) <= activeMarginWidth;
                         coastal[index] = activeMargin ? (byte)CoastalZoneKind.ActiveMargin : (byte)CoastalZoneKind.PassiveMargin;
@@ -306,24 +310,24 @@ internal sealed class CrustFieldGenerator
 
                     continentalAge[index] = 350 + continentalNoise * 3200 * (0.35 + options.HistoryDepth * 0.65);
                 }
-                else if (Math.Min(trenchDistance[index], arcDistance[index]) <= activeMarginWidth && distanceToLand[index] <= shelfWidth * 2)
+                else if (Math.Min(trenchDistance[index], arcDistance[index]) <= activeMarginWidth && distanceToLand[index] <= localShallowSeaWidth)
                 {
-                    crust[index] = distanceToLand[index] <= shelfWidth ? (byte)CrustKind.Shelf : (byte)CrustKind.Oceanic;
+                    crust[index] = distanceToLand[index] <= localShelfWidth ? (byte)CrustKind.Shelf : (byte)CrustKind.Oceanic;
                     coastal[index] = (byte)CoastalZoneKind.ActiveMargin;
-                    continentalAge[index] = distanceToLand[index] <= shelfWidth ? 250 + continentalNoise * 2500 : double.NaN;
+                    continentalAge[index] = distanceToLand[index] <= localShelfWidth ? 250 + continentalNoise * 2500 : double.NaN;
                     if (crust[index] == (byte)CrustKind.Oceanic)
                         oceanicAge[index] = Math.Clamp(ridgeDistance[index] * 4.0 + Hash01(x, y, 23) * 18.0, 0, 220);
                 }
-                else if (distanceToLand[index] <= shelfWidth)
+                else if (distanceToLand[index] <= localShelfWidth)
                 {
                     crust[index] = (byte)CrustKind.Shelf;
-                    coastal[index] = distanceToLand[index] <= innerShelfWidth ? (byte)CoastalZoneKind.Shelf : (byte)CoastalZoneKind.Slope;
+                    coastal[index] = distanceToLand[index] <= localInnerShelfWidth ? (byte)CoastalZoneKind.Shelf : (byte)CoastalZoneKind.Slope;
                     continentalAge[index] = 250 + continentalNoise * 2500;
                 }
                 else
                 {
                     crust[index] = (byte)CrustKind.Oceanic;
-                    coastal[index] = distanceToLand[index] <= shelfWidth * 2 || riftDistance[index] <= innerShelfWidth
+                    coastal[index] = distanceToLand[index] <= localShallowSeaWidth
                         ? (byte)CoastalZoneKind.ShallowSea
                         : (byte)CoastalZoneKind.None;
                     oceanicAge[index] = Math.Clamp(ridgeDistance[index] * 4.0 + Hash01(x, y, 23) * 18.0, 0, 220);
@@ -415,7 +419,7 @@ internal sealed class CrustFieldGenerator
     private static double[] ComputeDistance(MapMask mask, bool sourceIsLand)
     {
         var distance = Enumerable.Repeat(double.PositiveInfinity, mask.Width * mask.Height).ToArray();
-        var queue = new Queue<GridPoint>();
+        var queue = new PriorityQueue<GridPoint, double>();
 
         for (var y = 0; y < mask.Height; y++)
         {
@@ -426,22 +430,23 @@ internal sealed class CrustFieldGenerator
                     continue;
 
                 distance[y * mask.Width + x] = 0;
-                queue.Enqueue(point);
+                queue.Enqueue(point, 0);
             }
         }
 
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            var nextDistance = distance[current.Y * mask.Width + current.X] + 1;
-            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+            var currentDistance = distance[current.Y * mask.Width + current.X];
+            foreach (var (neighbor, cost) in Neighbors8WithCost(current, mask.Width, mask.Height))
             {
                 var index = neighbor.Y * mask.Width + neighbor.X;
+                var nextDistance = currentDistance + cost;
                 if (distance[index] <= nextDistance)
                     continue;
 
                 distance[index] = nextDistance;
-                queue.Enqueue(neighbor);
+                queue.Enqueue(neighbor, nextDistance);
             }
         }
 
@@ -451,12 +456,12 @@ internal sealed class CrustFieldGenerator
     private static double[] DistanceToLineaments(MapMask mask, TectonicHistory history, TectonicFeatureKind kind)
     {
         var distance = Enumerable.Repeat(double.PositiveInfinity, mask.Width * mask.Height).ToArray();
-        var queue = new Queue<GridPoint>();
+        var queue = new PriorityQueue<GridPoint, double>();
         foreach (var point in history.Lineaments.Where(l => l.Kind == kind).SelectMany(l => l.Points).Distinct())
         {
             var index = point.Y * mask.Width + point.X;
             distance[index] = 0;
-            queue.Enqueue(point);
+            queue.Enqueue(point, 0);
         }
 
         if (queue.Count == 0)
@@ -465,15 +470,16 @@ internal sealed class CrustFieldGenerator
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            var nextDistance = distance[current.Y * mask.Width + current.X] + 1;
-            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+            var currentDistance = distance[current.Y * mask.Width + current.X];
+            foreach (var (neighbor, cost) in Neighbors8WithCost(current, mask.Width, mask.Height))
             {
                 var index = neighbor.Y * mask.Width + neighbor.X;
+                var nextDistance = currentDistance + cost;
                 if (distance[index] <= nextDistance)
                     continue;
 
                 distance[index] = nextDistance;
-                queue.Enqueue(neighbor);
+                queue.Enqueue(neighbor, nextDistance);
             }
         }
 
@@ -494,6 +500,25 @@ internal sealed class CrustFieldGenerator
         value = (value << 13) ^ value;
         return 1.0 - ((value * (value * value * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0;
     }
+
+    private static double SmoothNoise(int x, int y, int seed, double scale)
+    {
+        var sampleX = x / Math.Max(1.0, scale);
+        var sampleY = y / Math.Max(1.0, scale);
+        var x0 = (int)Math.Floor(sampleX);
+        var y0 = (int)Math.Floor(sampleY);
+        var tx = SmoothStep(sampleX - x0);
+        var ty = SmoothStep(sampleY - y0);
+        var a = Hash01(x0, y0, seed);
+        var b = Hash01(x0 + 1, y0, seed);
+        var c = Hash01(x0, y0 + 1, seed);
+        var d = Hash01(x0 + 1, y0 + 1, seed);
+        return Math.Clamp((Lerp(Lerp(a, b, tx), Lerp(c, d, tx), ty) + 1.0) * 0.5, 0, 1);
+    }
+
+    private static double SmoothStep(double value) => value * value * (3.0 - 2.0 * value);
+
+    private static double Lerp(double a, double b, double amount) => a + (b - a) * amount;
 
     private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
     {
@@ -519,6 +544,25 @@ internal sealed class CrustFieldGenerator
         yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
         if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
         if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
+    }
+
+    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, int width, int height)
+    {
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            var y = point.Y + dy;
+            if (y < 0 || y >= height)
+                continue;
+
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dy == 0)
+                    continue;
+
+                var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+                yield return (new GridPoint(WrapX(point.X + dx, width), y), cost);
+            }
+        }
     }
 
     private static int WrapX(int x, int width) => (x % width + width) % width;

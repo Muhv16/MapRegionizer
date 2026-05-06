@@ -39,6 +39,7 @@ public sealed class MapGenerationSession
     public PlateDomainMap? PlateDomains => _context.PlateDomains;
     public TectonicBoundaryMap? TectonicBoundaries => _context.TectonicBoundaries;
     public TectonicFeatureMap? TectonicFeatures => _context.TectonicFeatures;
+    public ElevationMap? Elevation => _context.Elevation;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;
 
     public bool IsAvailable(MapDataKey key) => _context.IsAvailable(key);

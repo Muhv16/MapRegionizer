@@ -9,6 +9,7 @@ public sealed class MapGenerationOptions
     public BoundaryDistortionOptions Boundaries { get; init; } = new();
     public MapProjectionMode ProjectionMode { get; init; } = MapProjectionMode.EquirectangularWorld;
     public TectonicPlateGenerationOptions TectonicPlates { get; init; } = new();
+    public ElevationGenerationOptions Elevation { get; init; } = new();
 
     public void Validate()
     {
@@ -17,6 +18,7 @@ public sealed class MapGenerationOptions
         Regions.Validate();
         Boundaries.Validate();
         TectonicPlates.Validate();
+        Elevation.Validate();
     }
 }
 
@@ -113,5 +115,40 @@ public sealed class TectonicPlateGenerationOptions
         if (MaxValidationCycles < 0) throw new ArgumentOutOfRangeException(nameof(MaxValidationCycles), "Max validation cycles cannot be negative.");
         if (MinPlateSize < 0) throw new ArgumentOutOfRangeException(nameof(MinPlateSize), "Minimum plate size cannot be negative.");
         if (MinPlateSizeRatio < 0 || MinPlateSizeRatio > 1) throw new ArgumentOutOfRangeException(nameof(MinPlateSizeRatio), "Min plate size ratio must be in [0, 1].");
+    }
+}
+
+public sealed class ElevationGenerationOptions
+{
+    public double ReliefScale { get; init; } = 1.0;
+    public double Mountaininess { get; init; } = 0.8;
+    public double Erosion { get; init; } = 0.35;
+    public double Roughness { get; init; } = 0.45;
+    public double SeaDepthScale { get; init; } = 1.0;
+    public double ShelfWidthFactor { get; init; } = 1.0;
+    public double VolcanismInfluence { get; init; } = 0.6;
+    public double RiftInfluence { get; init; } = 0.5;
+    public bool PreserveMaskCoastline { get; init; } = true;
+    public double MaxElevationMeters { get; init; } = 8500;
+    public double MinOceanDepthMeters { get; init; } = -7000;
+    public double MinLandElevationMeters { get; init; } = 1;
+    public double MaxSeaElevationMeters { get; init; } = -1;
+
+    public void Validate()
+    {
+        if (ReliefScale < 0) throw new ArgumentOutOfRangeException(nameof(ReliefScale), "Relief scale cannot be negative.");
+        if (Mountaininess < 0) throw new ArgumentOutOfRangeException(nameof(Mountaininess), "Mountaininess cannot be negative.");
+        if (Erosion < 0 || Erosion > 1) throw new ArgumentOutOfRangeException(nameof(Erosion), "Erosion must be in [0, 1].");
+        if (Roughness < 0 || Roughness > 1) throw new ArgumentOutOfRangeException(nameof(Roughness), "Roughness must be in [0, 1].");
+        if (SeaDepthScale < 0) throw new ArgumentOutOfRangeException(nameof(SeaDepthScale), "Sea depth scale cannot be negative.");
+        if (ShelfWidthFactor < 0) throw new ArgumentOutOfRangeException(nameof(ShelfWidthFactor), "Shelf width factor cannot be negative.");
+        if (VolcanismInfluence < 0) throw new ArgumentOutOfRangeException(nameof(VolcanismInfluence), "Volcanism influence cannot be negative.");
+        if (RiftInfluence < 0) throw new ArgumentOutOfRangeException(nameof(RiftInfluence), "Rift influence cannot be negative.");
+        if (MaxElevationMeters <= 0) throw new ArgumentOutOfRangeException(nameof(MaxElevationMeters), "Maximum elevation must be greater than zero.");
+        if (MinOceanDepthMeters >= 0) throw new ArgumentOutOfRangeException(nameof(MinOceanDepthMeters), "Minimum ocean depth must be below zero.");
+        if (MinLandElevationMeters < 0) throw new ArgumentOutOfRangeException(nameof(MinLandElevationMeters), "Minimum land elevation cannot be negative.");
+        if (MaxSeaElevationMeters > 0) throw new ArgumentOutOfRangeException(nameof(MaxSeaElevationMeters), "Maximum sea elevation cannot be above zero.");
+        if (MinLandElevationMeters > MaxElevationMeters) throw new ArgumentOutOfRangeException(nameof(MinLandElevationMeters), "Minimum land elevation cannot exceed maximum elevation.");
+        if (MaxSeaElevationMeters < MinOceanDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxSeaElevationMeters), "Maximum sea elevation cannot be below minimum ocean depth.");
     }
 }

@@ -97,15 +97,18 @@ The output is intentionally synthetic. These lineaments are not final plate boun
 
 ### 2. Crust Fields
 
-`CrustFieldGenerator` starts from land/water distance and tectonic history context:
+`CrustFieldGenerator` starts from weighted land/water distance and tectonic history context:
 
 - land becomes `Continental`;
 - nearshore water becomes `Shelf`;
 - deep water becomes `Oceanic`;
 - coastal cells become `Shelf`, `Slope`, `PassiveMargin`, `ActiveMargin`, or `ShallowSea`;
 - `Shelf` is the inner nearshore water belt, `Slope` is the outer shelf belt, `ShallowSea` is nearby ocean beyond the shelf, and `PassiveMargin` / `ActiveMargin` identify coastal land or water influenced by quiet margins versus trench/arc systems;
+- `ShallowSea` is controlled by distance from land, with smooth local width variation, not by distant rift lineaments. This prevents open-ocean tectonic traces from becoming shallow-water bands in the elevation renderer;
 - oceanic age increases with distance from ridge lineaments;
 - continental age is randomized and scaled by `HistoryDepth`.
+
+Land/water distance uses 8-neighbor weighted traversal with small smooth shelf-width variation. This keeps shelves and shallow seas from forming square buffers around small islands.
 
 Lineaments then override narrow local zones:
 
