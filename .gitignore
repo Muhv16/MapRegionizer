@@ -350,6 +350,9 @@ ASALocalRun/
 # Local History for Visual Studio
 .localhistory/
 
+# Local .NET CLI home used by agent/sandbox builds
+.dotnet-home/
+
 # BeatPulse healthcheck temp database
 healthchecksdb
 

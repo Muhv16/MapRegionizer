@@ -289,11 +289,11 @@ internal sealed class CrustFieldGenerator
                 var index = y * mask.Width + x;
                 var isLand = mask.IsLand(point);
                 var continentalNoise = Hash01(x, y, 17);
-                var shelfNoise = SmoothNoise(x, y, 71, 9.0);
-                var shallowNoise = SmoothNoise(x, y, 73, 13.0);
-                var localShelfWidth = Math.Max(1.0, shelfWidth * (0.86 + shelfNoise * 0.28));
-                var localInnerShelfWidth = Math.Max(1.0, innerShelfWidth * (0.82 + shelfNoise * 0.28));
-                var localShallowSeaWidth = Math.Max(localShelfWidth + 1.0, shelfWidth * (1.45 + shallowNoise * 0.42));
+                var shelfNoise = SmoothNoise(x, y, 71, 9.0) * 0.45 + SmoothNoise(x + 37, y - 23, 79, 27.0) * 0.55;
+                var shallowNoise = SmoothNoise(x, y, 73, 13.0) * 0.42 + SmoothNoise(x - 61, y + 17, 83, 39.0) * 0.58;
+                var localShelfWidth = Math.Max(1.0, shelfWidth * Math.Clamp(0.56 + shelfNoise * 0.92, 0.52, 1.50));
+                var localInnerShelfWidth = Math.Max(1.0, innerShelfWidth * Math.Clamp(0.58 + shelfNoise * 0.74, 0.52, 1.32));
+                var localShallowSeaWidth = Math.Max(localShelfWidth + 1.0, shelfWidth * Math.Clamp(1.02 + shallowNoise * 1.18, 1.0, 2.20));
 
                 if (isLand)
                 {

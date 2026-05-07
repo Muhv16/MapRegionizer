@@ -455,35 +455,68 @@ public static class MapImageRenderer
         if (elevation < 0)
         {
             var depth = Math.Clamp(-elevation / Math.Max(1.0, Math.Abs(options.DeepOceanDepthMeters)), 0, 1);
-            color = depth < 0.35
+            var depthColor = depth < 0.35
                 ? LerpColor(options.ShallowWaterColor, options.ShelfWaterColor, depth / 0.35)
                 : LerpColor(options.ShelfWaterColor, options.DeepWaterColor, (depth - 0.35) / 0.65);
+            var terrainColor = GetTerrainClassColor(elevationMap.GetTerrainClass(x, y), 1.0, options);
+            color = Blend(depthColor, terrainColor, 0.18);
         }
         else
         {
             var terrainClass = elevationMap.GetTerrainClass(x, y);
-            color = GetTerrainClassColor(terrainClass, 1.0, options);
+            var terrainColor = GetTerrainClassColor(terrainClass, 1.0, options);
+            var elevationColor = GetContinuousLandColor(elevation, options);
+            var terrainWeight = terrainClass switch
+            {
+                TerrainClassKind.Mountain => 0.78,
+                TerrainClassKind.Highland => 0.62,
+                TerrainClassKind.DesertPlateauCandidate => 0.58,
+                TerrainClassKind.DryBasin => 0.55,
+                TerrainClassKind.Beach => 0.48,
+                TerrainClassKind.DeltaCandidate => 0.48,
+                TerrainClassKind.SedimentaryBasin => 0.42,
+                TerrainClassKind.AlluvialPlain => 0.40,
+                TerrainClassKind.CoastalPlain => 0.38,
+                TerrainClassKind.InteriorLowland => 0.34,
+                _ => 0.45
+            };
+            color = Blend(elevationColor, terrainColor, terrainWeight);
             if (terrainClass == TerrainClassKind.Highland)
             {
-                color = elevation switch
+                var highlandColor = elevation switch
                 {
                     < 820 => LerpColor(options.InteriorLowlandColor, options.HighlandColor, Math.Clamp((elevation - 500.0) / 320.0, 0, 1)),
                     < 1250 => LerpColor(options.HighlandColor, options.UplandColor, Math.Clamp((elevation - 820.0) / 430.0, 0, 1)),
                     _ => LerpColor(options.UplandColor, options.MountainColor, Math.Clamp((elevation - 1250.0) / 520.0, 0, 1))
                 };
+                color = Blend(color, highlandColor, 0.58);
             }
             else if (terrainClass == TerrainClassKind.Mountain)
             {
-                color = elevation switch
+                var mountainColor = elevation switch
                 {
                     < 2100 => LerpColor(options.UplandColor, options.MountainColor, Math.Clamp((elevation - 1300.0) / 800.0, 0, 1)),
                     _ => LerpColor(options.MountainColor, options.SnowColor, Math.Clamp((elevation - 2100.0) / Math.Max(1.0, options.SnowElevationMeters - 2100.0), 0, 1))
                 };
+                color = Blend(color, mountainColor, 0.72);
             }
         }
 
         var shadeStrength = elevation < 0 ? options.OceanHillshadeStrength : options.HillshadeStrength;
         return ApplyShade(color, shade, shadeStrength);
+    }
+
+    private static Rgba32 GetContinuousLandColor(double elevation, ElevationRenderOptions options)
+    {
+        return elevation switch
+        {
+            < 90 => LerpColor(options.BeachColor, options.CoastalPlainColor, Math.Clamp(elevation / 90.0, 0, 1)),
+            < 420 => LerpColor(options.CoastalPlainColor, options.InteriorLowlandColor, Math.Clamp((elevation - 90.0) / 330.0, 0, 1)),
+            < 900 => LerpColor(options.InteriorLowlandColor, options.HighlandColor, Math.Clamp((elevation - 420.0) / 480.0, 0, 1)),
+            < 1450 => LerpColor(options.HighlandColor, options.UplandColor, Math.Clamp((elevation - 900.0) / 550.0, 0, 1)),
+            < 2200 => LerpColor(options.UplandColor, options.MountainColor, Math.Clamp((elevation - 1450.0) / 750.0, 0, 1)),
+            _ => LerpColor(options.MountainColor, options.SnowColor, Math.Clamp((elevation - 2200.0) / Math.Max(1.0, options.SnowElevationMeters - 2200.0), 0, 1))
+        };
     }
 
     private static Rgba32 GetTerrainClassColor(TerrainClassKind terrainClass, double shade, ElevationRenderOptions options)
@@ -492,6 +525,13 @@ public static class MapImageRenderer
         {
             TerrainClassKind.Ocean => options.DeepWaterColor.ToPixel<Rgba32>(),
             TerrainClassKind.ShelfSea => options.ShallowWaterColor.ToPixel<Rgba32>(),
+            TerrainClassKind.DeepChannel => options.DeepChannelColor.ToPixel<Rgba32>(),
+            TerrainClassKind.ShallowBank => options.ShallowBankColor.ToPixel<Rgba32>(),
+            TerrainClassKind.AbyssalBasin => options.AbyssalBasinColor.ToPixel<Rgba32>(),
+            TerrainClassKind.SubmarineRidge => options.SubmarineRidgeColor.ToPixel<Rgba32>(),
+            TerrainClassKind.Trench => options.TrenchColor.ToPixel<Rgba32>(),
+            TerrainClassKind.StraitDepth => options.StraitDepthColor.ToPixel<Rgba32>(),
+            TerrainClassKind.InlandSeaDepth => options.InlandSeaDepthColor.ToPixel<Rgba32>(),
             TerrainClassKind.Beach => options.BeachColor.ToPixel<Rgba32>(),
             TerrainClassKind.CoastalPlain => options.CoastalPlainColor.ToPixel<Rgba32>(),
             TerrainClassKind.AlluvialPlain => options.AlluvialPlainColor.ToPixel<Rgba32>(),
@@ -937,14 +977,21 @@ public sealed class ElevationRenderOptions : TectonicPlateRenderOptions
     public Color DeepWaterColor { get; init; } = Color.FromRgb(16, 53, 105);
     public Color ShelfWaterColor { get; init; } = Color.FromRgb(47, 133, 169);
     public Color ShallowWaterColor { get; init; } = Color.FromRgb(113, 198, 196);
-    public Color BeachColor { get; init; } = Color.FromRgb(214, 199, 136);
+    public Color DeepChannelColor { get; init; } = Color.FromRgb(24, 78, 128);
+    public Color ShallowBankColor { get; init; } = Color.FromRgb(136, 213, 194);
+    public Color AbyssalBasinColor { get; init; } = Color.FromRgb(12, 43, 92);
+    public Color SubmarineRidgeColor { get; init; } = Color.FromRgb(76, 168, 180);
+    public Color TrenchColor { get; init; } = Color.FromRgb(8, 35, 82);
+    public Color StraitDepthColor { get; init; } = Color.FromRgb(28, 105, 151);
+    public Color InlandSeaDepthColor { get; init; } = Color.FromRgb(73, 166, 181);
+    public Color BeachColor { get; init; } = Color.FromRgb(172, 202, 132);
     public Color LowlandColor { get; init; } = Color.FromRgb(96, 156, 88);
-    public Color CoastalPlainColor { get; init; } = Color.FromRgb(126, 178, 103);
+    public Color CoastalPlainColor { get; init; } = Color.FromRgb(137, 190, 117);
     public Color AlluvialPlainColor { get; init; } = Color.FromRgb(116, 168, 92);
     public Color InteriorLowlandColor { get; init; } = Color.FromRgb(91, 145, 83);
-    public Color SedimentaryBasinColor { get; init; } = Color.FromRgb(143, 166, 105);
+    public Color SedimentaryBasinColor { get; init; } = Color.FromRgb(151, 178, 116);
     public Color DryBasinColor { get; init; } = Color.FromRgb(174, 157, 105);
-    public Color DeltaCandidateColor { get; init; } = Color.FromRgb(105, 188, 130);
+    public Color DeltaCandidateColor { get; init; } = Color.FromRgb(119, 198, 139);
     public Color DesertPlateauCandidateColor { get; init; } = Color.FromRgb(168, 151, 94);
     public Color HighlandColor { get; init; } = Color.FromRgb(116, 145, 80);
     public Color UplandColor { get; init; } = Color.FromRgb(160, 144, 86);

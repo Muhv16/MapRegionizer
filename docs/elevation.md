@@ -56,6 +56,13 @@ The zone is not the source of truth. It is derived from final elevation.
 
 - `Ocean`
 - `ShelfSea`
+- `DeepChannel`
+- `ShallowBank`
+- `AbyssalBasin`
+- `SubmarineRidge`
+- `Trench`
+- `StraitDepth`
+- `InlandSeaDepth`
 - `Beach`
 - `CoastalPlain`
 - `AlluvialPlain`
@@ -89,7 +96,7 @@ Elevation is configured through `ElevationGenerationOptions`.
 
 ### 1. Base Shape
 
-The generator computes distance-to-land and distance-to-water rasters with horizontal wrapping. Land starts low near coasts and rises inland. Water starts as shallow shelf near land and deepens into ocean basins. Crust and coastal-zone data nudge this base:
+The generator computes distance-to-land and distance-to-water rasters with horizontal wrapping. Land starts low near coasts and rises inland. Water starts as shallow shelf near land and deepens into ocean basins. Shelf distance is locally warped by smooth multi-scale noise, and the tectonic crust stage uses variable shelf, inner-shelf, and shallow-sea widths. This prevents isolated islands from receiving perfect circular shallow-water halos while preserving the original land/water mask. Crust and coastal-zone data nudge this base:
 
 - shelf and passive margins stay lower and smoother;
 - active margins and arcs start higher;
@@ -101,13 +108,13 @@ The generator computes distance-to-land and distance-to-water rasters with horiz
 Tectonic features and boundary segments are converted into local height influence. Raw diagnostic tectonic rasters are not used directly as height lines: the terrain stage smooths and thresholds them first so historical craton, suture, ridge, trench, and orogen traces become broad regional influence instead of visible map scratches.
 
 - collision and transpression produce major mountains;
-- subduction produces trenches offshore and uplifts nearby active margins/arcs;
+- subduction produces trenches offshore and broad uplift near active margins/arcs; its land contribution is deliberately diffused so it does not draw narrow non-mountain elevation lines across continents;
 - ridges subtly uplift ocean floor, but oceanic ridge/heat-flow signals are heavily smoothed and damped for the final playable map;
-- rifts and back-arc spreading lower land or ocean basins, with oceanic lowering kept subtle so rift traces do not dominate bathymetry;
+- rifts and back-arc spreading lower land or ocean basins, with line influence diffused into wider regional fields so rift traces do not dominate playable elevation;
 - volcanism raises arcs, islands, and hotspot terrain;
 - passive margins and sediment supply create lower, smoother lowlands and shelves.
 
-Collision and transpression boundaries are not treated as continuous mountain walls. The tectonic stage already stores local `PlateBoundarySegment` records by boundary mode; the terrain stage then gates individual segment points with broad noise. Weak gated stretches become passes or subdued uplands, while strong gated stretches expand into wider massif masks. A second broader foreland signal adds foothill belts around the strongest massifs.
+Collision and transpression boundaries are not treated as continuous mountain walls. The tectonic stage already stores local `PlateBoundarySegment` records by boundary mode; the terrain stage then gates individual segment points with broad noise. Boundary stamps also vary local radius, strength, and edge falloff, so ridges, rifts, passive margins, and basin-prone belts widen, narrow, and fade along their length instead of looking like constant-width brush strokes. Non-mountain boundary masks are diffused again before they affect height, while collision and massif masks retain more local strength. Weak gated stretches become passes or subdued uplands, while strong gated stretches expand into wider massif masks. A second broader foreland signal adds foothill belts around the strongest massifs, also with local breakup noise.
 
 After raw tectonic uplift, the terrain stage builds a skeletal mountain network:
 
@@ -120,25 +127,48 @@ After raw tectonic uplift, the terrain stage builds a skeletal mountain network:
 
 This keeps long ranges readable while avoiding uniform walls along every active boundary.
 
+The final mountain shaping pass adds a cross-section profile over that network:
+
+- main ridge: strengthened high `RidgeContinuity` axis;
+- steep slope: a shoulder around the axis, still rugged but lower than the crest;
+- foothill belt: broad `FoothillInfluence` that raises and smooths terrain into playable uplands;
+- foreland basin: a basin-prone lowland outside the foothill belt where `BasinInfluence` is high and ridge continuity is low.
+
+This gives mountain systems a more legible transition from crest to slope to foothills to plains, instead of isolated ridge lines sitting directly beside flat land.
+
 ### 3. Continental Basins and Lowlands
 
-Large continental plains are generated from broad low-relief signals instead of isolated spots. The basin pass combines subsidence, sediment supply, passive-margin context, rift influence, distance from coast, low ridge continuity, and broad noise. Strong basins softly flatten terrain toward low interior targets, producing large plains on big continents without forcing every basin to sea level.
+Large continental plains are generated from broad low-relief signals instead of isolated spots. The basin pass combines subsidence, sediment supply, passive-margin context, rift influence, distance from coast, low ridge continuity, and broad noise. It modulates tectonic-basin width before smoothing, blends medium and broad smoothing passes with local noise, and damps overly narrow peaks back into the broad field. Basin edges therefore fade into surrounding terrain and basin belts can thicken, pinch, or break naturally instead of forming constant-width brush patches. Strong basins softly flatten terrain toward low interior targets, producing large plains on big continents without forcing every basin to sea level.
 
 ### 4. Island Profiles
 
 Small landmasses use `TectonicIsland` classification from the tectonic feature layer:
 
 - `VolcanicArc`: higher central cones and rougher slopes;
-- `ShelfArchipelago`: low islands with broad shallow shelves;
+- `ShelfArchipelago`: low islands with broad shallow shelves whose extent is anisotropic and lobe-shaped, avoiding perfectly circular reef halos around isolated islands;
 - `Microcontinent`: mixed mini-relief;
 - `UpliftedRidge`: elongated ridge-like islands;
 - `Hotspot`: volcanic high points with a chain-like profile.
 
-### 5. Procedural Detail
+### 5. Bathymetric Structure
+
+Water keeps final elevation in meters, but derived `TerrainClassKind` values describe underwater roles:
+
+- `DeepChannel`: narrow deeper passages, usually related to rifts or constrained seas;
+- `ShallowBank`: raised shallow banks on shelves and around archipelagos;
+- `AbyssalBasin`: broad deep-ocean lows;
+- `SubmarineRidge`: underwater ridge and spreading-center influence;
+- `Trench`: subduction-related deep troughs;
+- `StraitDepth`: navigable constrained channels between nearby landmasses;
+- `InlandSeaDepth`: shallower enclosed or semi-enclosed seas.
+
+These roles are generated from final depth, distance to land, local land enclosure, crust/coastal zones, and diffused ridge/subduction/rift masks. Their height adjustments are intentionally moderate so seas gain strategic structure without becoming visually overloaded.
+
+### 6. Procedural Detail
 
 Multi-octave value noise adds local terrain variation without external dependencies. Noise amplitude is controlled by `Roughness`, local tectonic activity, crust type, and distance from the coastline. Ocean noise is lower than land noise so underwater relief remains a background signal. Ocean and shelf distances use weighted 8-neighbor distance so bathymetry changes in smoother rings rather than sharp Manhattan-distance steps.
 
-### 6. Smoothing and Constraints
+### 7. Smoothing and Constraints
 
 The erosion pass blends each cell toward nearby cells on the same land/water surface. Water receives stronger smoothing than land to remove hard ocean lines. Ridge and collision masks reduce smoothing so mountain belts remain legible. A final interior-lowland lift suppresses isolated beach-colored spots far from coasts while preserving coastal lowlands. The final pass clamps heights and, by default, re-enforces the original land/water mask.
 
@@ -146,7 +176,7 @@ The erosion pass blends each cell toward nearby cells on the same land/water sur
 
 `ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows.
 
-`MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
+`MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
 
 ### `elevation.png`
 
@@ -155,7 +185,8 @@ Default legend:
 - dark blue: deep ocean;
 - medium blue: ocean basin;
 - cyan / turquoise: shallow sea and continental shelf;
-- sand: `Beach`;
+- subtle darker/lighter blue-cyan tints: `DeepChannel`, `ShallowBank`, `AbyssalBasin`, `SubmarineRidge`, `Trench`, `StraitDepth`, and `InlandSeaDepth`;
+- pale warm green: `Beach`, meaning very low land rather than desert;
 - light green: `CoastalPlain` and `DeltaCandidate`;
 - richer green: `AlluvialPlain` and `InteriorLowland`;
 - muted yellow-green: `SedimentaryBasin`, including broad quiet continental basins;
@@ -166,7 +197,7 @@ Default legend:
 - near-white: very high mountains / snow-cap candidates, fading in from about 2100 meters and strongest around 3200 meters and above;
 - lighting: hillshade, stronger on land and subtle underwater.
 
-Moderate interior highlands are intentionally kept greenish in the default render. Brown and ochre tones are reserved for dry basins, desert plateau candidates, upper highlands, and ridge-driven mountains so ordinary playable continents do not read as continuous mountain country while major relief still remains visible.
+Very low land is intentionally rendered as pale green rather than sand so players do not read ordinary lowlands as deserts. Moderate interior highlands are kept greenish in the default render. Brown and ochre tones are reserved for dry basins, desert plateau candidates, upper highlands, and ridge-driven mountains so ordinary playable continents do not read as continuous mountain country while major relief still remains visible.
 
 Plate boundaries are not drawn by default on the elevation map. They can be enabled with `ElevationRenderOptions.DrawPlateBoundaries` for debugging.
 

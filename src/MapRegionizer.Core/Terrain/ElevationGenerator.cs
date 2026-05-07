@@ -39,6 +39,7 @@ internal sealed class ElevationGenerator
         var passiveMask = new double[length];
         var distanceToLand = ComputeDistance(mask, sourceIsLand: true);
         var distanceToWater = ComputeDistance(mask, sourceIsLand: false);
+        var landEnclosure = BuildLandEnclosureField(mask);
         var domains = plateDomains.Domains.ToDictionary(d => d.Id.Value);
         var minDimension = Math.Max(1, Math.Min(mask.Width, mask.Height));
         var shelfWidth = Math.Max(2.0, minDimension * 0.035 * options.ShelfWidthFactor);
@@ -51,11 +52,11 @@ internal sealed class ElevationGenerator
         collisionMask = ShapeSignal(SmoothField(collisionMask, mask.Width, mask.Height, 4), 0.10, 1.15);
         massifMask = ShapeSignal(SmoothField(massifMask, mask.Width, mask.Height, 6), 0.05, 1.0);
         var forelandMask = ShapeSignal(SmoothField(rawCollisionMask, mask.Width, mask.Height, 12), 0.04, 1.25);
-        subductionMask = ShapeSignal(SmoothField(subductionMask, mask.Width, mask.Height, 7), 0.10, 1.35);
-        riftMask = ShapeSignal(SmoothField(riftMask, mask.Width, mask.Height, 8), 0.14, 1.45);
-        passiveMask = ShapeSignal(SmoothField(passiveMask, mask.Width, mask.Height, 5), 0.03, 1.0);
+        subductionMask = DiffuseTectonicLineSignal(subductionMask, mask.Width, mask.Height, 8, 11, 0.08, 1.18, 0.24);
+        riftMask = DiffuseTectonicLineSignal(riftMask, mask.Width, mask.Height, 9, 12, 0.10, 1.22, 0.20);
+        passiveMask = DiffuseTectonicLineSignal(passiveMask, mask.Width, mask.Height, 6, 10, 0.03, 1.0, 0.26);
 
-        var uplift = BuildTerrainSignal(features, features.GetUplift, 9, 0.24, 1.45);
+        var uplift = BuildTerrainSignal(features, features.GetUplift, 14, 0.18, 1.25);
         var subsidence = BuildTerrainSignal(features, features.GetSubsidence, 8, 0.24, 1.35);
         var volcanism = BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15);
         var heatFlow = BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4);
@@ -79,7 +80,7 @@ internal sealed class ElevationGenerator
 
                 baseElevation[index] = isLand
                     ? ComputeLandBase(distanceToWater[index], inlandScale, crust, coastal)
-                    : ComputeSeaBase(distanceToLand[index], shelfWidth, deepOceanScale, crust, coastal, crustFields.GetOceanicAge(point), options);
+                    : ComputeSeaBase(x, y, distanceToLand[index], shelfWidth, deepOceanScale, crust, coastal, crustFields.GetOceanicAge(point), options);
 
                 tectonicElevation[index] = ComputeTectonicContribution(
                     isLand,
@@ -131,11 +132,13 @@ internal sealed class ElevationGenerator
         }
 
         ApplyLargeBasins(mask, elevation, basinInfluence, distanceToWater, shelfWidth);
+        ApplyMountainCrossSection(mask, elevation, ridgeContinuity, mountainPassPotential, foothillInfluence, basinInfluence, distanceToWater, shelfWidth);
+        ApplyBathymetricStructure(mask, elevation, distanceToLand, landEnclosure, shelfWidth, ridgeMask, subductionMask, riftMask, crustFields, options);
         ApplyIslandProfiles(mask, features.Islands, elevation, roughness, distanceToLand);
         SmoothElevation(mask, elevation, ridgeMask, collisionMask, options, erosionMask);
         LiftInteriorLowlands(mask, elevation, distanceToWater, shelfWidth);
         EnforceConstraints(mask, elevation, options);
-        ClassifyTerrain(mask, crustFields, elevation, roughness, distanceToWater, shelfWidth, sedimentSupply, heatFlow, basinInfluence, foothillInfluence, ridgeContinuity, terrainClasses);
+        ClassifyTerrain(mask, crustFields, elevation, roughness, distanceToLand, distanceToWater, landEnclosure, shelfWidth, sedimentSupply, heatFlow, basinInfluence, foothillInfluence, ridgeContinuity, ridgeMask, subductionMask, riftMask, terrainClasses);
         return new ElevationMap(
             mask.Width,
             mask.Height,
@@ -177,9 +180,13 @@ internal sealed class ElevationGenerator
         return elevation;
     }
 
-    private static double ComputeSeaBase(double distanceToLand, double shelfWidth, double deepOceanScale, CrustKind crust, CoastalZoneKind coastal, double oceanicAge, ElevationGenerationOptions options)
+    private static double ComputeSeaBase(int x, int y, double distanceToLand, double shelfWidth, double deepOceanScale, CrustKind crust, CoastalZoneKind coastal, double oceanicAge, ElevationGenerationOptions options)
     {
-        var shelf = Math.Clamp(distanceToLand / Math.Max(1.0, shelfWidth), 0, 1);
+        var shelfNoise = SmoothNoise(x, y, 1507, 23.0) * 0.42 + SmoothNoise(x + 53, y - 29, 1511, 57.0) * 0.58;
+        var edgeNoise = SmoothNoise(x - 17, y + 31, 1517, 11.0);
+        var warpedDistanceToLand = Math.Max(0.0, distanceToLand + (shelfNoise - 0.5) * shelfWidth * 0.78 + (edgeNoise - 0.5) * shelfWidth * 0.34);
+        var localShelfWidth = shelfWidth * Math.Clamp(0.68 + shelfNoise * 0.72, 0.62, 1.42);
+        var shelf = Math.Clamp(warpedDistanceToLand / Math.Max(1.0, localShelfWidth), 0, 1);
         var deep = Math.Clamp(distanceToLand / deepOceanScale, 0, 1);
         var elevation = coastal switch
         {
@@ -229,21 +236,28 @@ internal sealed class ElevationGenerator
         var contribution = 0.0;
 
         var landBasinDampening = isLand ? 0.08 + coastalInfluence * 0.92 : 1.0;
-        var passDampening = isLand ? 1.0 - mountainPassPotential * 0.58 : 1.0;
+        var passDampening = isLand ? 1.0 - mountainPassPotential * 0.44 : 1.0;
         var ridgeStrength = isLand ? 0.55 + ridgeContinuity * 0.45 : 1.0;
+        var mountainContext = Math.Clamp(collision * 0.55 + massif * 0.85 + ridgeContinuity * 0.32, 0, 1);
+        var regionalUpliftMeters = isLand
+            ? 280 + mountainContext * 360 + Math.Clamp(volcanism, 0, 2) * 80
+            : 35;
+        var subductionMeters = isLand
+            ? 190 + coastalInfluence * 130 + Math.Clamp(volcanism, 0, 2) * 70
+            : -55;
 
-        contribution += Math.Clamp(uplift, 0, 2) * (isLand ? 600 : 35) * mountains;
-        contribution += collision * passDampening * ridgeStrength * (isLand ? 1350 : 35) * mountains;
-        contribution += massif * passDampening * (0.72 + ridgeContinuity * 0.35) * (isLand ? 2800 : 45) * mountains;
-        contribution += Math.Max(foreland, foothillInfluence) * (isLand ? 430 : 0) * mountains;
-        contribution += subduction * (isLand ? 470 : -55) * mountains;
+        contribution += Math.Clamp(uplift, 0, 2) * regionalUpliftMeters * mountains;
+        contribution += collision * passDampening * ridgeStrength * (isLand ? 1500 : 35) * mountains;
+        contribution += massif * passDampening * (0.72 + ridgeContinuity * 0.38) * (isLand ? 3200 : 45) * mountains;
+        contribution += Math.Max(foreland, foothillInfluence) * (isLand ? 360 : 0) * mountains;
+        contribution += subduction * subductionMeters * mountains;
         contribution += Math.Clamp(volcanism, 0, 2) * options.VolcanismInfluence * (isLand ? 660 : 90);
         contribution += ridge * (isLand ? 30 : 16);
         contribution += Math.Clamp(heatFlow, 0, 2) * (isLand ? 80 : 8);
         contribution -= Math.Clamp(subsidence, 0, 2) * (isLand ? 230 * landBasinDampening : 130);
         contribution -= Math.Clamp(sedimentSupply, 0, 2) * (isLand ? 45 * coastalInfluence : 10);
         contribution -= basinInfluence * (isLand ? 205 : 0);
-        contribution -= rift * options.RiftInfluence * (isLand ? 390 : 45);
+        contribution -= rift * options.RiftInfluence * (isLand ? 310 : 45);
         contribution -= passive * (isLand ? 120 * coastalInfluence : 24);
 
         if (crust == CrustKind.Rift)
@@ -312,14 +326,17 @@ internal sealed class ElevationGenerator
 
             foreach (var point in segment.Points)
             {
+                var localRadius = BoundaryStampRadius(point, segment.Id, segment.BoundaryMode, radius);
+                var localStrength = strength * BoundaryStampStrength(point, segment.Id, segment.BoundaryMode);
                 var mountainGate = isMountainBoundary
                     ? MountainGate(point, segment.Id, segment.BoundaryMode)
                     : 0;
 
-                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, radius))
+                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, localRadius))
                 {
                     var distance = Distance(point, stamped, mask.Width);
-                    var falloff = Math.Clamp(1.0 - distance / (radius + 1.0), 0, 1) * strength;
+                    var edgeVariation = 0.84 + SmoothNoise(stamped.X, stamped.Y, segment.Id * 73 + 1907, 8.0) * 0.32;
+                    var falloff = SmoothStep(Math.Clamp(1.0 - distance / (localRadius + 1.0), 0, 1)) * localStrength * edgeVariation;
                     var index = stamped.Y * mask.Width + stamped.X;
 
                     switch (segment.BoundaryMode)
@@ -360,14 +377,15 @@ internal sealed class ElevationGenerator
                 if (!isMountainBoundary || mountainGate < 0.68)
                     continue;
 
-                var massifRadius = radius + (mountainGate >= 0.84 ? 8 : 5);
+                var massifRadius = localRadius + (int)Math.Round((mountainGate >= 0.84 ? 8 : 5) * BoundaryMassifWidth(point, segment.Id));
                 foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, massifRadius))
                 {
                     if (!mask.IsLand(stamped))
                         continue;
 
                     var distance = Distance(point, stamped, mask.Width);
-                    var falloff = Math.Clamp(1.0 - distance / (massifRadius + 1.0), 0, 1) * strength;
+                    var edgeVariation = 0.80 + SmoothNoise(stamped.X, stamped.Y, segment.Id * 83 + 2027, 10.0) * 0.36;
+                    var falloff = SmoothStep(Math.Clamp(1.0 - distance / (massifRadius + 1.0), 0, 1)) * localStrength * edgeVariation;
                     var index = stamped.Y * mask.Width + stamped.X;
                     var massifFalloff = Math.Pow(falloff, 1.3) * (mountainGate - 0.58) / 0.42;
                     massifMask[index] = Math.Max(massifMask[index], massifFalloff);
@@ -375,6 +393,35 @@ internal sealed class ElevationGenerator
                 }
             }
         }
+    }
+
+    private static int BoundaryStampRadius(GridPoint point, int segmentId, BoundaryMode mode, int baseRadius)
+    {
+        var broad = SmoothNoise(point.X, point.Y, segmentId * 29 + 1301, mode is BoundaryMode.ContinentContinentCollision or BoundaryMode.Transpression ? 31.0 : 23.0);
+        var local = SmoothNoise(point.X + 17, point.Y - 11, segmentId * 37 + 1307, 9.0);
+        var neck = SmoothNoise(point.X - 23, point.Y + 19, segmentId * 41 + 1319, 15.0);
+        var width = baseRadius * (0.52 + broad * 0.72 + local * 0.30);
+
+        if (mode is BoundaryMode.ContinentContinentCollision or BoundaryMode.Transpression)
+            width = Math.Max(width, baseRadius * 0.92);
+        else if (neck < 0.28)
+            width *= 0.62 + neck;
+
+        return Math.Clamp((int)Math.Round(width), 1, baseRadius + 5);
+    }
+
+    private static double BoundaryStampStrength(GridPoint point, int segmentId, BoundaryMode mode)
+    {
+        var broad = SmoothNoise(point.X, point.Y, segmentId * 53 + 1409, mode is BoundaryMode.PassiveMargin ? 36.0 : 24.0);
+        var local = SmoothNoise(point.X - 31, point.Y + 7, segmentId * 59 + 1423, 10.0);
+        return Math.Clamp(0.58 + broad * 0.52 + local * 0.20, 0.42, 1.18);
+    }
+
+    private static double BoundaryMassifWidth(GridPoint point, int segmentId)
+    {
+        var broad = SmoothNoise(point.X, point.Y, segmentId * 67 + 1517, 35.0);
+        var local = SmoothNoise(point.X + 13, point.Y + 37, segmentId * 71 + 1523, 12.0);
+        return Math.Clamp(0.58 + broad * 0.88 + local * 0.28, 0.60, 1.45);
     }
 
     private static bool IsMountainBoundary(BoundaryMode mode) =>
@@ -422,7 +469,13 @@ internal sealed class ElevationGenerator
                 var passNoise = SmoothNoise(x, y, 1603, 9.0);
                 mountainPassPotential[index] = Math.Clamp(mountainContext * (1.0 - ridgeContinuity[index]) * (0.55 + passNoise * 0.45), 0, 1);
 
-                foothillInfluence[index] = Math.Clamp(forelandMask[index] * 0.85 + broadFoothills[index] * 0.55 - localAxis * 0.25, 0, 1);
+                var foothillWidth = 0.68 + SmoothNoise(x + 47, y - 31, 1607, 28.0) * 0.58;
+                var foothillBreak = SmoothNoise(x - 19, y + 53, 1613, 12.0);
+                var foothill = forelandMask[index] * (0.58 + foothillWidth * 0.34) + broadFoothills[index] * (0.32 + foothillWidth * 0.28) - localAxis * 0.25;
+                if (foothillBreak < 0.24)
+                    foothill *= 0.58 + foothillBreak * 1.15;
+
+                foothillInfluence[index] = Math.Clamp(foothill, 0, 1);
             }
         }
     }
@@ -452,17 +505,34 @@ internal sealed class ElevationGenerator
                 var interior = Math.Clamp((distanceToWater[index] - shelfWidth * 1.1) / Math.Max(1.0, shelfWidth * 5.0), 0, 1);
                 var quietRelief = 1.0 - Math.Clamp(ridgeContinuity[index] * 0.85 + foothillInfluence[index] * 0.35, 0, 1);
                 var continentalNoise = SmoothNoise(x, y, 1701, 72.0);
+                var widthNoise = SmoothNoise(x - 19, y + 41, 1709, 34.0);
+                var breakupNoise = SmoothNoise(x + 67, y - 13, 1711, 15.0);
                 var tectonicBasin = subsidence[index] * 0.58 + sedimentSupply[index] * 0.28 + passiveMask[index] * 0.32 + riftMask[index] * 0.12;
-                var broadBasin = continentalNoise * interior * 0.72;
+                tectonicBasin *= Math.Clamp(0.58 + widthNoise * 0.74, 0.45, 1.25);
+                var broadBasin = continentalNoise * interior * (0.48 + widthNoise * 0.36);
+                if (breakupNoise < 0.30)
+                    tectonicBasin *= 0.55 + breakupNoise;
+
                 raw[index] = Math.Clamp((tectonicBasin + broadBasin) * quietRelief, 0, 1);
             }
         }
 
-        var smooth = SmoothField(raw, mask.Width, mask.Height, 12);
-        for (var i = 0; i < basinInfluence.Length; i++)
+        var smooth = SmoothField(raw, mask.Width, mask.Height, 16);
+        var broad = SmoothField(smooth, mask.Width, mask.Height, 10);
+        for (var y = 0; y < mask.Height; y++)
         {
-            var normalized = Math.Clamp((smooth[i] - 0.06) / 0.78, 0, 1);
-            basinInfluence[i] = Math.Pow(normalized, 1.15);
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var i = y * mask.Width + x;
+                var blendNoise = SmoothNoise(x, y, 1721, 46.0);
+                var blended = smooth[i] * (0.42 + blendNoise * 0.22) + broad[i] * (0.58 - blendNoise * 0.22);
+                if (smooth[i] > broad[i] * 1.22)
+                    blended = blended * 0.82 + broad[i] * 0.18;
+
+                var normalized = Math.Clamp((blended - 0.035) / 0.82, 0, 1);
+                var eased = SmoothStep(normalized);
+                basinInfluence[i] = Math.Pow(eased, 1.08);
+            }
         }
     }
 
@@ -478,13 +548,116 @@ internal sealed class ElevationGenerator
 
                 var index = y * mask.Width + x;
                 var basin = basinInfluence[index];
-                if (basin <= 0.06)
+                if (basin <= 0.025)
                     continue;
 
                 var interior = Math.Clamp((distanceToWater[index] - shelfWidth) / Math.Max(1.0, shelfWidth * 6.0), 0, 1);
                 var target = 150.0 + interior * 290.0;
-                var flatten = basin * (0.20 + interior * 0.26);
+                var basinProfile = SmoothStep(Math.Clamp((basin - 0.025) / 0.82, 0, 1));
+                var flatten = basinProfile * (0.16 + interior * 0.24);
                 elevation[index] = elevation[index] * (1.0 - flatten) + target * flatten;
+            }
+        }
+    }
+
+    private static void ApplyMountainCrossSection(
+        MapMask mask,
+        double[] elevation,
+        double[] ridgeContinuity,
+        double[] mountainPassPotential,
+        double[] foothillInfluence,
+        double[] basinInfluence,
+        double[] distanceToWater,
+        double shelfWidth)
+    {
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                if (!mask.IsLand(point))
+                    continue;
+
+                var index = y * mask.Width + x;
+                var ridge = ridgeContinuity[index];
+                var foothill = foothillInfluence[index];
+                var pass = mountainPassPotential[index];
+                var basin = basinInfluence[index];
+                var interior = Math.Clamp((distanceToWater[index] - shelfWidth * 0.7) / Math.Max(1.0, shelfWidth * 5.5), 0, 1);
+
+                var mainRidge = SmoothStep(Math.Clamp((ridge - 0.56) / 0.34, 0, 1)) * (1.0 - pass * 0.48);
+                var steepSlope = SmoothStep(Math.Clamp((ridge * 0.55 + foothill * 0.55 - 0.28) / 0.54, 0, 1)) * (1.0 - mainRidge * 0.62);
+                var foothillBelt = SmoothStep(Math.Clamp((foothill - 0.10) / 0.62, 0, 1)) * (1.0 - mainRidge * 0.84) * (1.0 - pass * 0.20);
+                var forelandBasin = SmoothStep(Math.Clamp((basin * 0.78 + foothill * 0.32 - ridge * 0.42 - 0.18) / 0.62, 0, 1));
+
+                elevation[index] += mainRidge * 360.0;
+                elevation[index] += steepSlope * 180.0;
+
+                if (foothillBelt > 0.02)
+                {
+                    var foothillTarget = 420.0 + interior * 260.0 + steepSlope * 180.0;
+                    var blend = foothillBelt * 0.22;
+                    elevation[index] = elevation[index] * (1.0 - blend) + Math.Max(elevation[index], foothillTarget) * blend;
+                }
+
+                if (forelandBasin > 0.02)
+                {
+                    var basinTarget = 180.0 + interior * 260.0;
+                    var blend = forelandBasin * (0.10 + interior * 0.14);
+                    elevation[index] = elevation[index] * (1.0 - blend) + basinTarget * blend;
+                }
+            }
+        }
+    }
+
+    private static void ApplyBathymetricStructure(
+        MapMask mask,
+        double[] elevation,
+        double[] distanceToLand,
+        double[] landEnclosure,
+        double shelfWidth,
+        double[] ridgeMask,
+        double[] subductionMask,
+        double[] riftMask,
+        CrustFieldMap crustFields,
+        ElevationGenerationOptions options)
+    {
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                if (mask.IsLand(point))
+                    continue;
+
+                var index = y * mask.Width + x;
+                var shelf = Math.Clamp(1.0 - distanceToLand[index] / Math.Max(1.0, shelfWidth * 2.4), 0, 1);
+                var deep = Math.Clamp(distanceToLand[index] / Math.Max(1.0, shelfWidth * 7.5), 0, 1);
+                var enclosure = landEnclosure[index];
+                var channelNoise = SmoothNoise(x + 109, y - 73, 2101, 28.0);
+                var bankNoise = SmoothNoise(x - 47, y + 83, 2107, 34.0);
+                var basinNoise = SmoothNoise(x + 13, y + 29, 2111, 88.0);
+
+                var submarineRidge = ridgeMask[index] * (0.45 + SmoothNoise(x, y, 2117, 18.0) * 0.35);
+                var trench = subductionMask[index] * (0.42 + deep * 0.58);
+                var deepChannel = riftMask[index] * 0.45 + Math.Clamp(enclosure - 0.28, 0, 1) * Math.Clamp(channelNoise - 0.42, 0, 1) * 1.7;
+                var shallowBank = shelf * Math.Clamp(bankNoise - 0.30, 0, 1) * 1.15;
+                var abyssalBasin = deep * Math.Clamp(basinNoise - 0.44, 0, 1) * (1.0 - shelf * 0.55);
+
+                elevation[index] += submarineRidge * 130.0;
+                elevation[index] -= trench * 330.0;
+                elevation[index] -= deepChannel * 135.0;
+                elevation[index] += shallowBank * 85.0;
+                elevation[index] -= abyssalBasin * 145.0;
+
+                if (enclosure > 0.50 && distanceToLand[index] <= shelfWidth * 3.0)
+                {
+                    var inlandSeaTarget = -90.0 - Math.Clamp(distanceToLand[index] / Math.Max(1.0, shelfWidth * 2.0), 0, 1) * 260.0;
+                    var blend = Math.Clamp((enclosure - 0.50) / 0.36, 0, 1) * 0.18;
+                    elevation[index] = elevation[index] * (1.0 - blend) + inlandSeaTarget * blend;
+                }
+
+                elevation[index] = Math.Clamp(elevation[index], options.MinOceanDepthMeters, -1.0);
             }
         }
     }
@@ -528,10 +701,20 @@ internal sealed class ElevationGenerator
                             elevation[index] = elevation[index] * 0.45 + lowTarget * 0.55;
                             roughness[index] = Math.Clamp(roughness[index] * 0.62, 0.04, 1);
                         }
-                        else if (distanceToLand[index] <= radius * 1.7)
+                        else
                         {
-                            var shelf = Math.Clamp(1.0 - distanceToLand[index] / Math.Max(1.0, radius * 1.7), 0, 1);
-                            elevation[index] = Math.Max(elevation[index], -210 + shelf * 155);
+                            var shelfNoise = SmoothNoise(point.X, point.Y, island.PlateId.Value + 1917, 13.0) * 0.45
+                                + SmoothNoise(point.X - 37, point.Y + 23, island.PlateId.Value + 1921, 28.0) * 0.55;
+                            var lobeNoise = SmoothNoise(point.X + 11, point.Y - 43, island.PlateId.Value + 1927, 7.0);
+                            var alongAxis = Math.Clamp(0.72 + axial * 0.42, 0.62, 1.14);
+                            var crossAxis = Math.Clamp(1.12 - sideDistance / Math.Max(1.0, radius * 2.1), 0.62, 1.12);
+                            var localShelfExtent = radius * (0.72 + shelfNoise * 0.82 + lobeNoise * 0.28) * alongAxis * crossAxis;
+                            if (distanceToLand[index] <= localShelfExtent)
+                            {
+                                var shelf = SmoothStep(Math.Clamp(1.0 - distanceToLand[index] / Math.Max(1.0, localShelfExtent), 0, 1));
+                                var targetDepth = -285 + shelf * 225 + (shelfNoise - 0.5) * 42.0;
+                                elevation[index] = Math.Max(elevation[index], targetDepth);
+                            }
                         }
                         break;
                     case IslandKind.Microcontinent:
@@ -569,13 +752,18 @@ internal sealed class ElevationGenerator
         CrustFieldMap crustFields,
         double[] elevation,
         double[] roughness,
+        double[] distanceToLand,
         double[] distanceToWater,
+        double[] landEnclosure,
         double shelfWidth,
         double[] sedimentSupply,
         double[] heatFlow,
         double[] basinInfluence,
         double[] foothillInfluence,
         double[] ridgeContinuity,
+        double[] ridgeMask,
+        double[] subductionMask,
+        double[] riftMask,
         byte[] terrainClasses)
     {
         for (var y = 0; y < mask.Height; y++)
@@ -586,7 +774,18 @@ internal sealed class ElevationGenerator
                 var index = y * mask.Width + x;
                 if (!mask.IsLand(point))
                 {
-                    terrainClasses[index] = (byte)(elevation[index] > -900 ? TerrainClassKind.ShelfSea : TerrainClassKind.Ocean);
+                    terrainClasses[index] = (byte)ClassifyBathymetry(
+                        mask,
+                        crustFields,
+                        elevation[index],
+                        x,
+                        y,
+                        distanceToLand[index],
+                        landEnclosure[index],
+                        shelfWidth,
+                        ridgeMask[index],
+                        subductionMask[index],
+                        riftMask[index]);
                     continue;
                 }
 
@@ -598,19 +797,21 @@ internal sealed class ElevationGenerator
                 var foothill = foothillInfluence[index];
                 var ridge = ridgeContinuity[index];
                 var heat = heatFlow[index];
-                var crust = crustFields.GetCrust(point);
+                var aridityNoise = SmoothNoise(x, y, 1801, 54.0);
+                var plateauNoise = SmoothNoise(x, y, 1807, 46.0);
 
                 var terrainClass = value switch
                 {
                     < 45 => TerrainClassKind.Beach,
-                    < 150 when coastalInfluence > 0.45 && sediment > 0.36 => TerrainClassKind.DeltaCandidate,
+                    < 170 when coastalInfluence > 0.55 && (sediment > 0.22 || basin > 0.24) => TerrainClassKind.DeltaCandidate,
                     < 260 when coastalInfluence > 0.34 => TerrainClassKind.CoastalPlain,
-                    < 720 when foothill > 0.18 && sediment > 0.18 => TerrainClassKind.AlluvialPlain,
-                    < 850 when basin > 0.48 && interior > 0.35 && sediment < 0.28 && heat > 0.16 => TerrainClassKind.DryBasin,
+                    < 720 when foothill > 0.14 && (sediment > 0.10 || basin > 0.16) => TerrainClassKind.AlluvialPlain,
+                    < 560 when sediment > 0.20 && basin > 0.18 && coastalInfluence < 0.45 => TerrainClassKind.AlluvialPlain,
+                    < 820 when basin > 0.22 && coastalInfluence < 0.68 && sediment < 0.50 && aridityNoise > 0.60 => TerrainClassKind.DryBasin,
                     < 820 when basin > 0.28 => TerrainClassKind.SedimentaryBasin,
                     < 760 when ridge < 0.35 => TerrainClassKind.InteriorLowland,
                     < 1700 when ridge > 0.58 && value > 1050 => TerrainClassKind.Mountain,
-                    < 1620 when value >= 900 && interior > 0.48 && ridge < 0.42 && roughness[index] < 0.42 && sediment < 0.28 && basin < 0.40 && crust is (CrustKind.Continental or CrustKind.Terrane) => TerrainClassKind.DesertPlateauCandidate,
+                    < 1600 when value >= 780 && coastalInfluence < 0.64 && ridge < 0.50 && roughness[index] < 0.72 && basin < 0.76 && plateauNoise > 0.54 => TerrainClassKind.DesertPlateauCandidate,
                     < 1750 => TerrainClassKind.Highland,
                     _ => TerrainClassKind.Mountain
                 };
@@ -619,6 +820,45 @@ internal sealed class ElevationGenerator
                 roughness[index] = AdjustRoughnessForTerrainClass(roughness[index], terrainClass, ridge);
             }
         }
+    }
+
+    private static TerrainClassKind ClassifyBathymetry(
+        MapMask mask,
+        CrustFieldMap crustFields,
+        double elevation,
+        int x,
+        int y,
+        double distanceToLand,
+        double enclosure,
+        double shelfWidth,
+        double ridge,
+        double subduction,
+        double rift)
+    {
+        var coastal = crustFields.GetCoastalZone(x, y);
+        var shelf = Math.Clamp(1.0 - distanceToLand / Math.Max(1.0, shelfWidth * 2.3), 0, 1);
+        var bankNoise = SmoothNoise(x - 47, y + 83, 2107, 34.0);
+        var channelNoise = SmoothNoise(x + 109, y - 73, 2101, 28.0);
+        var basinNoise = SmoothNoise(x + 13, y + 29, 2111, 88.0);
+
+        if (subduction > 0.38 && elevation < -1050)
+            return TerrainClassKind.Trench;
+        if (ridge > 0.38 && elevation > -2450)
+            return TerrainClassKind.SubmarineRidge;
+        if (enclosure > 0.64 && distanceToLand <= shelfWidth * 2.8)
+            return TerrainClassKind.InlandSeaDepth;
+        if (enclosure > 0.42 && rift + Math.Clamp(channelNoise - 0.54, 0, 1) > 0.42 && elevation < -420)
+            return TerrainClassKind.StraitDepth;
+        if (shelf > 0.34 && elevation > -620 && bankNoise > 0.66)
+            return TerrainClassKind.ShallowBank;
+        if ((rift > 0.42 || channelNoise > 0.82) && elevation < -850)
+            return TerrainClassKind.DeepChannel;
+        if (elevation < -3300 && basinNoise > 0.66)
+            return TerrainClassKind.AbyssalBasin;
+        if (elevation > -900 || coastal is CoastalZoneKind.Shelf or CoastalZoneKind.ShallowSea)
+            return TerrainClassKind.ShelfSea;
+
+        return TerrainClassKind.Ocean;
     }
 
     private static double AdjustRoughnessForTerrainClass(double roughness, TerrainClassKind terrainClass, double ridgeContinuity)
@@ -696,6 +936,25 @@ internal sealed class ElevationGenerator
         }
 
         return ShapeSignal(SmoothField(values, features.Width, features.Height, passes), threshold, gamma);
+    }
+
+    private static double[] DiffuseTectonicLineSignal(
+        double[] values,
+        int width,
+        int height,
+        int mediumPasses,
+        int broadPasses,
+        double threshold,
+        double gamma,
+        double localWeight)
+    {
+        var medium = SmoothField(values, width, height, mediumPasses);
+        var broad = SmoothField(medium, width, height, broadPasses);
+        var blended = new double[values.Length];
+        for (var i = 0; i < values.Length; i++)
+            blended[i] = medium[i] * localWeight + broad[i] * (1.0 - localWeight);
+
+        return ShapeSignal(blended, threshold, gamma);
     }
 
     private static double[] ShapeSignal(double[] values, double threshold, double gamma)
@@ -824,6 +1083,18 @@ internal sealed class ElevationGenerator
         }
 
         return distances;
+    }
+
+    private static double[] BuildLandEnclosureField(MapMask mask)
+    {
+        var values = new double[mask.Width * mask.Height];
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+                values[y * mask.Width + x] = mask.IsLand(new GridPoint(x, y)) ? 1.0 : 0.0;
+        }
+
+        return SmoothField(SmoothField(values, mask.Width, mask.Height, 8), mask.Width, mask.Height, 8);
     }
 
     private double FractalNoise(int x, int y, double scale, int octaves)

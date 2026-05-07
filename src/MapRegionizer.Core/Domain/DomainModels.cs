@@ -608,6 +608,13 @@ public enum TerrainClassKind
 {
     Ocean,
     ShelfSea,
+    DeepChannel,
+    ShallowBank,
+    AbyssalBasin,
+    SubmarineRidge,
+    Trench,
+    StraitDepth,
+    InlandSeaDepth,
     Beach,
     CoastalPlain,
     AlluvialPlain,
