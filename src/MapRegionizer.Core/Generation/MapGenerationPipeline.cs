@@ -36,6 +36,18 @@ public sealed class MapGenerationPipeline
         MarkDependentsDirty(context, stage.Produces);
     }
 
+    public void MarkDirty(MapGenerationContext context, IEnumerable<MapDataKey> changedKeys)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(changedKeys);
+
+        var changed = changedKeys.ToHashSet();
+        foreach (var key in changed)
+            context.MarkDirty(key);
+
+        MarkDependentsDirty(context, changed);
+    }
+
     private void EnsureData(MapGenerationContext context, MapDataKey key)
     {
         if (context.Has(key))

@@ -54,4 +54,16 @@ public sealed class MapGenerationRunOptions
             }
         };
     }
+
+    public MapGenerationRequestOptions ToRequestOptions()
+    {
+        return new MapGenerationRequestOptions
+        {
+            MaskPath = MaskPath,
+            OutputDirectory = OutputDirectory,
+            GenerationOptions = ToGenerationOptions(),
+            TectonicJsonMode = TectonicJsonMode,
+            ElevationJsonMode = ElevationJsonMode
+        };
+    }
 }

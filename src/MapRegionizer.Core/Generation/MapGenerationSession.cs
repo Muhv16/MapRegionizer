@@ -51,4 +51,10 @@ public sealed class MapGenerationSession
     public void RunUntil(MapDataKey target) => _pipeline.RunUntil(_context, target);
 
     public void Regenerate(MapDataKey target) => _pipeline.Regenerate(_context, target);
+
+    public void UpdateOptions(MapGenerationOptions options, IEnumerable<MapDataKey> dirtyRoots)
+    {
+        _context.UpdateOptions(options);
+        _pipeline.MarkDirty(_context, dirtyRoots);
+    }
 }

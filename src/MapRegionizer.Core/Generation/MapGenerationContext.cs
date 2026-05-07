@@ -20,10 +20,10 @@ public sealed class MapGenerationContext
     }
 
     public MapMask Mask { get; }
-    public MapGenerationOptions Options { get; }
+    public MapGenerationOptions Options { get; private set; }
     public GeometryFactory GeometryFactory { get; }
     public Random Random { get; }
-    public MapBounds Bounds { get; }
+    public MapBounds Bounds { get; private set; }
     public List<Landmass> Landmasses { get; } = [];
     public List<WaterBody> WaterBodies { get; } = [];
     public List<MapRegion> RawRegions { get; } = [];
@@ -58,6 +58,14 @@ public sealed class MapGenerationContext
     {
         if (_availableData.Contains(key))
             _dirtyData.Add(key);
+    }
+
+    public void UpdateOptions(MapGenerationOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+        Options = options;
+        Bounds = new MapBounds(Mask.Width * options.PixelSize, Mask.Height * options.PixelSize, options.PixelSize);
     }
 
     public void ClearData(MapDataKey key)

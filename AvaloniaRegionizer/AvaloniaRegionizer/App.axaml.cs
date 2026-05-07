@@ -3,7 +3,6 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using AvaloniaRegionizer.ViewModels;
 using AvaloniaRegionizer.Views;
-using System.Globalization;
 
 namespace AvaloniaRegionizer
 {
@@ -11,9 +10,6 @@ namespace AvaloniaRegionizer
     {
         public override void Initialize()
         {
-            CultureInfo culture = new CultureInfo("en-US");
-            culture.NumberFormat.NumberDecimalSeparator = ".";
-            System.Threading.Thread.CurrentThread.CurrentCulture = culture;
             AvaloniaXamlLoader.Load(this);
         }
 
