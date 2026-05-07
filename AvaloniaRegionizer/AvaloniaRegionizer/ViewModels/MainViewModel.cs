@@ -43,8 +43,10 @@ public sealed class MainViewModel : ReactiveObject
     private string _statistics = string.Empty;
     private string _artifactSummary = string.Empty;
     private string _previewLegend = string.Empty;
+    private string _previewTitle = string.Empty;
     private bool _isGenerating;
     private bool _isCompareMode;
+    private bool _showOnboarding;
     private Bitmap? _currentPreview;
     private Bitmap? _previousPreview;
     private PreviewLayerViewModel? _selectedPreviewLayer;
@@ -53,6 +55,7 @@ public sealed class MainViewModel : ReactiveObject
 
     private double _pixelSize = 1;
     private int? _seed;
+    private string _seedText = string.Empty;
     private MapProjectionMode _projectionMode = MapProjectionMode.EquirectangularWorld;
     private double _simplifyTolerance = 1;
     private uint _targetArea = 400;
@@ -110,6 +113,7 @@ public sealed class MainViewModel : ReactiveObject
         CancelCommand = ReactiveCommand.Create(CancelGeneration);
         RandomizeSeedCommand = ReactiveCommand.Create(RandomizeSeed);
         CopySeedCommand = ReactiveCommand.CreateFromTask(CopySeedAsync);
+        DismissOnboardingCommand = ReactiveCommand.Create(DismissOnboarding);
         ApplyFastPresetCommand = ReactiveCommand.Create(() => ApplyPreset("fast"));
         ApplyBalancedPresetCommand = ReactiveCommand.Create(() => ApplyPreset("balanced"));
         ApplyDetailedPresetCommand = ReactiveCommand.Create(() => ApplyPreset("detailed"));
@@ -143,12 +147,14 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
     public ReactiveCommand<Unit, Unit> RandomizeSeedCommand { get; }
     public ReactiveCommand<Unit, Unit> CopySeedCommand { get; }
+    public ReactiveCommand<Unit, Unit> DismissOnboardingCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyFastPresetCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyBalancedPresetCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyDetailedPresetCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyDiagnosticPresetCommand { get; }
 
-    public string MaskPath { get => _maskPath; set => SetAndResetSession(ref _maskPath, value); }
+    public string MaskPath { get => _maskPath; set => SetMaskPath(value); }
+    public string MaskFileName => string.IsNullOrWhiteSpace(MaskPath) ? string.Empty : Path.GetFileName(MaskPath);
     public string OutputDirectory { get => _outputDirectory; set => SetAndSave(ref _outputDirectory, value); }
     public string StatusMessage { get => _statusMessage; set => this.RaiseAndSetIfChanged(ref _statusMessage, value); }
     public string ValidationMessage { get => _validationMessage; set => this.RaiseAndSetIfChanged(ref _validationMessage, value); }
@@ -163,8 +169,20 @@ public sealed class MainViewModel : ReactiveObject
         }
     }
     public string PreviewLegend { get => _previewLegend; set => this.RaiseAndSetIfChanged(ref _previewLegend, value); }
+    public string PreviewTitle { get => _previewTitle; set => this.RaiseAndSetIfChanged(ref _previewTitle, value); }
+    public bool IsLightTheme => string.Equals(SelectedTheme, "Light", StringComparison.OrdinalIgnoreCase);
+    public string AppBackground => IsLightTheme ? "#F4F6FA" : "#101114";
+    public string PanelBackground => IsLightTheme ? "#FFFFFF" : "#17191F";
+    public string CardBackground => IsLightTheme ? "#F9FAFC" : "#20232B";
+    public string SoftBorder => IsLightTheme ? "#D9DEE8" : "#30343D";
+    public string PrimaryText => IsLightTheme ? "#151821" : "#E8EAF0";
+    public string SecondaryText => IsLightTheme ? "#5F6878" : "#A6ADBA";
+    public string CanvasBackground => IsLightTheme ? "#EEF2F7" : "#16181D";
+    public string CanvasFooterBackground => IsLightTheme ? "#E6EAF1" : "#D017191F";
+    public string CanvasFooterText => IsLightTheme ? "#2C3442" : "#D1D5DB";
     public bool IsGenerating { get => _isGenerating; set => this.RaiseAndSetIfChanged(ref _isGenerating, value); }
     public bool IsCompareMode { get => _isCompareMode; set => this.RaiseAndSetIfChanged(ref _isCompareMode, value); }
+    public bool ShowOnboarding { get => _showOnboarding; set => this.RaiseAndSetIfChanged(ref _showOnboarding, value); }
     public Bitmap? CurrentPreview
     {
         get => _currentPreview;
@@ -208,7 +226,7 @@ public sealed class MainViewModel : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _selectedLanguage, value);
             _localization.Language = value;
-            SaveSettings();
+            SavePreferences();
         }
     }
 
@@ -219,20 +237,55 @@ public sealed class MainViewModel : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _selectedTheme, value);
             ApplyTheme(value);
-            SaveSettings();
+            RaiseThemePaletteChanged();
+            SavePreferences();
         }
     }
 
     public double PixelSize { get => _pixelSize; set => SetOptionAndReset(ref _pixelSize, value); }
-    public int? Seed { get => _seed; set => SetOption(ref _seed, value, MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.Regions); }
+    public int? Seed
+    {
+        get => _seed;
+        set
+        {
+            SetOption(ref _seed, value, MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.Regions);
+            this.RaiseAndSetIfChanged(ref _seedText, value?.ToString() ?? string.Empty, nameof(SeedText));
+            this.RaisePropertyChanged(nameof(SeedText));
+        }
+    }
+    public string SeedText
+    {
+        get => _seedText;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _seedText, value ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                Seed = null;
+                return;
+            }
+
+            if (int.TryParse(value, out var parsed) && parsed > 0)
+                Seed = parsed;
+        }
+    }
     public MapProjectionMode ProjectionMode { get => _projectionMode; set => SetOptionAndReset(ref _projectionMode, value); }
     public double SimplifyTolerance { get => _simplifyTolerance; set => SetOption(ref _simplifyTolerance, value, MapDataKeys.Landmasses); }
-    public uint TargetArea { get => _targetArea; set => SetOption(ref _targetArea, value, MapDataKeys.RawRegions); }
-    public double PointsMultiplier { get => _pointsMultiplier; set => SetOption(ref _pointsMultiplier, value, MapDataKeys.RawRegions); }
-    public double MinAreaRatio { get => _minAreaRatio; set => SetOption(ref _minAreaRatio, value, MapDataKeys.RawRegions); }
-    public double MaxAreaRatio { get => _maxAreaRatio; set => SetOption(ref _maxAreaRatio, value, MapDataKeys.RawRegions); }
+    public uint TargetArea
+    {
+        get => _targetArea;
+        set
+        {
+            SetOptionNamed(ref _targetArea, value, nameof(TargetArea), MapDataKeys.RawRegions);
+            this.RaisePropertyChanged(nameof(TargetAreaSlider));
+        }
+    }
+    public double TargetAreaSlider { get => TargetArea; set => TargetArea = (uint)Math.Max(1, Math.Round(value)); }
+    public double PointsMultiplier { get => _pointsMultiplier; set => SetOptionNamed(ref _pointsMultiplier, value, nameof(PointsMultiplier), MapDataKeys.RawRegions); }
+    public double MinAreaRatio { get => _minAreaRatio; set => SetOptionNamed(ref _minAreaRatio, value, nameof(MinAreaRatio), MapDataKeys.RawRegions); }
+    public double MaxAreaRatio { get => _maxAreaRatio; set => SetOptionNamed(ref _maxAreaRatio, value, nameof(MaxAreaRatio), MapDataKeys.RawRegions); }
     public bool BoundaryDistortionEnabled { get => _boundaryDistortionEnabled; set => SetOption(ref _boundaryDistortionEnabled, value, MapDataKeys.Regions); }
-    public double BoundaryDetail { get => _boundaryDetail; set => SetOption(ref _boundaryDetail, value, MapDataKeys.Regions); }
+    public double BoundaryDetail { get => _boundaryDetail; set => SetOptionNamed(ref _boundaryDetail, value, nameof(BoundaryDetail), MapDataKeys.Regions); }
     public double MaxOffset { get => _maxOffset; set => SetOption(ref _maxOffset, value, MapDataKeys.Regions); }
     public double MinLineLengthToCurve { get => _minLineLengthToCurve; set => SetOption(ref _minLineLengthToCurve, value, MapDataKeys.Regions); }
     public int? PlateCount { get => _plateCount; set => SetOption(ref _plateCount, value, MapDataKeys.TectonicHistory); }
@@ -332,36 +385,35 @@ public sealed class MainViewModel : ReactiveObject
             await _execution.RunProgressiveAsync(
                 session,
                 targets,
-                key =>
-                {
-                    var stage = FindStage(key);
-                    if (stage is not null)
+                key => Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        stage.Status = GenerationStageStatus.Running;
-                        stage.Error = string.Empty;
-                    }
-                    return Task.CompletedTask;
-                },
-                (key, duration) =>
-                {
-                    var stage = FindStage(key);
-                    if (stage is not null)
+                        var stage = FindStage(key);
+                        if (stage is not null)
+                        {
+                            stage.Status = GenerationStageStatus.Running;
+                            stage.Error = string.Empty;
+                        }
+                    }).GetTask(),
+                (key, duration) => Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        stage.Status = GenerationStageStatus.Ready;
-                        stage.Duration = duration;
-                    }
+                        var stage = FindStage(key);
+                        if (stage is not null)
+                        {
+                            stage.Status = GenerationStageStatus.Ready;
+                            stage.Duration = duration;
+                        }
 
-                    RefreshStageStates();
-                    RefreshLayerAvailability();
-                    SelectBestAvailableLayer(key);
-                    RefreshPreview();
-                    RefreshStatistics();
-                    return Task.CompletedTask;
-                },
+                        RefreshStageStates();
+                        RefreshLayerAvailability();
+                        SelectBestAvailableLayer(key);
+                        RefreshPreview();
+                        RefreshStatistics();
+                    }).GetTask(),
                 _generationCts.Token);
 
             StatusMessage = L["Completed"];
             AddHistoryEntry();
+            CompleteOnboarding();
             SaveSettings();
         }
         catch (OperationCanceledException)
@@ -403,6 +455,7 @@ public sealed class MainViewModel : ReactiveObject
             await _execution.RunUntilAsync(session, stage.DataKey.Value, _generationCts.Token);
             started.Stop();
             stage.Duration = started.Elapsed;
+            stage.Status = GenerationStageStatus.Ready;
 
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -445,6 +498,7 @@ public sealed class MainViewModel : ReactiveObject
             await _execution.RegenerateAsync(session, stage.DataKey.Value, _generationCts.Token);
             started.Stop();
             stage.Duration = started.Elapsed;
+            stage.Status = session.IsDirty(stage.DataKey.Value) ? GenerationStageStatus.Dirty : GenerationStageStatus.Ready;
 
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -500,6 +554,22 @@ public sealed class MainViewModel : ReactiveObject
     }
 
     private void CancelGeneration() => _generationCts?.Cancel();
+
+    private void DismissOnboarding()
+    {
+        ShowOnboarding = false;
+        _settings.HasCompletedOnboarding = true;
+        SavePreferences();
+    }
+
+    private void CompleteOnboarding()
+    {
+        if (!ShowOnboarding && _settings.HasCompletedOnboarding)
+            return;
+
+        ShowOnboarding = false;
+        _settings.HasCompletedOnboarding = true;
+    }
 
     private void RandomizeSeed()
     {
@@ -569,7 +639,16 @@ public sealed class MainViewModel : ReactiveObject
         if (HasValidationMessage)
             return false;
 
+        EnsureSeedForRun();
         return true;
+    }
+
+    private void EnsureSeedForRun()
+    {
+        if (Seed.HasValue)
+            return;
+
+        Seed = Random.Shared.Next(1, int.MaxValue);
     }
 
     private void ValidateAll()
@@ -717,30 +796,37 @@ public sealed class MainViewModel : ReactiveObject
 
     private void InitializeStages()
     {
-        Stages.Add(new GenerationStageViewModel(MapStageIds.ExtractLandmasses, "StageLandmasses", MapDataKeys.Landmasses, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.ExtractWaterBodies, "StageWaterBodies", MapDataKeys.WaterBodies, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateTectonicHistory, "StageTectonicHistory", MapDataKeys.TectonicHistory, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateCrustFields, "StageCrustFields", MapDataKeys.CrustFields, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GeneratePlateDomains, "StagePlateDomains", MapDataKeys.PlateDomains, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateTectonicBoundaries, "StageTectonicBoundaries", MapDataKeys.TectonicBoundaries, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateTectonicFeatures, "StageTectonicFeatures", MapDataKeys.TectonicFeatures, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateElevation, "StageElevation", MapDataKeys.Elevation, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateTectonicPlates, "StageTectonicPlates", MapDataKeys.TectonicPlates, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RawRegions, Localize, RunUntilStageAsync, RegenerateStageAsync));
-        Stages.Add(new GenerationStageViewModel(MapStageIds.DistortRegionBoundaries, "StageRegions", MapDataKeys.Regions, Localize, RunUntilStageAsync, RegenerateStageAsync));
+        Stages.Add(CreateStage(MapStageIds.ExtractLandmasses, "StageLandmasses", MapDataKeys.Landmasses));
+        Stages.Add(CreateStage(MapStageIds.ExtractWaterBodies, "StageWaterBodies", MapDataKeys.WaterBodies));
+        Stages.Add(CreateStage(MapStageIds.GenerateTectonicHistory, "StageTectonicHistory", MapDataKeys.TectonicHistory));
+        Stages.Add(CreateStage(MapStageIds.GenerateCrustFields, "StageCrustFields", MapDataKeys.CrustFields));
+        Stages.Add(CreateStage(MapStageIds.GeneratePlateDomains, "StagePlateDomains", MapDataKeys.PlateDomains));
+        Stages.Add(CreateStage(MapStageIds.GenerateTectonicBoundaries, "StageTectonicBoundaries", MapDataKeys.TectonicBoundaries));
+        Stages.Add(CreateStage(MapStageIds.GenerateTectonicFeatures, "StageTectonicFeatures", MapDataKeys.TectonicFeatures));
+        Stages.Add(CreateStage(MapStageIds.GenerateElevation, "StageElevation", MapDataKeys.Elevation));
+        Stages.Add(CreateStage(MapStageIds.GenerateTectonicPlates, "StageTectonicPlates", MapDataKeys.TectonicPlates));
+        Stages.Add(CreateStage(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RawRegions));
+        Stages.Add(CreateStage(MapStageIds.DistortRegionBoundaries, "StageRegions", MapDataKeys.Regions));
 
-        FutureStages.Add(new GenerationStageViewModel("rivers", "Rivers", null, Localize, RunUntilStageAsync, RegenerateStageAsync) { Status = GenerationStageStatus.Future });
-        FutureStages.Add(new GenerationStageViewModel("climate", "Climate", null, Localize, RunUntilStageAsync, RegenerateStageAsync) { Status = GenerationStageStatus.Future });
-        FutureStages.Add(new GenerationStageViewModel("resources", "Resources", null, Localize, RunUntilStageAsync, RegenerateStageAsync) { Status = GenerationStageStatus.Future });
+        FutureStages.Add(CreateStage("rivers", "Rivers", null));
+        FutureStages.Add(CreateStage("climate", "Climate", null));
+        FutureStages.Add(CreateStage("resources", "Resources", null));
+        foreach (var stage in FutureStages)
+            stage.Status = GenerationStageStatus.Future;
+    }
+
+    private GenerationStageViewModel CreateStage(string id, string labelKey, MapDataKey? dataKey)
+    {
+        return new GenerationStageViewModel(id, labelKey, dataKey, Localize, RunUntilStageAsync, RegenerateStageAsync, CopySeedAsync);
     }
 
     private void InitializePreviewLayers()
     {
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.Overview, "LayerOverview", MapDataKeys.Landmasses, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.Regions, "LayerRegions", MapDataKeys.Regions, Localize));
-        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.TectonicPlates, "LayerTectonicPlates", MapDataKeys.TectonicPlates, Localize));
-        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.Crust, "LayerCrust", MapDataKeys.TectonicPlates, Localize));
-        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.TectonicFeatures, "LayerFeatures", MapDataKeys.TectonicPlates, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.TectonicPlates, "LayerTectonicPlates", MapDataKeys.PlateDomains, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.Crust, "LayerCrust", MapDataKeys.CrustFields, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.TectonicFeatures, "LayerFeatures", MapDataKeys.TectonicFeatures, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.Elevation, "LayerElevation", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationBase, "LayerElevationBase", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationTectonic, "LayerElevationTectonic", MapDataKeys.Elevation, Localize));
@@ -761,9 +847,10 @@ public sealed class MainViewModel : ReactiveObject
             OutputDirectory = string.IsNullOrWhiteSpace(_settings.LastOutputDirectory)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MapRegionizer")
                 : _settings.LastOutputDirectory;
-            SelectedLanguage = _settings.Language;
-            SelectedTheme = _settings.Theme;
+            SelectedLanguage = LanguageOptions.Contains(_settings.Language) ? _settings.Language : "ru-RU";
+            SelectedTheme = ThemeOptions.Contains(_settings.Theme) ? _settings.Theme : "System";
             LoadOptions(_settings.GenerationOptions);
+            ShowOnboarding = !_settings.HasCompletedOnboarding;
             SelectedPreviewLayer = PreviewLayers.FirstOrDefault(l => l.Kind.ToString().Equals(_settings.LastPreviewLayer, StringComparison.OrdinalIgnoreCase))
                 ?? PreviewLayers[0];
         }
@@ -773,6 +860,13 @@ public sealed class MainViewModel : ReactiveObject
         }
 
         _sessionResetRequired = true;
+        CurrentPreview = _preview.RenderMask(MaskPath);
+        PreviewTitle = MaskFileName;
+        PreviewLegend = File.Exists(MaskPath)
+            ? $"{L["SelectedMask"]}: {MaskFileName}"
+            : L["StatusChooseMask"];
+        ApplyTheme(SelectedTheme);
+        RaiseThemePaletteChanged();
     }
 
     private void RefreshPreview()
@@ -784,9 +878,19 @@ public sealed class MainViewModel : ReactiveObject
             {
                 PreviousPreview = CurrentPreview;
                 CurrentPreview = nextPreview;
+                PreviewTitle = SelectedPreviewLayer?.Name ?? string.Empty;
+            }
+            else if (CurrentPreview is null && File.Exists(MaskPath))
+            {
+                CurrentPreview = _preview.RenderMask(MaskPath);
+                PreviewTitle = MaskFileName;
             }
 
-            PreviewLegend = _preview.GetLegend(_localization, SelectedPreviewLayer, SelectedPreviewLayer?.IsAvailable == true);
+            PreviewLegend = SelectedPreviewLayer?.IsAvailable == true
+                ? _preview.GetLegend(_localization, SelectedPreviewLayer, true)
+                : File.Exists(MaskPath)
+                    ? $"{L["SelectedMask"]}: {MaskFileName}"
+                    : _preview.GetLegend(_localization, SelectedPreviewLayer, false);
             this.RaisePropertyChanged(nameof(HasPreview));
             this.RaisePropertyChanged(nameof(HasPreviousPreview));
         }
@@ -861,11 +965,15 @@ public sealed class MainViewModel : ReactiveObject
     {
         var preferred = key == MapDataKeys.Regions
             ? PreviewLayerKind.Regions
-            : key == MapDataKeys.TectonicPlates
+            : key == MapDataKeys.CrustFields
+                ? PreviewLayerKind.Crust
+            : key == MapDataKeys.PlateDomains || key == MapDataKeys.TectonicBoundaries || key == MapDataKeys.TectonicPlates
                 ? PreviewLayerKind.TectonicPlates
-                : key == MapDataKeys.Elevation
-                    ? PreviewLayerKind.Elevation
-                    : PreviewLayerKind.Overview;
+            : key == MapDataKeys.TectonicFeatures
+                ? PreviewLayerKind.TectonicFeatures
+            : key == MapDataKeys.Elevation
+                ? PreviewLayerKind.Elevation
+                : PreviewLayerKind.Overview;
 
         var layer = PreviewLayers.FirstOrDefault(l => l.Kind == preferred && l.IsAvailable);
         if (layer is not null)
@@ -924,6 +1032,15 @@ public sealed class MainViewModel : ReactiveObject
         MarkOptionsDirty(dirtyRoots);
     }
 
+    private void SetOptionNamed<T>(ref T field, T value, string propertyName, params MapDataKey[] dirtyRoots)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return;
+
+        this.RaiseAndSetIfChanged(ref field, value, propertyName);
+        MarkOptionsDirty(dirtyRoots);
+    }
+
     private void SetOptionAndReset<T>(ref T field, T value)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
@@ -941,19 +1058,24 @@ public sealed class MainViewModel : ReactiveObject
         SaveSettings();
     }
 
-    private void SetAndResetSession<T>(ref T field, T value)
+    private void SetMaskPath(string value)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value))
+        if (string.Equals(_maskPath, value, StringComparison.Ordinal))
             return;
 
-        this.RaiseAndSetIfChanged(ref field, value);
+        this.RaiseAndSetIfChanged(ref _maskPath, value);
+        this.RaisePropertyChanged(nameof(MaskFileName));
         if (_suppressDirty)
             return;
 
         _sessionResetRequired = true;
         _workspace.Reset();
-        CurrentPreview = null;
         PreviousPreview = null;
+        CurrentPreview = _preview.RenderMask(MaskPath);
+        PreviewTitle = MaskFileName;
+        PreviewLegend = File.Exists(MaskPath)
+            ? $"{L["SelectedMask"]}: {MaskFileName}"
+            : L["StatusChooseMask"];
         RefreshStageStates();
         RefreshLayerAvailability();
         ValidateAll();
@@ -980,8 +1102,34 @@ public sealed class MainViewModel : ReactiveObject
         _settings.LastMaskPath = MaskPath;
         _settings.LastOutputDirectory = OutputDirectory;
         _settings.LastPreviewLayer = SelectedPreviewLayer?.Kind.ToString() ?? PreviewLayerKind.Overview.ToString();
+        _settings.HasCompletedOnboarding = !ShowOnboarding;
         _settings.GenerationOptions = BuildOptions();
         _settingsService.Save(_settings);
+    }
+
+    private void SavePreferences()
+    {
+        if (_suppressDirty)
+            return;
+
+        _settings.Language = SelectedLanguage;
+        _settings.Theme = SelectedTheme;
+        _settings.HasCompletedOnboarding = !ShowOnboarding;
+        _settingsService.Save(_settings);
+    }
+
+    private void RaiseThemePaletteChanged()
+    {
+        this.RaisePropertyChanged(nameof(IsLightTheme));
+        this.RaisePropertyChanged(nameof(AppBackground));
+        this.RaisePropertyChanged(nameof(PanelBackground));
+        this.RaisePropertyChanged(nameof(CardBackground));
+        this.RaisePropertyChanged(nameof(SoftBorder));
+        this.RaisePropertyChanged(nameof(PrimaryText));
+        this.RaisePropertyChanged(nameof(SecondaryText));
+        this.RaisePropertyChanged(nameof(CanvasBackground));
+        this.RaisePropertyChanged(nameof(CanvasFooterBackground));
+        this.RaisePropertyChanged(nameof(CanvasFooterText));
     }
 
     private void RefreshLocalization()

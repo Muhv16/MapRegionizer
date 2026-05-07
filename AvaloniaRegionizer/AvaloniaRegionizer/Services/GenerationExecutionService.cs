@@ -44,6 +44,7 @@ public sealed class GenerationExecutionService
             var started = DateTimeOffset.UtcNow;
             await RunUntilAsync(session, target, cancellationToken);
             await afterStage(target, DateTimeOffset.UtcNow - started);
+            await Task.Delay(75, cancellationToken);
         }
     }
 }

@@ -10,81 +10,196 @@
              x:DataType="vm:MainViewModel"
              x:CompileBindings="False">
 
-    <Grid RowDefinitions="*,Auto" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+    <UserControl.Styles>
+        <Style Selector="Border.card">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#3B82F6"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="MinWidth" Value="132"/>
+            <Setter Property="MinHeight" Value="38"/>
+            <Setter Property="Padding" Value="16,8"/>
+        </Style>
+        <Style Selector="Button.action">
+            <Setter Property="MinWidth" Value="96"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="Padding" Value="12,6"/>
+        </Style>
+        <Style Selector="Button.preset">
+            <Setter Property="MinHeight" Value="54"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="NumericUpDown.sliderValue">
+            <Setter Property="MinWidth" Value="118"/>
+            <Setter Property="MaxWidth" Value="118"/>
+            <Setter Property="Height" Value="34"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="*,Auto" Background="{Binding AppBackground}">
         <Grid ColumnDefinitions="360,*,390" RowDefinitions="*" Margin="10" ColumnSpacing="10">
-            <Border Grid.Column="0" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6">
+            <Border Grid.Column="0" Classes="card" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="{Binding L[SettingsTitle]}" FontSize="18" FontWeight="SemiBold" Margin="14,12,14,8"/>
+                    <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="2,0,2,10">
+                        <TextBlock Text="{Binding L[SettingsTitle]}" Classes="sectionTitle" Foreground="{Binding PrimaryText}"/>
+                        <Border Background="{Binding CardBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" IsVisible="{Binding ShowOnboarding}">
+                            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="8">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding L[OnboardingTitle]}" FontWeight="SemiBold" Foreground="{Binding PrimaryText}"/>
+                                    <TextBlock Text="{Binding L[OnboardingStepMask]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding L[OnboardingStepPreset]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding L[OnboardingStepGenerate]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding L[OnboardingStepExport]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="x" Command="{Binding DismissOnboardingCommand}" MinWidth="28" MinHeight="28" Padding="4" ToolTip.Tip="{Binding L[DismissOnboarding]}"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
                     <ScrollViewer>
-                        <StackPanel Margin="14,0,14,14" Spacing="12">
+                        <StackPanel Spacing="12">
                             <Expander Header="{Binding L[InputOutput]}" IsExpanded="True">
                                 <StackPanel Spacing="8">
-                                    <TextBlock Text="{Binding L[Mask]}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding L[Mask]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBox Text="{Binding MaskPath}" PlaceholderText="{Binding L[Mask]}"/>
-                                        <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseMaskCommand}"/>
+                                        <TextBox Text="{Binding MaskPath}" PlaceholderText="{Binding L[Mask]}" ToolTip.Tip="{Binding MaskPath}"/>
+                                        <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseMaskCommand}" MinWidth="84"/>
                                     </Grid>
-                                    <TextBlock Text="{Binding L[Output]}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding MaskPath}" ToolTip.Tip="{Binding MaskPath}" TextTrimming="CharacterEllipsis" FontSize="11" Foreground="{Binding SecondaryText}"/>
+                                    <TextBlock Text="{Binding L[Output]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                         <TextBox Text="{Binding OutputDirectory}" PlaceholderText="{Binding L[Output]}"/>
-                                        <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseOutputCommand}"/>
+                                        <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseOutputCommand}" MinWidth="84"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding L[Seed]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                    <TextBox Text="{Binding SeedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="{Binding L[Seed]}"/>
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                                        <Button Content="{Binding L[Randomize]}" Command="{Binding RandomizeSeedCommand}" MinWidth="86" ToolTip.Tip=""/>
+                                        <Button Grid.Column="1" Content="{Binding L[Copy]}" Command="{Binding CopySeedCommand}" MinWidth="74" ToolTip.Tip="{Binding L[CopySeedHint]}" ToolTip.ShowDelay="250"/>
                                     </Grid>
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding L[Language]}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding L[Language]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                             <ComboBox ItemsSource="{Binding LanguageOptions}" SelectedItem="{Binding SelectedLanguage}"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1">
-                                            <TextBlock Text="{Binding L[Theme]}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding L[Theme]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                             <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}"/>
                                         </StackPanel>
                                     </Grid>
                                 </StackPanel>
                             </Expander>
 
-                            <Expander Header="{Binding L[Preset]}" IsExpanded="True">
+                            <Expander Header="{Binding L[Profile]}" IsExpanded="True">
                                 <UniformGrid Columns="2" Rows="2">
-                                    <Button Content="{Binding L[FastPreview]}" Command="{Binding ApplyFastPresetCommand}" Margin="0,0,6,6"/>
-                                    <Button Content="{Binding L[Balanced]}" Command="{Binding ApplyBalancedPresetCommand}" Margin="0,0,0,6"/>
-                                    <Button Content="{Binding L[Detailed]}" Command="{Binding ApplyDetailedPresetCommand}" Margin="0,0,6,0"/>
-                                    <Button Content="{Binding L[DiagnosticExport]}" Command="{Binding ApplyDiagnosticPresetCommand}"/>
+                                    <Button Classes="preset" Command="{Binding ApplyFastPresetCommand}" Margin="0,0,6,6" ToolTip.Tip="{Binding L[FastPreview]}">
+                                        <TextBlock Text="{Binding L[FastPreview]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                                    </Button>
+                                    <Button Classes="preset" Command="{Binding ApplyBalancedPresetCommand}" Margin="0,0,0,6" ToolTip.Tip="{Binding L[Balanced]}">
+                                        <TextBlock Text="{Binding L[Balanced]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                                    </Button>
+                                    <Button Classes="preset" Command="{Binding ApplyDetailedPresetCommand}" Margin="0,0,6,0" ToolTip.Tip="{Binding L[Detailed]}">
+                                        <TextBlock Text="{Binding L[Detailed]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                                    </Button>
+                                    <Button Classes="preset" Command="{Binding ApplyDiagnosticPresetCommand}" ToolTip.Tip="{Binding L[DiagnosticExportFull]}">
+                                        <TextBlock Text="{Binding L[DiagnosticExport]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                                    </Button>
                                 </UniformGrid>
                             </Expander>
 
+                            <Expander Header="{Binding L[Regions]}" IsExpanded="True">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                        <TextBlock Text="{Binding L[RegionSize]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                        <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpRegionSize]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <Slider Value="{Binding TargetAreaSlider, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="80" Maximum="1200" TickFrequency="20"/>
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="{Binding L[Less]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding L[MoreValue]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
+                                            </Grid>
+                                        </StackPanel>
+                                        <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding TargetArea, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1"/>
+                                    </Grid>
+
+                                    <CheckBox Content="{Binding L[DistortionEnabled]}" IsChecked="{Binding BoundaryDistortionEnabled}" ToolTip.Tip="{Binding L[HelpDistortionEnabled]}"/>
+
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                        <TextBlock Text="{Binding L[BoundaryDetail]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                        <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpBoundaryDetail]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
+                                        <StackPanel>
+                                            <Slider Value="{Binding BoundaryDetail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" TickFrequency="0.01"/>
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Text="{Binding L[Smooth]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding L[DetailedScale]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
+                                            </Grid>
+                                        </StackPanel>
+                                        <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding BoundaryDetail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" FormatString="N2"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Expander>
+
+                            <Expander Header="{Binding L[AdvancedSettings]}" IsExpanded="False">
                             <TabControl>
                                 <TabItem Header="{Binding L[General]}">
                                     <StackPanel Spacing="8" Margin="0,10,0,0">
-                                        <TextBlock Text="{Binding L[Seed]}" FontWeight="SemiBold"/>
-                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-                                            <NumericUpDown Value="{Binding Seed}" Minimum="1"/>
-                                            <Button Grid.Column="1" Content="{Binding L[Randomize]}" Command="{Binding RandomizeSeedCommand}"/>
-                                            <Button Grid.Column="2" Content="{Binding L[Copy]}" Command="{Binding CopySeedCommand}"/>
-                                        </Grid>
-                                        <TextBlock Text="{Binding L[Projection]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[Projection]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                         <ComboBox ItemsSource="{Binding ProjectionModes}" SelectedItem="{Binding ProjectionMode}"/>
-                                        <TextBlock Text="{Binding L[PixelSize]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[PixelSize]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                         <NumericUpDown Value="{Binding PixelSize}" Minimum="0.01" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[SimplifyTolerance]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[SimplifyTolerance]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                         <NumericUpDown Value="{Binding SimplifyTolerance}" Minimum="0" FormatString="N2"/>
                                     </StackPanel>
                                 </TabItem>
 
                                 <TabItem Header="{Binding L[Regions]}">
                                     <StackPanel Spacing="8" Margin="0,10,0,0">
-                                        <TextBlock Text="{Binding L[TargetArea]}" FontWeight="SemiBold"/>
-                                        <NumericUpDown Value="{Binding TargetArea}" Minimum="1"/>
-                                        <TextBlock Text="{Binding L[PointsMultiplier]}" FontWeight="SemiBold"/>
-                                        <NumericUpDown Value="{Binding PointsMultiplier}" Minimum="0.01" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[MinAreaRatio]}" FontWeight="SemiBold"/>
-                                        <NumericUpDown Value="{Binding MinAreaRatio}" Minimum="0.01" Maximum="1" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[MaxAreaRatio]}" FontWeight="SemiBold"/>
-                                        <NumericUpDown Value="{Binding MaxAreaRatio}" Minimum="1" FormatString="N2"/>
-                                        <CheckBox Content="{Binding L[DistortionEnabled]}" IsChecked="{Binding BoundaryDistortionEnabled}"/>
-                                        <TextBlock Text="{Binding L[BoundaryDetail]}" FontWeight="SemiBold"/>
-                                        <NumericUpDown Value="{Binding BoundaryDetail}" Minimum="0.01" Maximum="1" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[MaxOffset]}" FontWeight="SemiBold"/>
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                            <TextBlock Text="{Binding L[PointsMultiplier]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                            <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpPointsMultiplier]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
+                                            <Slider Value="{Binding PointsMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.5" Maximum="8" TickFrequency="0.1"/>
+                                            <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding PointsMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" FormatString="N2"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                            <TextBlock Text="{Binding L[MinAreaRatio]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                            <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpMinAreaRatio]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
+                                            <Slider Value="{Binding MinAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" TickFrequency="0.01"/>
+                                            <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding MinAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" FormatString="N2"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                            <TextBlock Text="{Binding L[MaxAreaRatio]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                            <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpMaxAreaRatio]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
+                                            <Slider Value="{Binding MaxAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1" Maximum="3" TickFrequency="0.05"/>
+                                            <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding MaxAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1" FormatString="N2"/>
+                                        </Grid>
+                                        <TextBlock Text="{Binding L[MaxOffset]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                         <NumericUpDown Value="{Binding MaxOffset}" Minimum="0" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[MinLineLengthToCurve]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[MinLineLengthToCurve]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                         <NumericUpDown Value="{Binding MinLineLengthToCurve}" Minimum="0" FormatString="N2"/>
                                     </StackPanel>
                                 </TabItem>
@@ -172,124 +287,160 @@
                                     </ScrollViewer>
                                 </TabItem>
                             </TabControl>
+                            </Expander>
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
             </Border>
 
-            <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" RowSpacing="8">
-                <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
-                        <StackPanel>
-                            <TextBlock Text="{Binding L[Preview]}" FontSize="18" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding PreviewLegend}" Opacity="0.72" TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <CheckBox Grid.Column="1" Content="{Binding L[Compare]}" IsChecked="{Binding IsCompareMode}" VerticalAlignment="Center"/>
-                        <Button Grid.Column="2" Content="{Binding L[RunFull]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
-                        <Button Grid.Column="3" Content="{Binding L[Export]}" Command="{Binding ExportCommand}" IsEnabled="{Binding !IsGenerating}"/>
+            <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="8">
+                <Border Classes="card" Padding="10" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                        <Button Grid.Column="0" Classes="primary" Content="{Binding L[RunFull]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" MinWidth="220" VerticalAlignment="Center">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button Grid.Column="2" Classes="action" Content="{Binding L[Export]}" Command="{Binding ExportCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                        <CheckBox Grid.Column="3" Content="{Binding L[Compare]}" IsChecked="{Binding IsCompareMode}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="4" Text="{Binding PreviewLegend}" Opacity="0.68" TextWrapping="Wrap" MaxWidth="280" VerticalAlignment="Center"/>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1" Background="#F7F7F7" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                <Border Grid.Row="1" Background="{Binding CanvasBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
                     <Grid>
                         <Grid ColumnDefinitions="*,*" IsVisible="{Binding IsCompareMode}">
-                            <Image Source="{Binding PreviousPreview}" Stretch="Uniform" Margin="8"/>
-                            <Image Grid.Column="1" Source="{Binding CurrentPreview}" Stretch="Uniform" Margin="8"/>
+                            <Border BorderBrush="{Binding SoftBorder}" BorderThickness="0,0,1,0">
+                                <Image Source="{Binding PreviousPreview}" Stretch="Uniform"/>
+                            </Border>
+                            <Image Grid.Column="1" Source="{Binding CurrentPreview}" Stretch="Uniform"/>
                         </Grid>
-                        <Image Source="{Binding CurrentPreview}" Stretch="Uniform" Margin="8" IsVisible="{Binding !IsCompareMode}"/>
-                        <TextBlock Text="{Binding L[NoPreview]}" FontSize="20" Foreground="#777" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding !HasPreview}"/>
+                        <Image Source="{Binding CurrentPreview}" Stretch="Uniform" IsVisible="{Binding !IsCompareMode}"/>
+                        <TextBlock Text="{Binding L[NoPreview]}" FontSize="20" Foreground="{Binding SecondaryText}" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding !HasPreview}"/>
+                        <Border VerticalAlignment="Bottom" Background="{Binding CanvasFooterBackground}" Padding="10,6">
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
+                                <TextBlock Text="{Binding PreviewTitle}" Foreground="{Binding CanvasFooterText}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="1" Text="{Binding L[Fit]}" Foreground="{Binding CanvasFooterText}"/>
+                                <TextBlock Grid.Column="2" Text="100%" Foreground="{Binding CanvasFooterText}"/>
+                                <TextBlock Grid.Column="3" Text="{Binding L[Position]}" Foreground="{Binding CanvasFooterText}"/>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="2" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
-                    <TextBlock Text="{Binding Statistics}" TextWrapping="Wrap"/>
-                </Border>
             </Grid>
 
-            <Border Grid.Column="2" Background="{DynamicResource SystemControlBackgroundAltHighBrush}" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6">
-                <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="12" RowSpacing="10">
-                    <StackPanel>
-                        <TextBlock Text="{Binding L[Layers]}" FontSize="18" FontWeight="SemiBold"/>
-                        <ListBox ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" MaxHeight="160">
+            <Border Grid.Column="2" Classes="card" Padding="0" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}">
+                <TabControl Margin="10">
+                    <TabItem Header="{Binding L[Layers]}">
+                        <ListBox ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" BorderThickness="0">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Text="{Binding Name}"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding DataContext.L[LayerReady], RelativeSource={RelativeSource AncestorType=UserControl}}" Foreground="#16803A" IsVisible="{Binding IsAvailable}"/>
+                                    <Grid ColumnDefinitions="Auto,6,*,Auto,Auto" ColumnSpacing="8" Margin="0,4">
+                                        <CheckBox IsChecked="{Binding IsAvailable}" IsEnabled="False" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="1" Width="6" Height="22" CornerRadius="3" Background="#64748B"/>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowDelay="250"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="5" Opacity="0.72">
+                                                <Ellipse Width="7" Height="7" Fill="#22A35A" IsVisible="{Binding IsAvailable}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding DataContext.L[LayerReady], RelativeSource={RelativeSource AncestorType=UserControl}}" FontSize="11" IsVisible="{Binding IsAvailable}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="3" Text="view" FontSize="11" Opacity="0.65" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="4" Content="..." MinWidth="28" Padding="4" ToolTip.Tip="" IsEnabled="False"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                    </StackPanel>
+                    </TabItem>
 
-                    <TextBlock Grid.Row="1" Text="{Binding L[Stages]}" FontSize="18" FontWeight="SemiBold"/>
-                    <ScrollViewer Grid.Row="2">
-                        <StackPanel Spacing="8">
-                            <ItemsControl ItemsSource="{Binding Stages}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="5" Padding="8" Margin="0,0,0,8">
-                                            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
-                                                <StackPanel>
-                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"/>
-                                                        <TextBlock Text="{Binding DurationText}" Opacity="0.62"/>
+                    <TabItem Header="{Binding L[Stages]}">
+                        <Grid RowDefinitions="*,Auto" RowSpacing="8">
+                            <ScrollViewer>
+                                <StackPanel Spacing="2">
+                                    <ItemsControl ItemsSource="{Binding Stages}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid ColumnDefinitions="26,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" Margin="0,5">
+                                                    <TextBlock Text="{Binding StatusIcon}" Foreground="{Binding StatusBrush}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Tooltip}" ToolTip.ShowDelay="250"/>
+                                                        <TextBlock FontSize="11" Opacity="0.68" TextTrimming="CharacterEllipsis">
+                                                            <TextBlock.Text>
+                                                                <MultiBinding StringFormat="{}{0} - {1}">
+                                                                    <Binding Path="StatusText"/>
+                                                                    <Binding Path="DurationText"/>
+                                                                </MultiBinding>
+                                                            </TextBlock.Text>
+                                                        </TextBlock>
                                                     </StackPanel>
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                                                    <Button Content="{Binding DataContext.L[RunUntil], RelativeSource={RelativeSource AncestorType=UserControl}}" Command="{Binding RunUntilCommand}" IsEnabled="{Binding CanRun}"/>
-                                                    <Button Content="{Binding DataContext.L[Regenerate], RelativeSource={RelativeSource AncestorType=UserControl}}" Command="{Binding RegenerateCommand}" IsEnabled="{Binding CanRegenerate}"/>
-                                                </StackPanel>
-                                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Error}" Foreground="#C62828" TextWrapping="Wrap"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                                    <Button Grid.Column="2" Content="..." MinWidth="30" Padding="4" ToolTip.Tip="{Binding DataContext.L[More], RelativeSource={RelativeSource AncestorType=UserControl}}" ToolTip.ShowDelay="250">
+                                                        <Button.Flyout>
+                                                            <MenuFlyout>
+                                                                <MenuItem Header="{Binding RunUntilLabel}" Command="{Binding RunUntilCommand}" ToolTip.Tip="{Binding RunUntilHint}"/>
+                                                                <MenuItem Header="{Binding RegenerateLabel}" Command="{Binding RegenerateCommand}" ToolTip.Tip="{Binding RegenerateHint}"/>
+                                                                <MenuItem Header="{Binding CopySeedLabel}" Command="{Binding CopySeedCommand}" ToolTip.Tip="{Binding CopySeedHint}"/>
+                                                                <MenuItem Header="{Binding ShowArtifactsLabel}" IsEnabled="False" ToolTip.Tip=""/>
+                                                            </MenuFlyout>
+                                                        </Button.Flyout>
+                                                    </Button>
+                                                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Error}" Foreground="#C62828" TextWrapping="Wrap"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="8">
+                                <Button Content="{Binding L[Stop]}" Command="{Binding CancelCommand}" IsEnabled="{Binding IsGenerating}"/>
+                                <Button Grid.Column="1" Content="{Binding L[Continue]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                            </Grid>
+                        </Grid>
+                    </TabItem>
 
-                            <TextBlock Text="{Binding L[FutureStages]}" FontWeight="SemiBold" Margin="0,8,0,0"/>
-                            <ItemsControl ItemsSource="{Binding FutureStages}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,2" Opacity="0.65">
-                                            <TextBlock Text="{Binding Name}"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding StatusText}"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </ScrollViewer>
-
-                    <StackPanel Grid.Row="3">
-                        <TextBlock Text="{Binding L[History]}" FontSize="18" FontWeight="SemiBold"/>
-                        <ItemsControl ItemsSource="{Binding History}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Margin="0,4,0,4">
-                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Details}" Opacity="0.7"/>
+                    <TabItem Header="{Binding L[History]}">
+                        <ScrollViewer>
+                            <StackPanel Spacing="10">
+                                <ItemsControl ItemsSource="{Binding History}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Details}" Opacity="0.76"/>
+                                                    <TextBlock Text="{Binding OutputDirectory}" FontSize="11" Opacity="0.55" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OutputDirectory}"/>
+                                                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="6">
+                                                        <Button Content="{Binding DataContext.L[Load], RelativeSource={RelativeSource AncestorType=UserControl}}" IsEnabled="False"/>
+                                                        <Button Grid.Column="1" Content="{Binding DataContext.L[Compare], RelativeSource={RelativeSource AncestorType=UserControl}}" IsEnabled="False"/>
+                                                        <Button Grid.Column="2" Content="{Binding DataContext.L[OpenFolder], RelativeSource={RelativeSource AncestorType=UserControl}}" IsEnabled="False"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding L[NoHistory]}" Opacity="0.6" IsVisible="{Binding !HasHistory}"/>
+                                <Expander Header="{Binding L[Diagnostics]}" IsExpanded="False">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="{Binding Statistics}" TextWrapping="Wrap" FontSize="12" Opacity="0.82"/>
+                                        <TextBlock Text="{Binding ArtifactSummary}" TextWrapping="Wrap" FontSize="12" Opacity="0.82"/>
                                     </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Text="{Binding L[NoHistory]}" Opacity="0.6" IsVisible="{Binding !HasHistory}"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Row="4">
-                        <TextBlock Text="{Binding L[Artifacts]}" FontSize="18" FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding ArtifactSummary}" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </Grid>
+                                </Expander>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
             </Border>
         </Grid>
 
-        <Border Grid.Row="1" Background="#1F2937" Padding="10,7">
+        <Border Grid.Row="1" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1,0,1,1" Padding="10,7">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                <TextBlock Text="{Binding StatusMessage}" Foreground="White" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="{Binding PrimaryText}" TextWrapping="Wrap"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="{Binding ValidationMessage}" Foreground="#FCA5A5" IsVisible="{Binding HasValidationMessage}"/>
+                    <TextBlock Text="{Binding ValidationMessage}" Foreground="#EF4444" IsVisible="{Binding HasValidationMessage}"/>
                     <Button Content="{Binding L[Cancel]}" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}"/>
                 </StackPanel>
             </Grid>

@@ -61,5 +61,6 @@ public sealed class UserSettings
     public string LastMaskPath { get; set; } = string.Empty;
     public string LastOutputDirectory { get; set; } = string.Empty;
     public string LastPreviewLayer { get; set; } = "overview";
+    public bool HasCompletedOnboarding { get; set; }
     public MapGenerationOptions GenerationOptions { get; set; } = new();
 }
