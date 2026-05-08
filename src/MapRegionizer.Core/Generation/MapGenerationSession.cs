@@ -32,6 +32,7 @@ public sealed class MapGenerationSession
     public GeneratedMap CurrentMap => _context.ToGeneratedMap();
     public IReadOnlyList<Landmass> Landmasses => _context.Landmasses;
     public IReadOnlyList<WaterBody> WaterBodies => _context.WaterBodies;
+    public WaterBodyTopology? WaterBodyTopology => _context.WaterBodyTopology;
     public IReadOnlyList<MapRegion> RawRegions => _context.RawRegions;
     public IReadOnlyList<MapRegion> Regions => _context.Regions;
     public TectonicHistory? TectonicHistory => _context.TectonicHistory;
@@ -42,6 +43,7 @@ public sealed class MapGenerationSession
     public RiftProvinceMap? RiftProvinces => _context.RiftProvinces;
     public TectonicFeatureMap? TectonicFeatures => _context.TectonicFeatures;
     public ElevationMap? Elevation => _context.Elevation;
+    public WaterSurfaceMap? WaterSurfaces => _context.WaterSurfaces;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;
 
     public bool IsAvailable(MapDataKey key) => _context.IsAvailable(key);

@@ -15,13 +15,141 @@ public sealed record GeneratedMap(
     IReadOnlyList<WaterBody> WaterBodies,
     IReadOnlyList<MapRegion> Regions,
     TectonicPlateMap? TectonicPlates = null,
-    ElevationMap? Elevation = null);
+    ElevationMap? Elevation = null,
+    WaterBodyTopology? WaterBodyTopology = null,
+    WaterSurfaceMap? WaterSurfaces = null);
 
 public sealed record MapBounds(double Width, double Height, double PixelSize);
 
 public sealed record Landmass(LandmassId Id, Polygon Shape);
 
 public sealed record WaterBody(WaterBodyId Id, Polygon Shape);
+
+public sealed record WaterBodyClassification(
+    WaterBodyId Id,
+    WaterBodyKind Kind,
+    int CellCount,
+    bool TouchesMapEdge,
+    double AreaRatio);
+
+public enum WaterBodyKind
+{
+    Ocean,
+    OceanSea,
+    InlandLake,
+    InlandSea
+}
+
+public sealed class WaterBodyTopology
+{
+    private readonly int[] _waterBodyIds;
+    private readonly byte[] _waterBodyKinds;
+    private readonly Dictionary<int, WaterBodyClassification> _byId;
+
+    public int Width { get; }
+    public int Height { get; }
+    public IReadOnlyList<WaterBodyClassification> Bodies { get; }
+
+    public WaterBodyTopology(
+        int width,
+        int height,
+        int[] waterBodyIds,
+        byte[] waterBodyKinds,
+        IReadOnlyList<WaterBodyClassification> bodies)
+    {
+        var expectedLength = width * height;
+        if (waterBodyIds.Length != expectedLength)
+            throw new ArgumentException($"Array length must be {expectedLength}", nameof(waterBodyIds));
+        if (waterBodyKinds.Length != expectedLength)
+            throw new ArgumentException($"Array length must be {expectedLength}", nameof(waterBodyKinds));
+
+        Width = width;
+        Height = height;
+        _waterBodyIds = waterBodyIds;
+        _waterBodyKinds = waterBodyKinds;
+        Bodies = bodies;
+        _byId = bodies.ToDictionary(b => b.Id.Value);
+    }
+
+    public WaterBodyId? GetWaterBodyId(int x, int y)
+    {
+        var value = _waterBodyIds[y * Width + x];
+        return value <= 0 ? null : new WaterBodyId(value);
+    }
+
+    public WaterBodyId? GetWaterBodyId(GridPoint point) => GetWaterBodyId(point.X, point.Y);
+
+    public WaterBodyKind? GetKind(int x, int y)
+    {
+        var id = _waterBodyIds[y * Width + x];
+        return id <= 0 ? null : (WaterBodyKind)_waterBodyKinds[y * Width + x];
+    }
+
+    public WaterBodyKind? GetKind(GridPoint point) => GetKind(point.X, point.Y);
+
+    public WaterBodyClassification? GetClassification(WaterBodyId id) =>
+        _byId.TryGetValue(id.Value, out var classification) ? classification : null;
+
+    public bool IsOceanicWater(int x, int y)
+    {
+        var kind = GetKind(x, y);
+        return kind is WaterBodyKind.Ocean or WaterBodyKind.OceanSea;
+    }
+
+    public bool IsOceanicWater(GridPoint point) => IsOceanicWater(point.X, point.Y);
+
+    public bool IsInlandWater(int x, int y)
+    {
+        var kind = GetKind(x, y);
+        return kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea;
+    }
+
+    public bool IsInlandWater(GridPoint point) => IsInlandWater(point.X, point.Y);
+
+    internal ReadOnlySpan<int> WaterBodyIdsSpan => _waterBodyIds;
+    internal ReadOnlySpan<byte> WaterBodyKindsSpan => _waterBodyKinds;
+}
+
+public sealed record WaterBodySurface(
+    WaterBodyId Id,
+    WaterBodyKind Kind,
+    double SurfaceElevationMeters,
+    double SpillElevationMeters,
+    double MarginMeters,
+    double MaxDepthMeters,
+    int ShorelineCellCount);
+
+public sealed class WaterSurfaceMap
+{
+    private readonly double[] _waterSurfaceMeters;
+    private readonly Dictionary<int, WaterBodySurface> _byId;
+
+    public int Width { get; }
+    public int Height { get; }
+    public IReadOnlyList<WaterBodySurface> Bodies { get; }
+
+    public WaterSurfaceMap(int width, int height, double[] waterSurfaceMeters, IReadOnlyList<WaterBodySurface> bodies)
+    {
+        var expectedLength = width * height;
+        if (waterSurfaceMeters.Length != expectedLength)
+            throw new ArgumentException($"Array length must be {expectedLength}", nameof(waterSurfaceMeters));
+
+        Width = width;
+        Height = height;
+        _waterSurfaceMeters = waterSurfaceMeters;
+        Bodies = bodies;
+        _byId = bodies.ToDictionary(b => b.Id.Value);
+    }
+
+    public double GetWaterSurface(int x, int y) => _waterSurfaceMeters[y * Width + x];
+
+    public double GetWaterSurface(GridPoint point) => GetWaterSurface(point.X, point.Y);
+
+    public WaterBodySurface? GetBodySurface(WaterBodyId id) =>
+        _byId.TryGetValue(id.Value, out var surface) ? surface : null;
+
+    internal ReadOnlySpan<double> WaterSurfaceMetersSpan => _waterSurfaceMeters;
+}
 
 public sealed record MapRegion(RegionId Id, LandmassId LandmassId, Polygon Shape);
 
@@ -510,6 +638,8 @@ public sealed record TectonicIsland(
 public sealed class ElevationMap
 {
     private readonly double[] _elevationMeters;
+    private readonly double[] _bedElevationMeters;
+    private readonly double[] _waterSurfaceMeters;
     private readonly double[] _baseElevationMeters;
     private readonly double[] _tectonicElevationMeters;
     private readonly double[] _roughness;
@@ -535,10 +665,17 @@ public sealed class ElevationMap
         double[] mountainPassPotential,
         double[] ridgeContinuity,
         double[] foothillInfluence,
-        double[] basinInfluence)
+        double[] basinInfluence,
+        double[]? bedElevationMeters = null,
+        double[]? waterSurfaceMeters = null,
+        WaterSurfaceMap? waterSurfaces = null)
     {
         var expectedLength = width * height;
         ValidateLength(elevationMeters, expectedLength, nameof(elevationMeters));
+        bedElevationMeters ??= elevationMeters.ToArray();
+        waterSurfaceMeters ??= Enumerable.Repeat(double.NaN, expectedLength).ToArray();
+        ValidateLength(bedElevationMeters, expectedLength, nameof(bedElevationMeters));
+        ValidateLength(waterSurfaceMeters, expectedLength, nameof(waterSurfaceMeters));
         ValidateLength(baseElevationMeters, expectedLength, nameof(baseElevationMeters));
         ValidateLength(tectonicElevationMeters, expectedLength, nameof(tectonicElevationMeters));
         ValidateLength(roughness, expectedLength, nameof(roughness));
@@ -552,6 +689,8 @@ public sealed class ElevationMap
         Width = width;
         Height = height;
         _elevationMeters = elevationMeters;
+        _bedElevationMeters = bedElevationMeters;
+        _waterSurfaceMeters = waterSurfaceMeters;
         _baseElevationMeters = baseElevationMeters;
         _tectonicElevationMeters = tectonicElevationMeters;
         _roughness = roughness;
@@ -561,11 +700,26 @@ public sealed class ElevationMap
         _ridgeContinuity = ridgeContinuity;
         _foothillInfluence = foothillInfluence;
         _basinInfluence = basinInfluence;
+        WaterSurfaces = waterSurfaces;
     }
+
+    public WaterSurfaceMap? WaterSurfaces { get; }
 
     public double GetElevation(int x, int y) => _elevationMeters[y * Width + x];
 
     public double GetElevation(GridPoint point) => GetElevation(point.X, point.Y);
+
+    public double GetBedElevation(int x, int y) => _bedElevationMeters[y * Width + x];
+
+    public double GetBedElevation(GridPoint point) => GetBedElevation(point.X, point.Y);
+
+    public double GetWaterSurface(int x, int y) => _waterSurfaceMeters[y * Width + x];
+
+    public double GetWaterSurface(GridPoint point) => GetWaterSurface(point.X, point.Y);
+
+    public bool HasWaterSurface(int x, int y) => !double.IsNaN(GetWaterSurface(x, y));
+
+    public bool HasWaterSurface(GridPoint point) => HasWaterSurface(point.X, point.Y);
 
     public double GetBaseElevation(int x, int y) => _baseElevationMeters[y * Width + x];
 
@@ -605,6 +759,9 @@ public sealed class ElevationMap
 
     public ElevationZoneKind GetZone(int x, int y)
     {
+        if (HasWaterSurface(x, y))
+            return GetBedElevation(x, y) <= -3000 ? ElevationZoneKind.DeepOcean : ElevationZoneKind.ShelfSea;
+
         var elevation = GetElevation(x, y);
         return elevation switch
         {
@@ -621,6 +778,8 @@ public sealed class ElevationMap
     public ElevationZoneKind GetZone(GridPoint point) => GetZone(point.X, point.Y);
 
     internal ReadOnlySpan<double> ElevationMetersSpan => _elevationMeters;
+    internal ReadOnlySpan<double> BedElevationMetersSpan => _bedElevationMeters;
+    internal ReadOnlySpan<double> WaterSurfaceMetersSpan => _waterSurfaceMeters;
     internal ReadOnlySpan<double> BaseElevationMetersSpan => _baseElevationMeters;
     internal ReadOnlySpan<double> TectonicElevationMetersSpan => _tectonicElevationMeters;
     internal ReadOnlySpan<double> RoughnessSpan => _roughness;

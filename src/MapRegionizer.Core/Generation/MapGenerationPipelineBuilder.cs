@@ -11,6 +11,7 @@ public sealed class MapGenerationPipelineBuilder
         return new MapGenerationPipelineBuilder()
             .AddStage(new ExtractLandmassesStage())
             .AddStage(new ExtractWaterBodiesStage())
+            .AddStage(new ClassifyWaterBodiesStage())
             .AddStage(new GenerateTectonicHistoryStage())
             .AddStage(new GenerateCrustFieldsStage())
             .AddStage(new GeneratePlateDomainsStage())
@@ -19,6 +20,7 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new GenerateRiftProvincesStage())
             .AddStage(new GenerateTectonicFeaturesStage())
             .AddStage(new GenerateElevationStage())
+            .AddStage(new GenerateLakeLevelsStage())
             .AddStage(new AssembleTectonicPlateMapStage())
             .AddStage(new GenerateRegionsStage())
             .AddStage(new DistortRegionBoundariesStage());

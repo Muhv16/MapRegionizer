@@ -10,6 +10,7 @@ Elevation is generated as a standalone raster layer after tectonic feature field
 Mask
  -> Landmasses
  -> WaterBodies
+ -> WaterBodyTopology
  -> TectonicHistory
  -> CrustFields
  -> PlateDomains
@@ -18,9 +19,10 @@ Mask
  -> RiftProvinces
  -> TectonicFeatures
  -> Elevation
+ -> WaterSurfaces
 ```
 
-`Elevation` does not modify the land/water mask. By default, land cells stay above sea level and water cells stay below sea level. Future river and climate stages should depend on `Elevation`, not on rendered terrain images.
+`Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. Future river and climate stages should depend on generated terrain and water-surface data, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level semantics and future `HydroSurfaceMeters`.
 
 ## Domain Model
 
@@ -28,7 +30,9 @@ Mask
 
 Main field:
 
-- `ElevationMeters`: final height in meters relative to sea level. `0` is sea level, positive values are land elevation, and negative values are bathymetry.
+- `ElevationMeters`: compatible final bed-height field in meters relative to sea level. On land it is exposed land elevation; under water it is the bed/bathymetry.
+- `BedElevationMeters`: explicit ground elevation. This currently matches `ElevationMeters` and exists so future hydrology does not have to infer whether a water cell stores bed or surface.
+- `WaterSurfaceMeters`: water level for water cells. Ocean is `0`, `OceanSea` is below `0`, and inland lakes/seas are above `0`. Land cells have no water surface.
 
 Diagnostic fields:
 
@@ -89,17 +93,24 @@ Elevation is configured through `ElevationGenerationOptions`.
 - `VolcanismInfluence`: strength of volcanic islands, arcs, and seamount-like uplift.
 - `SmallIslandReliefFactor`: relief multiplier for classified small islands. Default value reduces excessive volcanic and ridge relief on very small islands while allowing larger island landmasses to keep stronger mountains. Values near `1` also relax the small-island relief ceiling; lower values make the ceiling stricter.
 - `RiftInfluence`: strength of rift valleys and back-arc lowering.
-- `PreserveMaskCoastline`: keeps source land above sea level and source water below sea level.
+- `PreserveMaskCoastline`: legacy compatibility option retained for existing callers; new terrain constraints are controlled by the more specific options below.
+- `PreserveOceanCoastline`: keeps source land above ocean sea level and ocean water below sea level.
+- `PreserveInlandWaterMask`: keeps source inland lakes and seas as water bodies.
+- `AllowLakeExpansion`: reserved for later hydrology; current defaults keep lake masks stable.
+- `AllowLakeDrainage`: reserved for later hydrology; current defaults keep lake masks stable.
 - `MaxElevationMeters`: upper clamp for final terrain.
 - `MinOceanDepthMeters`: lower clamp for final bathymetry.
 - `MinLandElevationMeters`: minimum final height for land when coastline preservation is enabled.
-- `MaxSeaElevationMeters`: maximum final height for water when coastline preservation is enabled.
+- `MaxSeaElevationMeters`: maximum final height for oceanic water when coastline preservation is enabled.
+- `LakeSurfacePercentile`: shoreline elevation percentile used as the stable spill-point estimate.
+- `MinLakeSurfaceMarginMeters` / `MaxLakeSurfaceMarginMeters`: margin subtracted from spill elevation.
+- `MinLakeDepthMeters`, `MaxLakeDepthMeters`, `MaxRiftLakeDepthMeters`, `MaxInlandSeaDepthMeters`: lake and inland-sea depth bounds.
 
 ## Generation Algorithm
 
 ### 1. Base Shape
 
-The generator computes distance-to-land and distance-to-water rasters with horizontal wrapping. Land starts low near coasts and rises inland. Water starts as shallow shelf near land and deepens into ocean basins. Shelf distance is locally warped by smooth multi-scale noise, and the tectonic crust stage uses variable shelf, inner-shelf, and shallow-sea widths. This prevents isolated islands from receiving perfect circular shallow-water halos while preserving the original land/water mask. Crust and coastal-zone data nudge this base:
+The generator computes distance-to-land and distance-to-water rasters with horizontal wrapping. Land starts low near coasts and rises inland. Oceanic water starts as shallow shelf near land and deepens into ocean basins. Inland water starts as a basin candidate rather than global sea: it uses land-like base terrain during the main terrain pass and is converted into a lake or inland-sea bed after the local water surface is known. Shelf distance is locally warped by smooth multi-scale noise, and the tectonic crust stage uses variable shelf, inner-shelf, and shallow-sea widths. This prevents isolated islands from receiving perfect circular shallow-water halos while preserving the original land/water mask. Crust and coastal-zone data nudge this base:
 
 - shelf and passive margins stay lower and smoother;
 - active margins and arcs start higher;
@@ -163,7 +174,7 @@ Island profile relief is scaled by `SmallIslandReliefFactor`, blended back towar
 
 ### 5. Bathymetric Structure
 
-Water keeps final elevation in meters, but derived `TerrainClassKind` values describe underwater roles:
+Oceanic water keeps final bed elevation in meters, but derived `TerrainClassKind` values describe underwater roles:
 
 - `DeepChannel`: narrow deeper passages, usually related to rifts or constrained seas;
 - `ShallowBank`: raised shallow banks on shelves and around archipelagos;
@@ -175,17 +186,23 @@ Water keeps final elevation in meters, but derived `TerrainClassKind` values des
 
 These roles are generated from final depth, distance to land, local land enclosure, crust/coastal zones, and diffused ridge/subduction/rift masks. Their height adjustments are intentionally moderate so seas gain strategic structure without becoming visually overloaded.
 
-### 6. Procedural Detail
+### 6. Lake Levels
+
+After the main terrain and ocean bathymetry passes, inland water bodies use `WaterBodyTopology` to compute a local water surface. The shoreline ring is all land adjacent to a lake. The lake spill point is estimated from the configured shoreline percentile, then the surface is set slightly below it. With the default preservation settings, shoreline cells below the rim are lifted to keep the original mask stable instead of expanding or draining the lake.
+
+Lake beds are shaped below their local surface. Depth increases from shore toward the center with a smooth profile, then receives small local noise. Small ponds stay shallow, ordinary lakes use moderate depths, rift lakes can become much deeper, and `InlandSea` bodies use broader sea-like depth ranges while still keeping a positive surface.
+
+### 7. Procedural Detail
 
 Multi-octave value noise adds local terrain variation without external dependencies. Noise amplitude is controlled by `Roughness`, local tectonic activity, crust type, and distance from the coastline. Ocean noise is lower than land noise so underwater relief remains a background signal. Ocean and shelf distances use weighted 8-neighbor distance so bathymetry changes in smoother rings rather than sharp Manhattan-distance steps.
 
-### 7. Smoothing and Constraints
+### 8. Smoothing and Constraints
 
-The erosion pass blends each cell toward nearby cells on the same land/water surface. Water receives stronger smoothing than land to remove hard ocean lines. Ridge and collision masks reduce smoothing so mountain belts remain legible. A final interior-lowland lift suppresses isolated beach-colored spots far from coasts while preserving coastal lowlands. The final pass clamps heights and, by default, re-enforces the original land/water mask.
+The erosion pass blends each cell toward nearby cells on the same land/water surface. Water receives stronger smoothing than land to remove hard ocean lines. Ridge and collision masks reduce smoothing so mountain belts remain legible. A final interior-lowland lift suppresses isolated beach-colored spots far from coasts while preserving coastal lowlands. The final pass clamps heights and, by default, re-enforces ocean coastline constraints without forcing inland lakes below zero.
 
 ## Exports and Rendering
 
-`ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows.
+`ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes bed elevation, water-surface elevation, base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows.
 
 `MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
 
@@ -244,4 +261,5 @@ Debug maps:
 
 - This is not hydraulic erosion. River carving should be added in a future `Rivers` stage.
 - Elevation preserves the mask by default, so generated terrain will not create new seas or land bridges.
+- Below-zero water is no longer synonymous with all water. Only oceanic water is globally constrained below sea level; inland lakes and seas use local positive water surfaces.
 - Diagnostic fields are generation aids. Climate and river stages should primarily use final elevation plus selected tectonic fields where needed.

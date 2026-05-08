@@ -49,6 +49,8 @@ public static class ElevationJsonWriter
             EncodeRows(elevation, elevation.GetElevation, diagnostic ? 1 : 10),
             EncodeZoneRows(elevation),
             EncodeTerrainClassRows(elevation),
+            diagnostic ? EncodeRows(elevation, elevation.GetBedElevation, 1) : null,
+            diagnostic ? EncodeOptionalRows(elevation, elevation.GetWaterSurface, 1) : null,
             diagnostic ? EncodeRows(elevation, elevation.GetBaseElevation, 1) : null,
             diagnostic ? EncodeRows(elevation, elevation.GetTectonicElevation, 1) : null,
             diagnostic ? EncodeUnitRows(elevation, elevation.GetRoughness, 1000) : null,
@@ -102,6 +104,35 @@ public static class ElevationJsonWriter
             for (var x = 1; x < elevation.Width; x++)
             {
                 var value = UnitCode(readValue(x, y), multiplier);
+                if (value == current)
+                    continue;
+
+                AppendRun(sb, current, x - runStart);
+                current = value;
+                runStart = x;
+            }
+
+            AppendRun(sb, current, elevation.Width - runStart);
+            rows[y] = sb.ToString();
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<string> EncodeOptionalRows(ElevationMap elevation, Func<int, int, double> readValue, int binSize)
+    {
+        var rows = new string[elevation.Height];
+        var sb = new StringBuilder();
+
+        for (var y = 0; y < elevation.Height; y++)
+        {
+            sb.Clear();
+            var runStart = 0;
+            var current = OptionalHeightCode(readValue(0, y), binSize);
+
+            for (var x = 1; x < elevation.Width; x++)
+            {
+                var value = OptionalHeightCode(readValue(x, y), binSize);
                 if (value == current)
                     continue;
 
@@ -189,6 +220,9 @@ public static class ElevationJsonWriter
         return bin.ToString(CultureInfo.InvariantCulture);
     }
 
+    private static string OptionalHeightCode(double value, int binSize) =>
+        double.IsNaN(value) ? "." : HeightCode(value, binSize);
+
     private static string UnitCode(double value, int multiplier)
     {
         var bin = (int)Math.Round(Math.Clamp(value, 0, 1) * multiplier);
@@ -237,6 +271,8 @@ public static class ElevationJsonWriter
         IReadOnlyList<string> ElevationRows,
         IReadOnlyList<string> ZoneRows,
         IReadOnlyList<string> TerrainClassRows,
+        IReadOnlyList<string>? BedElevationRows,
+        IReadOnlyList<string>? WaterSurfaceRows,
         IReadOnlyList<string>? BaseElevationRows,
         IReadOnlyList<string>? TectonicElevationRows,
         IReadOnlyList<string>? RoughnessRows,

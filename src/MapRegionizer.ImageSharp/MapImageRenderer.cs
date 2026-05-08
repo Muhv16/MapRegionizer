@@ -452,9 +452,12 @@ public static class MapImageRenderer
     {
         var elevation = elevationMap.GetElevation(x, y);
         Rgba32 color;
-        if (elevation < 0)
+        if (elevationMap.HasWaterSurface(x, y))
         {
-            var depth = Math.Clamp(-elevation / Math.Max(1.0, Math.Abs(options.DeepOceanDepthMeters)), 0, 1);
+            var surface = elevationMap.GetWaterSurface(x, y);
+            var bed = elevationMap.GetBedElevation(x, y);
+            var depthMeters = surface <= 0 ? Math.Max(-bed, surface - bed) : Math.Max(0.0, surface - bed);
+            var depth = Math.Clamp(depthMeters / Math.Max(1.0, Math.Abs(options.DeepOceanDepthMeters)), 0, 1);
             var depthColor = depth < 0.35
                 ? LerpColor(options.ShallowWaterColor, options.ShelfWaterColor, depth / 0.35)
                 : LerpColor(options.ShelfWaterColor, options.DeepWaterColor, (depth - 0.35) / 0.65);

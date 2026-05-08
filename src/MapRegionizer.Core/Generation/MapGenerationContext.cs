@@ -26,6 +26,7 @@ public sealed class MapGenerationContext
     public MapBounds Bounds { get; private set; }
     public List<Landmass> Landmasses { get; } = [];
     public List<WaterBody> WaterBodies { get; } = [];
+    public WaterBodyTopology? WaterBodyTopology { get; set; }
     public List<MapRegion> RawRegions { get; } = [];
     public List<MapRegion> Regions { get; } = [];
     public TectonicHistory? TectonicHistory { get; set; }
@@ -36,13 +37,14 @@ public sealed class MapGenerationContext
     public RiftProvinceMap? RiftProvinces { get; set; }
     public TectonicFeatureMap? TectonicFeatures { get; set; }
     public ElevationMap? Elevation { get; set; }
+    public WaterSurfaceMap? WaterSurfaces { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
     public IReadOnlySet<MapDataKey> AvailableData => _availableData;
     public IReadOnlySet<MapDataKey> DirtyData => _dirtyData;
 
     public RegionId CreateRegionId() => new(_nextRegionId++);
 
-    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation);
+    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces);
 
     public bool Has(MapDataKey key) => _availableData.Contains(key) && !_dirtyData.Contains(key);
 
@@ -76,6 +78,8 @@ public sealed class MapGenerationContext
             Landmasses.Clear();
         else if (key == MapDataKeys.WaterBodies)
             WaterBodies.Clear();
+        else if (key == MapDataKeys.WaterBodyTopology)
+            WaterBodyTopology = null;
         else if (key == MapDataKeys.RawRegions)
             RawRegions.Clear();
         else if (key == MapDataKeys.Regions)
@@ -96,6 +100,8 @@ public sealed class MapGenerationContext
             TectonicFeatures = null;
         else if (key == MapDataKeys.Elevation)
             Elevation = null;
+        else if (key == MapDataKeys.WaterSurfaces)
+            WaterSurfaces = null;
         else if (key == MapDataKeys.TectonicPlates)
             TectonicPlates = null;
     }

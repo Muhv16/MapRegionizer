@@ -20,6 +20,7 @@ internal sealed class ElevationGenerator
         OrogenProvinceMap orogenProvinces,
         RiftProvinceMap riftProvinces,
         TectonicFeatureMap features,
+        WaterBodyTopology? waterBodyTopology,
         ElevationGenerationOptions options)
     {
         var length = mask.Width * mask.Height;
@@ -80,18 +81,20 @@ internal sealed class ElevationGenerator
                 var point = new GridPoint(x, y);
                 var index = y * mask.Width + x;
                 var isLand = mask.IsLand(point);
+                var isInlandWater = !isLand && waterBodyTopology?.IsInlandWater(point) == true;
+                var isLandLike = isLand || isInlandWater;
                 var crust = crustFields.GetCrust(point);
                 var coastal = crustFields.GetCoastalZone(point);
                 var domain = domains.TryGetValue(plateDomains.GetPlate(point).Value, out var foundDomain) ? foundDomain : null;
                 var activity = domain?.Activity ?? 0.5;
                 var coastalInfluence = Math.Clamp(1.0 - distanceToWater[index] / Math.Max(1.0, shelfWidth * 3.2), 0, 1);
 
-                baseElevation[index] = isLand
+                baseElevation[index] = isLandLike
                     ? ComputeLandBase(distanceToWater[index], inlandScale, crust, coastal)
                     : ComputeSeaBase(x, y, distanceToLand[index], shelfWidth, deepOceanScale, crust, coastal, crustFields.GetOceanicAge(point), options);
 
                 tectonicElevation[index] = ComputeTectonicContribution(
-                    isLand,
+                    isLandLike,
                     crust,
                     coastal,
                     activity,
@@ -121,7 +124,7 @@ internal sealed class ElevationGenerator
                     options);
 
                 roughness[index] = ComputeRoughness(
-                    isLand,
+                    isLandLike,
                     crust,
                     coastal,
                     uplift[index],
@@ -136,11 +139,11 @@ internal sealed class ElevationGenerator
 
                 var detail = FractalNoise(x, y, scale: 32.0, octaves: 5);
                 var broad = FractalNoise(x + 113, y - 47, scale: 96.0, octaves: 3);
-                var coastDampening = isLand
+                var coastDampening = isLandLike
                     ? Math.Clamp(distanceToWater[index] / Math.Max(1.0, shelfWidth), 0.25, 1.0)
                     : Math.Clamp(distanceToLand[index] / Math.Max(1.0, shelfWidth), 0.18, 1.0);
-                var noiseAmplitude = (isLand ? 430.0 : 120.0) * options.Roughness * roughness[index] * coastDampening;
-                var broadWeight = isLand ? 0.45 : 0.25;
+                var noiseAmplitude = (isLandLike ? 430.0 : 120.0) * options.Roughness * roughness[index] * coastDampening;
+                var broadWeight = isLandLike ? 0.45 : 0.25;
                 var shapedNoise = detail * noiseAmplitude + broad * noiseAmplitude * broadWeight;
 
                 elevation[index] = (baseElevation[index] + tectonicElevation[index] + shapedNoise) * options.ReliefScale;
@@ -149,11 +152,13 @@ internal sealed class ElevationGenerator
 
         ApplyLargeBasins(mask, elevation, basinInfluence, distanceToWater, shelfWidth);
         ApplyMountainCrossSection(mask, elevation, ridgeContinuity, mountainPassPotential, foothillInfluence, basinInfluence, distanceToWater, shelfWidth);
-        ApplyBathymetricStructure(mask, elevation, distanceToLand, landEnclosure, shelfWidth, ridgeMask, subductionMask, riftProvince, riftGraben, crustFields, options);
+        ApplyBathymetricStructure(mask, waterBodyTopology, elevation, distanceToLand, landEnclosure, shelfWidth, ridgeMask, subductionMask, riftProvince, riftGraben, crustFields, options);
         ApplyIslandProfiles(mask, features.Islands, elevation, roughness, distanceToLand, options);
         SmoothElevation(mask, elevation, ridgeMask, collisionMask, options, erosionMask);
         LiftInteriorLowlands(mask, elevation, distanceToWater, shelfWidth);
-        EnforceConstraints(mask, elevation, options);
+        EnforceConstraints(mask, waterBodyTopology, elevation, options);
+        var waterSurface = Enumerable.Repeat(double.NaN, length).ToArray();
+        var waterSurfaces = ApplyWaterSurfaceLevels(mask, waterBodyTopology, elevation, waterSurface, riftProvince, riftGraben, options);
         ClassifyTerrain(mask, crustFields, elevation, roughness, distanceToLand, distanceToWater, landEnclosure, shelfWidth, sedimentSupply, heatFlow, basinInfluence, foothillInfluence, ridgeContinuity, ridgeMask, subductionMask, riftProvince, riftGraben, terrainClasses);
         return new ElevationMap(
             mask.Width,
@@ -167,7 +172,10 @@ internal sealed class ElevationGenerator
             mountainPassPotential,
             ridgeContinuity,
             foothillInfluence,
-            basinInfluence);
+            basinInfluence,
+            elevation.ToArray(),
+            waterSurface,
+            waterSurfaces);
     }
 
     private static double ComputeLandBase(double distanceToWater, double inlandScale, CrustKind crust, CoastalZoneKind coastal)
@@ -671,6 +679,7 @@ internal sealed class ElevationGenerator
 
     private static void ApplyBathymetricStructure(
         MapMask mask,
+        WaterBodyTopology? waterBodyTopology,
         double[] elevation,
         double[] distanceToLand,
         double[] landEnclosure,
@@ -688,6 +697,8 @@ internal sealed class ElevationGenerator
             {
                 var point = new GridPoint(x, y);
                 if (mask.IsLand(point))
+                    continue;
+                if (waterBodyTopology is not null && !waterBodyTopology.IsOceanicWater(point))
                     continue;
 
                 var index = y * mask.Width + x;
@@ -721,6 +732,233 @@ internal sealed class ElevationGenerator
                 elevation[index] = Math.Clamp(elevation[index], options.MinOceanDepthMeters, -1.0);
             }
         }
+    }
+
+    private static WaterSurfaceMap ApplyWaterSurfaceLevels(
+        MapMask mask,
+        WaterBodyTopology? waterBodyTopology,
+        double[] elevation,
+        double[] waterSurface,
+        double[] riftProvince,
+        double[] riftGraben,
+        ElevationGenerationOptions options)
+    {
+        var bodyCells = new Dictionary<int, List<GridPoint>>();
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                if (mask.IsLand(new GridPoint(x, y)))
+                    continue;
+
+                var id = waterBodyTopology?.GetWaterBodyId(x, y)?.Value ?? 1;
+                if (!bodyCells.TryGetValue(id, out var cells))
+                {
+                    cells = [];
+                    bodyCells[id] = cells;
+                }
+
+                cells.Add(new GridPoint(x, y));
+            }
+        }
+
+        var surfaces = new List<WaterBodySurface>();
+        foreach (var (idValue, cells) in bodyCells)
+        {
+            var id = new WaterBodyId(idValue);
+            var classification = waterBodyTopology?.GetClassification(id);
+            var kind = classification?.Kind ?? WaterBodyKind.Ocean;
+            var shoreline = FindShoreline(mask, cells);
+            var margin = ComputeLakeSurfaceMargin(cells.Count, mask.Width * mask.Height, options);
+            var spillElevation = shoreline.Count > 0
+                ? Percentile(shoreline.Select(p => elevation[p.Y * mask.Width + p.X]).ToList(), options.LakeSurfacePercentile)
+                : options.MinLandElevationMeters + margin;
+
+            var surface = kind switch
+            {
+                WaterBodyKind.Ocean => 0.0,
+                WaterBodyKind.OceanSea => Math.Min(options.MaxSeaElevationMeters, -1.0),
+                _ => Math.Max(options.MinLandElevationMeters, spillElevation - margin)
+            };
+
+            var maxDepth = kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea
+                ? ComputeLakeMaxDepth(kind, cells, shoreline, elevation, riftProvince, riftGraben, mask.Width, mask.Height, options)
+                : Math.Max(0.0, surface - cells.Min(p => elevation[p.Y * mask.Width + p.X]));
+
+            foreach (var cell in cells)
+                waterSurface[cell.Y * mask.Width + cell.X] = surface;
+
+            if (kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea)
+            {
+                if (options.PreserveInlandWaterMask || !options.AllowLakeExpansion)
+                    LiftShorelineRim(mask, shoreline, elevation, surface + margin);
+
+                ShapeLakeBed(mask, cells, elevation, surface, maxDepth, options);
+            }
+
+            surfaces.Add(new WaterBodySurface(id, kind, surface, spillElevation, margin, maxDepth, shoreline.Count));
+        }
+
+        return new WaterSurfaceMap(mask.Width, mask.Height, waterSurface, surfaces);
+    }
+
+    private static List<GridPoint> FindShoreline(MapMask mask, IReadOnlyList<GridPoint> waterCells)
+    {
+        var shoreline = new HashSet<GridPoint>();
+        foreach (var cell in waterCells)
+        {
+            foreach (var neighbor in Neighbors8(cell, mask.Width, mask.Height))
+            {
+                if (mask.IsLand(neighbor))
+                    shoreline.Add(neighbor);
+            }
+        }
+
+        return shoreline.ToList();
+    }
+
+    private static void LiftShorelineRim(MapMask mask, IReadOnlyList<GridPoint> shoreline, double[] elevation, double rimFloor)
+    {
+        foreach (var point in shoreline)
+        {
+            var index = point.Y * mask.Width + point.X;
+            if (elevation[index] < rimFloor)
+                elevation[index] = rimFloor;
+        }
+    }
+
+    private static void ShapeLakeBed(
+        MapMask mask,
+        IReadOnlyList<GridPoint> waterCells,
+        double[] elevation,
+        double surface,
+        double maxDepth,
+        ElevationGenerationOptions options)
+    {
+        var cellSet = waterCells.ToHashSet();
+        var distances = new Dictionary<GridPoint, double>();
+        var queue = new Queue<GridPoint>();
+
+        foreach (var cell in waterCells)
+        {
+            var touchesShore = Neighbors4(cell, mask.Width, mask.Height).Any(n => !cellSet.Contains(n));
+            if (!touchesShore)
+            {
+                distances[cell] = double.PositiveInfinity;
+                continue;
+            }
+
+            distances[cell] = 0;
+            queue.Enqueue(cell);
+        }
+
+        if (queue.Count == 0)
+        {
+            foreach (var cell in waterCells)
+                distances[cell] = 0;
+        }
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var currentDistance = distances[current];
+            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+            {
+                if (!cellSet.Contains(neighbor))
+                    continue;
+
+                var nextDistance = currentDistance + 1.0;
+                if (distances.TryGetValue(neighbor, out var existing) && nextDistance >= existing)
+                    continue;
+
+                distances[neighbor] = nextDistance;
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        var maxDistance = Math.Max(1.0, distances.Values.Where(d => !double.IsInfinity(d)).DefaultIfEmpty(1.0).Max());
+        foreach (var cell in waterCells)
+        {
+            var index = cell.Y * mask.Width + cell.X;
+            var normalized = Math.Clamp(distances[cell] / maxDistance, 0, 1);
+            var profile = SmoothStep(normalized);
+            var noise = (SmoothNoise(cell.X + 31, cell.Y - 17, 2609, 19.0) - 0.5) * maxDepth * 0.08 * Math.Clamp(normalized, 0.15, 1.0);
+            var depth = Math.Clamp(options.MinLakeDepthMeters + (maxDepth - options.MinLakeDepthMeters) * profile + noise, options.MinLakeDepthMeters, maxDepth);
+            elevation[index] = surface - depth;
+        }
+    }
+
+    private static double ComputeLakeSurfaceMargin(int cellCount, int mapArea, ElevationGenerationOptions options)
+    {
+        var size = Math.Clamp(Math.Sqrt(cellCount / (double)Math.Max(1, mapArea)) * 4.0, 0, 1);
+        return Lerp(options.MinLakeSurfaceMarginMeters, options.MaxLakeSurfaceMarginMeters, size);
+    }
+
+    private static double ComputeLakeMaxDepth(
+        WaterBodyKind kind,
+        IReadOnlyList<GridPoint> cells,
+        IReadOnlyList<GridPoint> shoreline,
+        double[] elevation,
+        double[] riftProvince,
+        double[] riftGraben,
+        int width,
+        int height,
+        ElevationGenerationOptions options)
+    {
+        var mapScale = Math.Max(1.0, Math.Min(width, height) * 0.16);
+        var size = Math.Clamp(Math.Sqrt(cells.Count) / mapScale, 0, 1);
+        var rift = cells
+            .Select(p => Math.Clamp(riftProvince[p.Y * width + p.X] * 0.45 + riftGraben[p.Y * width + p.X] * 0.85, 0, 1))
+            .DefaultIfEmpty(0)
+            .Average();
+        var relief = 0.0;
+        if (shoreline.Count >= 4)
+        {
+            var shorelineElevations = shoreline.Select(p => elevation[p.Y * width + p.X]).Order().ToList();
+            relief = PercentileSorted(shorelineElevations, 0.90) - PercentileSorted(shorelineElevations, 0.10);
+        }
+
+        if (kind == WaterBodyKind.InlandSea)
+        {
+            var depth = Lerp(20.0, options.MaxInlandSeaDepthMeters, Math.Pow(size, 0.72)) + rift * 70.0 + relief * 0.025;
+            return Math.Clamp(depth, 20.0, options.MaxInlandSeaDepthMeters);
+        }
+
+        if (cells.Count <= 18)
+        {
+            var pond = Lerp(1.0, 8.0, Math.Clamp(cells.Count / 18.0, 0, 1));
+            return Math.Clamp(pond, options.MinLakeDepthMeters, Math.Min(8.0, options.MaxLakeDepthMeters));
+        }
+
+        var ordinaryDepth = Lerp(5.0, options.MaxLakeDepthMeters, Math.Pow(size, 0.82)) + relief * 0.035;
+        var riftAllowance = Lerp(options.MaxLakeDepthMeters, options.MaxRiftLakeDepthMeters, rift);
+        var depthWithRift = ordinaryDepth + rift * 130.0;
+        return Math.Clamp(depthWithRift, options.MinLakeDepthMeters, riftAllowance);
+    }
+
+    private static double Percentile(IReadOnlyList<double> values, double percentile)
+    {
+        if (values.Count == 0)
+            return 0;
+
+        var sorted = values.Order().ToList();
+        return PercentileSorted(sorted, percentile);
+    }
+
+    private static double PercentileSorted(IReadOnlyList<double> sortedValues, double percentile)
+    {
+        if (sortedValues.Count == 0)
+            return 0;
+        if (sortedValues.Count == 1)
+            return sortedValues[0];
+
+        var position = Math.Clamp(percentile, 0, 1) * (sortedValues.Count - 1);
+        var lower = (int)Math.Floor(position);
+        var upper = (int)Math.Ceiling(position);
+        if (lower == upper)
+            return sortedValues[lower];
+
+        return Lerp(sortedValues[lower], sortedValues[upper], position - lower);
     }
 
     private void ApplyIslandProfiles(MapMask mask, IReadOnlyList<TectonicIsland> islands, double[] elevation, double[] roughness, double[] distanceToLand, ElevationGenerationOptions options)
@@ -1144,7 +1382,7 @@ internal sealed class ElevationGenerator
         return current;
     }
 
-    private static void EnforceConstraints(MapMask mask, double[] elevation, ElevationGenerationOptions options)
+    private static void EnforceConstraints(MapMask mask, WaterBodyTopology? waterBodyTopology, double[] elevation, ElevationGenerationOptions options)
     {
         for (var y = 0; y < mask.Height; y++)
         {
@@ -1154,11 +1392,19 @@ internal sealed class ElevationGenerator
                 var index = y * mask.Width + x;
                 var value = Math.Clamp(elevation[index], options.MinOceanDepthMeters, options.MaxElevationMeters);
 
-                if (options.PreserveMaskCoastline)
+                var preserveOcean = options.PreserveOceanCoastline;
+                var preserveInlandWater = options.PreserveInlandWaterMask;
+                var isLand = mask.IsLand(point);
+                var isOceanicWater = !isLand && (waterBodyTopology?.IsOceanicWater(point) ?? true);
+                var isInlandWater = !isLand && waterBodyTopology?.IsInlandWater(point) == true;
+
+                if (preserveOcean && isLand)
+                    value = Math.Max(value, options.MinLandElevationMeters);
+                else if (preserveOcean && isOceanicWater)
+                    value = Math.Min(value, options.MaxSeaElevationMeters);
+                else if (preserveInlandWater && isInlandWater)
                 {
-                    value = mask.IsLand(point)
-                        ? Math.Max(value, options.MinLandElevationMeters)
-                        : Math.Min(value, options.MaxSeaElevationMeters);
+                    value = Math.Min(value, options.MaxElevationMeters);
                 }
 
                 elevation[index] = Math.Clamp(value, options.MinOceanDepthMeters, options.MaxElevationMeters);

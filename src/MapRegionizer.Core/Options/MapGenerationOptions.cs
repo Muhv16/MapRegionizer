@@ -5,6 +5,7 @@ public sealed class MapGenerationOptions
     public double PixelSize { get; init; } = 1;
     public int? Seed { get; init; }
     public ShapeExtractionOptions ShapeExtraction { get; init; } = new();
+    public WaterBodyClassificationOptions WaterBodies { get; init; } = new();
     public RegionGenerationOptions Regions { get; init; } = new();
     public BoundaryDistortionOptions Boundaries { get; init; } = new();
     public MapProjectionMode ProjectionMode { get; init; } = MapProjectionMode.EquirectangularWorld;
@@ -15,10 +16,26 @@ public sealed class MapGenerationOptions
     {
         if (PixelSize <= 0) throw new ArgumentOutOfRangeException(nameof(PixelSize), "Pixel size must be greater than zero.");
         ShapeExtraction.Validate();
+        WaterBodies.Validate();
         Regions.Validate();
         Boundaries.Validate();
         TectonicPlates.Validate();
         Elevation.Validate();
+    }
+}
+
+public sealed class WaterBodyClassificationOptions
+{
+    public double OceanSeaMinAreaRatio { get; init; } = 0.12;
+    public double InlandSeaMinAreaRatio { get; init; } = 0.015;
+    public int OceanSeaNearOceanMaxDistanceCells { get; init; } = 13;
+
+    public void Validate()
+    {
+        if (OceanSeaMinAreaRatio < 0 || OceanSeaMinAreaRatio > 1) throw new ArgumentOutOfRangeException(nameof(OceanSeaMinAreaRatio), "Ocean-sea minimum area ratio must be in [0, 1].");
+        if (InlandSeaMinAreaRatio < 0 || InlandSeaMinAreaRatio > 1) throw new ArgumentOutOfRangeException(nameof(InlandSeaMinAreaRatio), "Inland-sea minimum area ratio must be in [0, 1].");
+        if (OceanSeaMinAreaRatio < InlandSeaMinAreaRatio) throw new ArgumentOutOfRangeException(nameof(OceanSeaMinAreaRatio), "Ocean-sea minimum area ratio should be greater than or equal to inland-sea minimum area ratio.");
+        if (OceanSeaNearOceanMaxDistanceCells < 0) throw new ArgumentOutOfRangeException(nameof(OceanSeaNearOceanMaxDistanceCells), "Ocean-sea near-ocean distance cannot be negative.");
     }
 }
 
@@ -130,10 +147,21 @@ public sealed class ElevationGenerationOptions
     public double SmallIslandReliefFactor { get; init; } = 0.55;
     public double RiftInfluence { get; init; } = 0.5;
     public bool PreserveMaskCoastline { get; init; } = true;
+    public bool PreserveOceanCoastline { get; init; } = true;
+    public bool PreserveInlandWaterMask { get; init; } = true;
+    public bool AllowLakeExpansion { get; init; } = false;
+    public bool AllowLakeDrainage { get; init; } = false;
     public double MaxElevationMeters { get; init; } = 8500;
     public double MinOceanDepthMeters { get; init; } = -7000;
     public double MinLandElevationMeters { get; init; } = 1;
     public double MaxSeaElevationMeters { get; init; } = -1;
+    public double LakeSurfacePercentile { get; init; } = 0.05;
+    public double MinLakeSurfaceMarginMeters { get; init; } = 0.5;
+    public double MaxLakeSurfaceMarginMeters { get; init; } = 8.0;
+    public double MinLakeDepthMeters { get; init; } = 1.0;
+    public double MaxLakeDepthMeters { get; init; } = 80.0;
+    public double MaxRiftLakeDepthMeters { get; init; } = 320.0;
+    public double MaxInlandSeaDepthMeters { get; init; } = 220.0;
 
     public void Validate()
     {
@@ -146,6 +174,13 @@ public sealed class ElevationGenerationOptions
         if (VolcanismInfluence < 0) throw new ArgumentOutOfRangeException(nameof(VolcanismInfluence), "Volcanism influence cannot be negative.");
         if (SmallIslandReliefFactor < 0) throw new ArgumentOutOfRangeException(nameof(SmallIslandReliefFactor), "Small island relief factor cannot be negative.");
         if (RiftInfluence < 0) throw new ArgumentOutOfRangeException(nameof(RiftInfluence), "Rift influence cannot be negative.");
+        if (LakeSurfacePercentile < 0 || LakeSurfacePercentile > 1) throw new ArgumentOutOfRangeException(nameof(LakeSurfacePercentile), "Lake surface percentile must be in [0, 1].");
+        if (MinLakeSurfaceMarginMeters < 0) throw new ArgumentOutOfRangeException(nameof(MinLakeSurfaceMarginMeters), "Minimum lake surface margin cannot be negative.");
+        if (MaxLakeSurfaceMarginMeters < MinLakeSurfaceMarginMeters) throw new ArgumentOutOfRangeException(nameof(MaxLakeSurfaceMarginMeters), "Maximum lake surface margin cannot be below minimum margin.");
+        if (MinLakeDepthMeters <= 0) throw new ArgumentOutOfRangeException(nameof(MinLakeDepthMeters), "Minimum lake depth must be greater than zero.");
+        if (MaxLakeDepthMeters < MinLakeDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxLakeDepthMeters), "Maximum lake depth cannot be below minimum lake depth.");
+        if (MaxRiftLakeDepthMeters < MaxLakeDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxRiftLakeDepthMeters), "Maximum rift lake depth cannot be below maximum lake depth.");
+        if (MaxInlandSeaDepthMeters < MaxLakeDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxInlandSeaDepthMeters), "Maximum inland sea depth cannot be below maximum lake depth.");
         if (MaxElevationMeters <= 0) throw new ArgumentOutOfRangeException(nameof(MaxElevationMeters), "Maximum elevation must be greater than zero.");
         if (MinOceanDepthMeters >= 0) throw new ArgumentOutOfRangeException(nameof(MinOceanDepthMeters), "Minimum ocean depth must be below zero.");
         if (MinLandElevationMeters < 0) throw new ArgumentOutOfRangeException(nameof(MinLandElevationMeters), "Minimum land elevation cannot be negative.");
