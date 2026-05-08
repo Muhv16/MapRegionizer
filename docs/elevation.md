@@ -15,6 +15,7 @@ Mask
  -> PlateDomains
  -> TectonicBoundaries
  -> OrogenProvinces
+ -> RiftProvinces
  -> TectonicFeatures
  -> Elevation
 ```
@@ -110,15 +111,18 @@ Tectonic features, orogen provinces, and boundary segments are converted into lo
 
 - collision and transpression produce major mountains;
 - `OrogenProvinceMap` produces broad highland, foothill, and roughness influence from validated local province masks instead of long historical lines;
+- `RiftProvinceMap` produces broad extensional province influence, local grabens, shoulder uplift, heat-flow patches, and breakup masks. `RiftAxis` is diagnostic only and is not used directly as a height/depth stroke;
 - subduction produces trenches offshore and broad uplift near active margins/arcs; its land contribution is deliberately diffused so it does not draw narrow non-mountain elevation lines across continents;
 - ridges subtly uplift ocean floor, but oceanic ridge/heat-flow signals are heavily smoothed and damped for the final playable map;
-- rifts and back-arc spreading lower land or ocean basins, with line influence diffused into wider regional fields so rift traces do not dominate playable elevation;
+- rifts and back-arc spreading lower land or ocean basins through province masks: grabens drive local subsidence, shoulders add mild uplift/roughness, heat-flow is broad and weakly volcanic, and breakup zones weaken continuity. Boundary-line rift masks remain only a subdued fallback/diagnostic context;
 - volcanism raises arcs, islands, and hotspot terrain;
 - passive margins and sediment supply create lower, smoother lowlands and shelves.
 
 Collision and transpression boundaries are not treated as continuous mountain walls. The tectonic stage already stores local `PlateBoundarySegment` records by boundary mode; the terrain stage then gates individual segment points with broad noise. Boundary stamps also vary local radius, strength, and edge falloff, so ridges, rifts, passive margins, and basin-prone belts widen, narrow, and fade along their length instead of looking like constant-width brush strokes. Non-mountain boundary masks are diffused again before they affect height, while collision and massif masks retain more local strength. Weak gated stretches become passes or subdued uplands, while strong gated stretches expand into wider massif masks. A second broader foreland signal adds foothill belts around the strongest massifs, also with local breakup noise.
 
 Orogen provinces are applied separately from the active mountain axis. Their influence and strength rasters raise broad highlands, increase foothill influence, and add moderate roughness. They only add a small amount to ridge continuity, so old provinces read as upland belts and terrane memory rather than straight mountain roads. Young active provinces can reinforce nearby collision ranges, while old historical provinces decay into wider, weaker highland tendency.
+
+Rift provinces are applied separately from raw rift lineaments. Continental rifts become chains of offset graben basins with raised shoulders and gaps, so terrain reads as an extensional province rather than a drawn incision. Back-arc extension is lower contrast and broader: it contributes heat-flow and basin tendency over lens-shaped patches behind arc systems, with much less shoulder uplift than continental rifts. Raw extensional boundary masks no longer feed tectonic height directly; terrain uses only the province influence/graben/shoulder/heat/breakup masks.
 
 After raw tectonic uplift, the terrain stage builds a skeletal mountain network:
 
@@ -142,7 +146,7 @@ This gives mountain systems a more legible transition from crest to slope to foo
 
 ### 3. Continental Basins and Lowlands
 
-Large continental plains are generated from broad low-relief signals instead of isolated spots. The basin pass combines subsidence, sediment supply, passive-margin context, rift influence, distance from coast, low ridge continuity, and broad noise. It modulates tectonic-basin width before smoothing, blends medium and broad smoothing passes with local noise, and damps overly narrow peaks back into the broad field. Basin edges therefore fade into surrounding terrain and basin belts can thicken, pinch, or break naturally instead of forming constant-width brush patches. Strong basins softly flatten terrain toward low interior targets, producing large plains on big continents without forcing every basin to sea level.
+Large continental plains are generated from broad low-relief signals instead of isolated spots. The basin pass combines subsidence, sediment supply, passive-margin context, rift province influence, local grabens, distance from coast, low ridge continuity, and broad noise. It modulates tectonic-basin width before smoothing, blends medium and broad smoothing passes with local noise, and damps overly narrow peaks back into the broad field. Basin edges therefore fade into surrounding terrain and basin belts can thicken, pinch, or break naturally instead of forming constant-width brush patches. Strong basins softly flatten terrain toward low interior targets, producing large plains on big continents without forcing every basin to sea level.
 
 ### 4. Island Profiles
 

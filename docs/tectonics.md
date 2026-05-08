@@ -17,6 +17,7 @@ Mask
  -> PlateDomains
  -> TectonicBoundaries
  -> OrogenProvinces
+ -> RiftProvinces
  -> TectonicFeatures
  -> TectonicPlates
 ```
@@ -28,6 +29,7 @@ Mask
 - `PlateDomains`
 - `BoundaryMap`
 - `OrogenProvinces`
+- `RiftProvinces`
 - `Features`
 
 `RawRegions` and `Regions` do not depend on tectonics, so region regeneration can remain fast and independent.
@@ -41,6 +43,7 @@ Main tectonic domain types:
 - `PlateDomainMap`: raster plate id assignment plus `PlateDomain` metadata, including mean oceanic-crust age where available. It is the primary plate-domain layer before compatibility assembly.
 - `TectonicBoundaryMap`: local segmented boundary model. Contains `PlateBoundarySegment` records with local type, precise boundary mode, segment activity, motion metrics, and oceanic-age metadata.
 - `OrogenProvinceMap`: rasterized orogenic province layer generated from locally valid pieces of candidate axes. Stores province metadata plus influence, strength, and diagnostic axis rasters.
+- `RiftProvinceMap`: rasterized extensional province layer generated from active extensional boundary modes plus weak historical hints. Stores province metadata plus `RiftInfluence`, diagnostic `RiftAxis`, `GrabenMask`, `ShoulderUpliftMask`, `HeatFlowMask`, and `BreakupMask` rasters.
 - `TectonicFeatureMap`: derived downstream feature layer. Contains explicit `TectonicFeature` records, classified `TectonicIsland` records, and raster fields for uplift, subsidence, volcanism, seismicity, heat flow, and sediment supply.
 - `TectonicPlateMap`: compatibility aggregate. Contains plate metadata, legacy aggregate boundaries, plate/crust raster, and references to all rich tectonic layers.
 
@@ -118,7 +121,7 @@ Lineaments then override narrow local zones:
 - ridges force young oceanic crust;
 - trenches mark active margins;
 - arcs create `Arc` crust and recent volcanism ages;
-- rifts create narrow `Rift` belts and last-rifting age;
+- historical rifts create narrow `Rift` crust memory and last-rifting age, used as weak province hints rather than direct terrain strokes;
 - sutures can locally create `Terrane` crust and last-orogeny age;
 - orogens update last-orogeny age;
 - hotspots update last-volcanism age.
@@ -191,22 +194,52 @@ Valid runs become `OrogenProvince` records. The raster mask is stamped as a vari
 
 This hard-limits the old "continental rail" failure mode: historical orogens can form local highland memory near plausible tectonic context, but unsupported lines through stable craton interiors are broken or reduced to near-zero influence.
 
-### 6. Tectonic Features
+### 6. Rift Provinces
+
+`RiftProvinceGenerator` builds extensional provinces before generic tectonic features are stamped. It uses candidate axes from:
+
+- local `PlateBoundarySegment` records whose mode is `ContinentalRift`, `Transtension`, or `BackArcSpreading`;
+- historical `Rift` lineaments, treated only as weak hints near active support or young rift memory.
+
+Each candidate point is scored from extensional motion, crust suitability, boundary support, land/shelf/back-arc context, non-craton preference, basin affinity, and low-frequency noise gates. Stable craton interiors weaken or break runs unless an active extensional boundary is close.
+
+Valid runs are not stamped as a continuous line. They are converted into en-echelon `RiftProvinceSegment` records:
+
+- main graben lenses have local offset, width, length, strength, and angle jitter;
+- gaps are inserted between segments;
+- some segments create short failed arms;
+- neighboring offset segments can be connected by weak transfer zones that add heat/breakup context without drawing a strong depression.
+- a line-likeness filter measures straightness, thinness, turn density, and path length; marker-stroke-like runs are degraded by shortening segment advance, widening lenses, increasing lateral offset, adding gaps/branches, and lowering strength.
+
+The raster stamp is an elongated lens/capsule, not a stroke. It separates:
+
+- `RiftInfluence`: broad province extent;
+- `RiftAxis`: diagnostic center traces only;
+- `GrabenMask`: local subsiding grabens and half-graben basins;
+- `ShoulderUpliftMask`: raised rift shoulders;
+- `HeatFlowMask`: broad thermal/volcanic influence;
+- `BreakupMask`: weak, broken, or transfer-dominated patches.
+
+`BackArcSpreading` produces wider, softer `BackArcExtension` provinces. These are lens-like heat/subsidence patches behind arc systems rather than narrow rift valleys, with weaker graben and shoulder expression.
+
+### 7. Tectonic Features
 
 `TectonicFeatureGenerator` converts history and boundary segments into downstream layers:
 
 - explicit `TectonicFeature` records are created from history lineaments;
-- province axes are added as diagnostic `Orogen` features, while province rasters provide the broad uplift field;
+- orogen province axes are added as diagnostic `Orogen` features, while province rasters provide the broad uplift field;
+- rift province segment centers are added as diagnostic `Rift` or `BackArcBasin` features, while province rasters provide the real subsidence, heat-flow, and shoulder-uplift fields;
 - boundary modes are converted into feature kinds such as trench, ridge, rift, back-arc basin, or orogen;
-- feature and segment points stamp raster fields: uplift, subsidence, volcanism, seismicity, heat flow, and sediment supply;
+- feature and segment points stamp raster fields: uplift, subsidence, volcanism, seismicity, heat flow, and sediment supply, but rift/back-arc lineaments and extensional boundary segments are metadata/diagnostic only; province rasters carry the terrain-relevant signal;
+- hotspot tracks stamp sparse volcanic/heat-flow patches instead of continuous heat-flow strokes, so marker chains do not create straight pink diagnostic lines;
 - boundary-derived feature intensity uses segment `Activity`;
 - shelves, slopes, and passive margins add subsidence and sediment supply;
-- rift crust adds heat flow and subsidence;
+- rift crust adds only weak memory; active rift geometry comes from `RiftProvinceMap`;
 - small landmasses are classified as volcanic arcs, hotspots, microcontinents, uplifted ridges, or shelf archipelagos.
 
-Historical sutures and old orogens now stamp only weak memory into feature rasters; strong orogenic uplift comes from `OrogenProvinceMap` or active collision/transpression boundary masks. The raw feature rasters are intentionally diagnostic and can contain line-shaped traces. The default feature PNG renderer filters these fields so the summary image stays readable.
+Historical sutures, old orogens, and old rifts now stamp only weak memory into feature rasters; strong orogenic uplift comes from `OrogenProvinceMap`, while rift subsidence/heat comes from `RiftProvinceMap`. The raw feature rasters are intentionally diagnostic and can contain line-shaped traces. The default feature PNG renderer filters these fields so the summary image stays readable.
 
-### 7. Compatibility Assembly
+### 8. Compatibility Assembly
 
 `TectonicPlateAssembler` builds the existing `TectonicPlateMap` view:
 
@@ -214,15 +247,15 @@ Historical sutures and old orogens now stamp only weak memory into feature raste
 - groups boundary segments into legacy `PlateBoundary` records;
 - maps local boundary modes to legacy `PlateBoundaryKind` while preserving aggregate `BoundaryMode`;
 - stores segment ids in aggregate boundaries to avoid duplicating point clouds in compact exports;
-- attaches history, crust, domain, boundary, orogen-province, and feature layers to the final map.
+- attaches history, crust, domain, boundary, orogen-province, rift-province, and feature layers to the final map.
 
 ## Exports
 
 `TectonicPlateJsonWriter` supports multiple export modes:
 
 - `Summary`: default runtime-friendly JSON. Keeps plates, aggregate boundaries, compact raster rows, compact age encodings, feature metadata, and islands without large point-cloud duplication.
-- `CompactDiagnostic`: keeps diagnostic meaning with compact JSON and no duplicated aggregate point lists. Orogen province influence and strength rows are included in compact scalar encoding.
-- `Diagnostic`: full debug export with dense age rows, feature/segment points, and orogen province axes.
+- `CompactDiagnostic`: keeps diagnostic meaning with compact JSON and no duplicated aggregate point lists. Orogen and rift province rows are included in compact scalar encoding.
+- `Diagnostic`: full debug export with dense age rows, feature/segment points, orogen province axes, rift province axes, rift segments, and breakup masks.
 
 Age rasters are quantized and encoded compactly in summary export. Dense raw age arrays are diagnostic data. Plate and boundary age summaries are exported as nullable numbers; unknown values are omitted instead of writing `NaN`.
 
@@ -260,7 +293,7 @@ Background:
 - dark background: no visible summary-level tectonic field;
 - blue tint: strong subsidence / basin influence;
 - red-orange tint: strong volcanism;
-- pink-purple tint: strong heat flow / rift influence;
+- pink-purple tint: strong heat flow / rift-province influence;
 - uplift and seismicity raw fields are disabled by default in summary because they carry dense line-shaped diagnostic traces. They remain available in `Diagnostic` mode or by enabling `DrawUpliftFieldInSummary` / `DrawSeismicityFieldInSummary`.
 
 Line and marker overlays:
@@ -268,7 +301,7 @@ Line and marker overlays:
 - cyan lines: ridges / spreading systems;
 - dark lines: trenches / subduction systems;
 - orange lines: volcanic arcs;
-- pink lines: rifts and back-arc extension;
+- pink/blue rift and back-arc axes plus plate-boundary overlays are hidden in summary mode; use `Diagnostic` mode to inspect `RiftAxis` and raw rift/back-arc feature traces;
 - white markers or short lines: microplates;
 - bright point markers: hotspots and classified island features.
 

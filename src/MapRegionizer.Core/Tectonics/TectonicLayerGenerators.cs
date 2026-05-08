@@ -2645,7 +2645,7 @@ internal sealed class OrogenProvinceGenerator
 
 internal sealed class TectonicFeatureGenerator
 {
-    public TectonicFeatureMap Generate(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, PlateDomainMap plateDomains, TectonicBoundaryMap boundaries, OrogenProvinceMap orogenProvinces, IReadOnlyList<Landmass> landmasses)
+    public TectonicFeatureMap Generate(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, PlateDomainMap plateDomains, TectonicBoundaryMap boundaries, OrogenProvinceMap orogenProvinces, RiftProvinceMap riftProvinces, IReadOnlyList<Landmass> landmasses)
     {
         var length = mask.Width * mask.Height;
         var uplift = new double[length];
@@ -2660,20 +2660,34 @@ internal sealed class TectonicFeatureGenerator
         foreach (var lineament in history.Lineaments)
         {
             features.Add(new TectonicFeature(nextId++, lineament.Kind, lineament.Points, lineament.Age, lineament.Intensity));
-            StampFeature(mask, lineament.Kind, lineament.Points, lineament.Intensity, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
+            if (!IsExtensionalFeature(lineament.Kind))
+            {
+                if (lineament.Kind == TectonicFeatureKind.Hotspot)
+                    StampHotspotPatches(mask, lineament.Points, lineament.Intensity, lineament.Id, uplift, volcanism, heatFlow);
+                else
+                    StampFeature(mask, lineament.Kind, lineament.Points, lineament.Intensity, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
+            }
         }
 
         foreach (var province in orogenProvinces.Provinces)
             features.Add(new TectonicFeature(nextId++, TectonicFeatureKind.Orogen, province.AxisPoints, province.Age, province.Activity, province.SourceBoundarySegmentId));
 
+        foreach (var province in riftProvinces.Provinces)
+        {
+            var kind = province.Kind == RiftProvinceKind.BackArcExtension ? TectonicFeatureKind.BackArcBasin : TectonicFeatureKind.Rift;
+            features.Add(new TectonicFeature(nextId++, kind, province.Segments.Select(s => s.Center).ToArray(), province.Age, province.Activity, province.SourceBoundarySegmentId));
+        }
+
         foreach (var segment in boundaries.Segments)
         {
             var kind = ToFeatureKind(segment.BoundaryMode);
             features.Add(new TectonicFeature(nextId++, kind, segment.Points, 0, segment.Activity, segment.Id));
-            StampSegment(mask, segment, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
+            if (!IsExtensionalMode(segment.BoundaryMode))
+                StampSegment(mask, segment, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
         }
 
         StampOrogenProvinces(mask, orogenProvinces, uplift, seismicity);
+        StampRiftProvinces(mask, riftProvinces, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
 
         for (var y = 0; y < mask.Height; y++)
         {
@@ -2688,8 +2702,8 @@ internal sealed class TectonicFeatureGenerator
 
                 if (crustFields.GetCrust(x, y) == CrustKind.Rift)
                 {
-                    heatFlow[index] += 0.35;
-                    subsidence[index] += 0.25;
+                    heatFlow[index] += 0.10;
+                    subsidence[index] += 0.06;
                 }
             }
         }
@@ -2717,15 +2731,14 @@ internal sealed class TectonicFeatureGenerator
                         seismicity[index] += 0.75 * intensity;
                         break;
                     case TectonicFeatureKind.Arc:
-                    case TectonicFeatureKind.Hotspot:
                         volcanism[index] += 0.75 * intensity;
                         heatFlow[index] += 0.35 * intensity;
                         uplift[index] += 0.25 * intensity;
                         break;
+                    case TectonicFeatureKind.Hotspot:
+                        break;
                     case TectonicFeatureKind.Rift:
                     case TectonicFeatureKind.BackArcBasin:
-                        subsidence[index] += 0.45 * intensity;
-                        heatFlow[index] += 0.45 * intensity;
                         break;
                     case TectonicFeatureKind.Suture:
                     case TectonicFeatureKind.Orogen:
@@ -2740,6 +2753,34 @@ internal sealed class TectonicFeatureGenerator
                         sedimentSupply[index] += 0.35 * intensity;
                         break;
                 }
+            }
+        }
+    }
+
+    private static void StampHotspotPatches(MapMask mask, IReadOnlyList<GridPoint> points, double intensity, int seed, double[] uplift, double[] volcanism, double[] heatFlow)
+    {
+        if (points.Count == 0)
+            return;
+
+        var patchCount = Math.Clamp(points.Count / 32 + 1, 1, 3);
+        for (var patch = 0; patch < patchCount; patch++)
+        {
+            var pointIndex = patchCount == 1
+                ? 0
+                : Math.Clamp((int)Math.Round(patch * (points.Count - 1) / (double)(patchCount - 1)), 0, points.Count - 1);
+            var center = points[pointIndex];
+            var ageDecay = Math.Clamp(1.0 - patch * 0.26, 0.42, 1.0);
+            var localStrength = intensity * ageDecay * (0.82 + Hash01(center.X, center.Y, seed + 3401) * 0.36);
+            var radius = Math.Clamp(3 + (int)Math.Round(Hash01(center.X, center.Y, seed + 3407) * 4), 3, Math.Max(4, mask.Width / 80));
+
+            foreach (var stamped in PointsInRadius(mask.Width, mask.Height, center, radius))
+            {
+                var distance = Math.Sqrt(WrappedDistanceSquared(center, stamped, mask.Width));
+                var falloff = SmoothStep(Math.Clamp(1.0 - distance / Math.Max(1.0, radius), 0, 1));
+                var index = stamped.Y * mask.Width + stamped.X;
+                volcanism[index] += falloff * 0.72 * localStrength;
+                heatFlow[index] += falloff * 0.34 * localStrength;
+                uplift[index] += falloff * 0.20 * localStrength;
             }
         }
     }
@@ -2776,8 +2817,7 @@ internal sealed class TectonicFeatureGenerator
                     case BoundaryMode.ContinentalRift:
                     case BoundaryMode.Transtension:
                     case BoundaryMode.BackArcSpreading:
-                        subsidence[index] += 0.45 * strength;
-                        heatFlow[index] += 0.45 * strength;
+                        seismicity[index] += 0.25 * strength;
                         break;
                     case BoundaryMode.PassiveMargin:
                         sedimentSupply[index] += 0.3 * strength;
@@ -2806,6 +2846,31 @@ internal sealed class TectonicFeatureGenerator
 
                 uplift[index] += strength * 0.68 + influence * 0.18;
                 seismicity[index] += provinces.GetAxis(x, y) * 0.10;
+            }
+        }
+    }
+
+    private static void StampRiftProvinces(MapMask mask, RiftProvinceMap provinces, double[] uplift, double[] subsidence, double[] volcanism, double[] seismicity, double[] heatFlow, double[] sedimentSupply)
+    {
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var index = y * mask.Width + x;
+                var influence = provinces.GetRiftInfluence(x, y);
+                var graben = provinces.GetGrabenMask(x, y);
+                var shoulder = provinces.GetShoulderUpliftMask(x, y);
+                var heat = provinces.GetHeatFlowMask(x, y);
+                var breakup = provinces.GetBreakupMask(x, y);
+                if (influence <= 0 && graben <= 0 && shoulder <= 0 && heat <= 0)
+                    continue;
+
+                subsidence[index] += graben * 0.72 + influence * 0.16;
+                uplift[index] += shoulder * 0.34;
+                heatFlow[index] += heat * 0.68;
+                volcanism[index] += heat * 0.18;
+                seismicity[index] += breakup * 0.08;
+                sedimentSupply[index] += graben * (mask.IsLand(new GridPoint(x, y)) ? 0.12 : 0.05);
             }
         }
     }
@@ -2851,6 +2916,32 @@ internal sealed class TectonicFeatureGenerator
         _ => TectonicFeatureKind.Suture
     };
 
+    private static bool IsExtensionalFeature(TectonicFeatureKind kind) =>
+        kind is TectonicFeatureKind.Rift or TectonicFeatureKind.BackArcBasin;
+
+    private static bool IsExtensionalMode(BoundaryMode mode) =>
+        mode is BoundaryMode.ContinentalRift or BoundaryMode.Transtension or BoundaryMode.BackArcSpreading;
+
+    private static double SmoothStep(double value) => value * value * (3.0 - 2.0 * value);
+
+    private static double Hash01(int x, int y, int seed)
+    {
+        unchecked
+        {
+            var value = x * 73856093 ^ y * 19349663 ^ seed * 83492791;
+            value = (value << 13) ^ value;
+            return Math.Clamp((1.0 - ((value * (value * value * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0 + 1.0) * 0.5, 0, 1);
+        }
+    }
+
+    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, int width)
+    {
+        var dx = Math.Abs(a.X - b.X);
+        dx = Math.Min(dx, width - dx);
+        var dy = a.Y - b.Y;
+        return dx * dx + dy * dy;
+    }
+
     private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
     {
         for (var dy = -radius; dy <= radius; dy++)
@@ -2874,7 +2965,7 @@ internal sealed class TectonicFeatureGenerator
 
 internal sealed class TectonicPlateAssembler
 {
-    public TectonicPlateMap Assemble(TectonicHistory history, CrustFieldMap crustFields, PlateDomainMap plateDomains, TectonicBoundaryMap boundaries, TectonicFeatureMap features, OrogenProvinceMap orogenProvinces)
+    public TectonicPlateMap Assemble(TectonicHistory history, CrustFieldMap crustFields, PlateDomainMap plateDomains, TectonicBoundaryMap boundaries, TectonicFeatureMap features, OrogenProvinceMap orogenProvinces, RiftProvinceMap riftProvinces)
     {
         var plates = plateDomains.Domains
             .Select(d => new TectonicPlate(d.Id, d.Kind, d.PointCount, d.Centroid, d.Motion, d.Activity, d.Density, d.Thickness, d.MeanOceanicAge))
@@ -2882,7 +2973,7 @@ internal sealed class TectonicPlateAssembler
         var plateBoundaries = BuildPlateBoundaries(boundaries);
         var raster = new TectonicPlateRaster(plateDomains.Width, plateDomains.Height, plateDomains.PlatesSpan.ToArray(), crustFields.CrustSpan.ToArray());
 
-        return new TectonicPlateMap(plateDomains.Width, plateDomains.Height, plates, plateBoundaries, raster, history, crustFields, plateDomains, boundaries, features, orogenProvinces);
+        return new TectonicPlateMap(plateDomains.Width, plateDomains.Height, plates, plateBoundaries, raster, history, crustFields, plateDomains, boundaries, features, orogenProvinces, riftProvinces);
     }
 
     private static IReadOnlyList<PlateBoundary> BuildPlateBoundaries(TectonicBoundaryMap boundaries)

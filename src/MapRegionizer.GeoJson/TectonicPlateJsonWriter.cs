@@ -55,13 +55,14 @@ public static class TectonicPlateJsonWriter
 
     private static TectonicLayersDto? ToLayersDto(TectonicPlateMap tectonicPlates, TectonicPlateJsonExportOptions options)
     {
-        if (tectonicPlates.CrustFields is null && tectonicPlates.BoundaryMap is null && tectonicPlates.Features is null && tectonicPlates.OrogenProvinces is null)
+        if (tectonicPlates.CrustFields is null && tectonicPlates.BoundaryMap is null && tectonicPlates.Features is null && tectonicPlates.OrogenProvinces is null && tectonicPlates.RiftProvinces is null)
             return null;
 
         return new TectonicLayersDto(
             tectonicPlates.CrustFields is null ? null : ToDto(tectonicPlates.CrustFields, options),
             tectonicPlates.BoundaryMap?.Segments.Select(s => ToDto(s, options)).ToArray(),
             tectonicPlates.OrogenProvinces is null ? null : ToDto(tectonicPlates.OrogenProvinces, options),
+            tectonicPlates.RiftProvinces is null ? null : ToDto(tectonicPlates.RiftProvinces, options),
             tectonicPlates.Features?.Features.Select(f => ToDto(f, options)).ToArray(),
             tectonicPlates.Features?.Islands.Select(ToDto).ToArray());
     }
@@ -176,6 +177,47 @@ public static class TectonicPlateJsonWriter
             province.SourceBoundarySegmentId,
             includePoints ? ToPoints(province.AxisPoints) : null);
     }
+
+    private static RiftProvinceLayerDto ToDto(RiftProvinceMap provinces, TectonicPlateJsonExportOptions options)
+    {
+        var includeRows = options.Mode != TectonicPlateJsonExportMode.Summary;
+        var diagnostic = options.Mode == TectonicPlateJsonExportMode.Diagnostic;
+        return new RiftProvinceLayerDto(
+            provinces.Provinces.Select(p => ToDto(p, options)).ToArray(),
+            includeRows ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetRiftInfluence, diagnostic ? 100 : 25) : null,
+            diagnostic ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetRiftAxis, 100) : null,
+            includeRows ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetGrabenMask, diagnostic ? 100 : 25) : null,
+            includeRows ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetShoulderUpliftMask, diagnostic ? 100 : 25) : null,
+            includeRows ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetHeatFlowMask, diagnostic ? 100 : 25) : null,
+            diagnostic ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetBreakupMask, 100) : null);
+    }
+
+    private static RiftProvinceDto ToDto(RiftProvince province, TectonicPlateJsonExportOptions options)
+    {
+        var includePoints = options.Mode == TectonicPlateJsonExportMode.Diagnostic;
+        var includeSegments = options.Mode != TectonicPlateJsonExportMode.Summary;
+        return new RiftProvinceDto(
+            province.Id,
+            province.Kind,
+            province.Age,
+            province.Activity,
+            province.MeanScore,
+            province.BaseWidth,
+            province.SourceLineamentId,
+            province.SourceBoundarySegmentId,
+            includeSegments ? province.Segments.Select(ToDto).ToArray() : null,
+            includePoints ? ToPoints(province.AxisPoints) : null);
+    }
+
+    private static RiftProvinceSegmentDto ToDto(RiftProvinceSegment segment) =>
+        new(
+            new PointDto(segment.Center.X, segment.Center.Y),
+            segment.Direction.X,
+            segment.Direction.Y,
+            segment.Length,
+            segment.Width,
+            segment.Strength,
+            segment.IsFailedArm);
 
     private static IReadOnlyList<PointDto> ToPoints(IEnumerable<GridPoint> points)
     {
@@ -417,6 +459,7 @@ public static class TectonicPlateJsonWriter
         CrustFieldDto? CrustFields,
         IReadOnlyList<PlateBoundarySegmentDto>? BoundarySegments,
         OrogenProvinceLayerDto? OrogenProvinces,
+        RiftProvinceLayerDto? RiftProvinces,
         IReadOnlyList<TectonicFeatureDto>? Features,
         IReadOnlyList<TectonicIslandDto>? Islands);
 
@@ -435,6 +478,36 @@ public static class TectonicPlateJsonWriter
         int? SourceLineamentId,
         int? SourceBoundarySegmentId,
         IReadOnlyList<PointDto>? AxisPoints);
+
+    private sealed record RiftProvinceLayerDto(
+        IReadOnlyList<RiftProvinceDto> Provinces,
+        IReadOnlyList<string>? RiftInfluenceRows,
+        IReadOnlyList<string>? RiftAxisRows,
+        IReadOnlyList<string>? GrabenMaskRows,
+        IReadOnlyList<string>? ShoulderUpliftMaskRows,
+        IReadOnlyList<string>? HeatFlowMaskRows,
+        IReadOnlyList<string>? BreakupMaskRows);
+
+    private sealed record RiftProvinceDto(
+        int Id,
+        RiftProvinceKind Kind,
+        double Age,
+        double Activity,
+        double MeanScore,
+        double BaseWidth,
+        int? SourceLineamentId,
+        int? SourceBoundarySegmentId,
+        IReadOnlyList<RiftProvinceSegmentDto>? Segments,
+        IReadOnlyList<PointDto>? AxisPoints);
+
+    private sealed record RiftProvinceSegmentDto(
+        PointDto Center,
+        double DirectionX,
+        double DirectionY,
+        double Length,
+        double Width,
+        double Strength,
+        bool IsFailedArm);
 
     private sealed record CrustFieldDto(
         IReadOnlyList<string> CrustRows,

@@ -18,6 +18,7 @@ internal sealed class ElevationGenerator
         PlateDomainMap plateDomains,
         TectonicBoundaryMap boundaries,
         OrogenProvinceMap orogenProvinces,
+        RiftProvinceMap riftProvinces,
         TectonicFeatureMap features,
         ElevationGenerationOptions options)
     {
@@ -36,7 +37,6 @@ internal sealed class ElevationGenerator
         var collisionMask = new double[length];
         var massifMask = new double[length];
         var subductionMask = new double[length];
-        var riftMask = new double[length];
         var passiveMask = new double[length];
         var distanceToLand = ComputeDistance(mask, sourceIsLand: true);
         var distanceToWater = ComputeDistance(mask, sourceIsLand: false);
@@ -47,14 +47,13 @@ internal sealed class ElevationGenerator
         var inlandScale = Math.Max(4.0, minDimension * 0.16);
         var deepOceanScale = Math.Max(5.0, minDimension * 0.24);
 
-        StampBoundaryMasks(mask, boundaries, ridgeMask, collisionMask, massifMask, subductionMask, riftMask, passiveMask);
+        StampBoundaryMasks(mask, boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask);
         var rawCollisionMask = collisionMask.ToArray();
         ridgeMask = ShapeSignal(SmoothField(ridgeMask, mask.Width, mask.Height, 11), 0.16, 1.65);
         collisionMask = ShapeSignal(SmoothField(collisionMask, mask.Width, mask.Height, 4), 0.10, 1.15);
         massifMask = ShapeSignal(SmoothField(massifMask, mask.Width, mask.Height, 6), 0.05, 1.0);
         var forelandMask = ShapeSignal(SmoothField(rawCollisionMask, mask.Width, mask.Height, 12), 0.04, 1.25);
         subductionMask = DiffuseTectonicLineSignal(subductionMask, mask.Width, mask.Height, 8, 11, 0.08, 1.18, 0.24);
-        riftMask = DiffuseTectonicLineSignal(riftMask, mask.Width, mask.Height, 9, 12, 0.10, 1.22, 0.20);
         passiveMask = DiffuseTectonicLineSignal(passiveMask, mask.Width, mask.Height, 6, 10, 0.03, 1.0, 0.26);
 
         var uplift = BuildTerrainSignal(features, features.GetUplift, 14, 0.18, 1.25);
@@ -64,10 +63,15 @@ internal sealed class ElevationGenerator
         var sedimentSupply = BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35);
         var orogenProvince = BuildOrogenProvinceSignal(orogenProvinces, orogenProvinces.GetInfluence, 5, 0.04, 0.95);
         var orogenStrength = BuildOrogenProvinceSignal(orogenProvinces, orogenProvinces.GetStrength, 3, 0.03, 0.90);
+        var riftProvince = BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetRiftInfluence, 5, 0.035, 0.92);
+        var riftGraben = BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetGrabenMask, 2, 0.05, 1.04);
+        var riftShoulder = BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetShoulderUpliftMask, 2, 0.04, 0.96);
+        var riftHeat = BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetHeatFlowMask, 6, 0.045, 0.9);
+        var riftBreakup = BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetBreakupMask, 2, 0.03, 0.88);
 
         BuildMountainNetworkFields(mask, collisionMask, massifMask, forelandMask, ridgeContinuity, mountainPassPotential, foothillInfluence);
         ApplyOrogenProvinceFields(mask, orogenProvince, orogenStrength, ridgeContinuity, mountainPassPotential, foothillInfluence);
-        BuildBasinInfluence(mask, distanceToWater, shelfWidth, subsidence, sedimentSupply, passiveMask, riftMask, ridgeContinuity, foothillInfluence, basinInfluence);
+        BuildBasinInfluence(mask, distanceToWater, shelfWidth, subsidence, sedimentSupply, passiveMask, riftProvince, riftGraben, ridgeContinuity, foothillInfluence, basinInfluence);
 
         for (var y = 0; y < mask.Height; y++)
         {
@@ -107,7 +111,11 @@ internal sealed class ElevationGenerator
                     foothillInfluence[index],
                     basinInfluence[index],
                     subductionMask[index],
-                    riftMask[index],
+                    riftProvince[index],
+                    riftGraben[index],
+                    riftShoulder[index],
+                    riftHeat[index],
+                    riftBreakup[index],
                     passiveMask[index],
                     coastalInfluence,
                     options);
@@ -121,7 +129,8 @@ internal sealed class ElevationGenerator
                     ridgeMask[index],
                     collisionMask[index],
                     orogenProvince[index],
-                    riftMask[index],
+                    riftGraben[index],
+                    riftShoulder[index],
                     basinInfluence[index],
                     options);
 
@@ -140,12 +149,12 @@ internal sealed class ElevationGenerator
 
         ApplyLargeBasins(mask, elevation, basinInfluence, distanceToWater, shelfWidth);
         ApplyMountainCrossSection(mask, elevation, ridgeContinuity, mountainPassPotential, foothillInfluence, basinInfluence, distanceToWater, shelfWidth);
-        ApplyBathymetricStructure(mask, elevation, distanceToLand, landEnclosure, shelfWidth, ridgeMask, subductionMask, riftMask, crustFields, options);
+        ApplyBathymetricStructure(mask, elevation, distanceToLand, landEnclosure, shelfWidth, ridgeMask, subductionMask, riftProvince, riftGraben, crustFields, options);
         ApplyIslandProfiles(mask, features.Islands, elevation, roughness, distanceToLand);
         SmoothElevation(mask, elevation, ridgeMask, collisionMask, options, erosionMask);
         LiftInteriorLowlands(mask, elevation, distanceToWater, shelfWidth);
         EnforceConstraints(mask, elevation, options);
-        ClassifyTerrain(mask, crustFields, elevation, roughness, distanceToLand, distanceToWater, landEnclosure, shelfWidth, sedimentSupply, heatFlow, basinInfluence, foothillInfluence, ridgeContinuity, ridgeMask, subductionMask, riftMask, terrainClasses);
+        ClassifyTerrain(mask, crustFields, elevation, roughness, distanceToLand, distanceToWater, landEnclosure, shelfWidth, sedimentSupply, heatFlow, basinInfluence, foothillInfluence, ridgeContinuity, ridgeMask, subductionMask, riftProvince, riftGraben, terrainClasses);
         return new ElevationMap(
             mask.Width,
             mask.Height,
@@ -235,7 +244,11 @@ internal sealed class ElevationGenerator
         double foothillInfluence,
         double basinInfluence,
         double subduction,
-        double rift,
+        double riftProvince,
+        double riftGraben,
+        double riftShoulder,
+        double riftHeat,
+        double riftBreakup,
         double passive,
         double coastalInfluence,
         ElevationGenerationOptions options)
@@ -265,14 +278,18 @@ internal sealed class ElevationGenerator
         contribution += Math.Clamp(volcanism, 0, 2) * options.VolcanismInfluence * (isLand ? 660 : 90);
         contribution += ridge * (isLand ? 30 : 16);
         contribution += Math.Clamp(heatFlow, 0, 2) * (isLand ? 80 : 8);
+        contribution += Math.Clamp(riftShoulder, 0, 1.4) * options.RiftInfluence * (isLand ? 145 : 18);
+        contribution += Math.Clamp(riftHeat, 0, 1.6) * options.RiftInfluence * (isLand ? 36 : 8);
         contribution -= Math.Clamp(subsidence, 0, 2) * (isLand ? 230 * landBasinDampening : 130);
         contribution -= Math.Clamp(sedimentSupply, 0, 2) * (isLand ? 45 * coastalInfluence : 10);
         contribution -= basinInfluence * (isLand ? 205 : 0);
-        contribution -= rift * options.RiftInfluence * (isLand ? 310 : 45);
+        contribution -= Math.Clamp(riftGraben, 0, 1.6) * options.RiftInfluence * (isLand ? 360 : 92);
+        contribution -= Math.Clamp(riftProvince, 0, 1.4) * options.RiftInfluence * (isLand ? 82 : 38);
+        contribution -= Math.Clamp(riftBreakup, 0, 1.2) * options.RiftInfluence * (isLand ? 26 : 16);
         contribution -= passive * (isLand ? 120 * coastalInfluence : 24);
 
         if (crust == CrustKind.Rift)
-            contribution -= options.RiftInfluence * (isLand ? 310 : 55);
+            contribution -= options.RiftInfluence * (isLand ? 80 : 24);
         if (crust == CrustKind.Arc)
             contribution += options.VolcanismInfluence * (isLand ? 380 : 60);
         if (coastal == CoastalZoneKind.PassiveMargin)
@@ -290,7 +307,8 @@ internal sealed class ElevationGenerator
         double ridge,
         double collision,
         double orogenProvince,
-        double rift,
+        double riftGraben,
+        double riftShoulder,
         double basinInfluence,
         ElevationGenerationOptions options)
     {
@@ -307,7 +325,7 @@ internal sealed class ElevationGenerator
         roughness += coastal is CoastalZoneKind.PassiveMargin or CoastalZoneKind.Shelf ? -0.12 : 0;
         roughness += Math.Clamp(uplift, 0, 1) * 0.22;
         roughness += Math.Clamp(volcanism, 0, 1) * 0.16;
-        roughness += ridge * 0.18 + collision * 0.28 + orogenProvince * 0.18 + rift * 0.18;
+        roughness += ridge * 0.18 + collision * 0.28 + orogenProvince * 0.18 + riftShoulder * 0.16 + riftGraben * 0.08;
         roughness -= basinInfluence * (isLand ? 0.18 : 0.06);
 
         return Math.Clamp(roughness * (0.55 + options.Roughness), 0.05, 1.0);
@@ -320,7 +338,6 @@ internal sealed class ElevationGenerator
         double[] collisionMask,
         double[] massifMask,
         double[] subductionMask,
-        double[] riftMask,
         double[] passiveMask)
     {
         foreach (var segment in boundaries.Segments)
@@ -331,7 +348,6 @@ internal sealed class ElevationGenerator
                 BoundaryMode.ContinentContinentCollision or BoundaryMode.Transpression => 4,
                 BoundaryMode.OceanOceanSubduction or BoundaryMode.OceanContinentSubduction or BoundaryMode.ObliqueSubduction => 3,
                 BoundaryMode.MidOceanRidge => 3,
-                BoundaryMode.ContinentalRift or BoundaryMode.Transtension or BoundaryMode.BackArcSpreading => 3,
                 _ => 2
             };
             var strength = Math.Clamp(segment.Activity, 0.15, 1.2);
@@ -374,11 +390,6 @@ internal sealed class ElevationGenerator
                         case BoundaryMode.ObliqueSubduction:
                         case BoundaryMode.AccretionaryBoundary:
                             subductionMask[index] = Math.Max(subductionMask[index], falloff);
-                            break;
-                        case BoundaryMode.ContinentalRift:
-                        case BoundaryMode.Transtension:
-                        case BoundaryMode.BackArcSpreading:
-                            riftMask[index] = Math.Max(riftMask[index], falloff);
                             break;
                         case BoundaryMode.PassiveMargin:
                             passiveMask[index] = Math.Max(passiveMask[index], falloff);
@@ -534,7 +545,8 @@ internal sealed class ElevationGenerator
         double[] subsidence,
         double[] sedimentSupply,
         double[] passiveMask,
-        double[] riftMask,
+        double[] riftProvince,
+        double[] riftGraben,
         double[] ridgeContinuity,
         double[] foothillInfluence,
         double[] basinInfluence)
@@ -554,7 +566,7 @@ internal sealed class ElevationGenerator
                 var continentalNoise = SmoothNoise(x, y, 1701, 72.0);
                 var widthNoise = SmoothNoise(x - 19, y + 41, 1709, 34.0);
                 var breakupNoise = SmoothNoise(x + 67, y - 13, 1711, 15.0);
-                var tectonicBasin = subsidence[index] * 0.58 + sedimentSupply[index] * 0.28 + passiveMask[index] * 0.32 + riftMask[index] * 0.12;
+                var tectonicBasin = subsidence[index] * 0.52 + sedimentSupply[index] * 0.28 + passiveMask[index] * 0.32 + riftProvince[index] * 0.18 + riftGraben[index] * 0.34;
                 tectonicBasin *= Math.Clamp(0.58 + widthNoise * 0.74, 0.45, 1.25);
                 var broadBasin = continentalNoise * interior * (0.48 + widthNoise * 0.36);
                 if (breakupNoise < 0.30)
@@ -665,7 +677,8 @@ internal sealed class ElevationGenerator
         double shelfWidth,
         double[] ridgeMask,
         double[] subductionMask,
-        double[] riftMask,
+        double[] riftProvince,
+        double[] riftGraben,
         CrustFieldMap crustFields,
         ElevationGenerationOptions options)
     {
@@ -687,7 +700,8 @@ internal sealed class ElevationGenerator
 
                 var submarineRidge = ridgeMask[index] * (0.45 + SmoothNoise(x, y, 2117, 18.0) * 0.35);
                 var trench = subductionMask[index] * (0.42 + deep * 0.58);
-                var deepChannel = riftMask[index] * 0.45 + Math.Clamp(enclosure - 0.28, 0, 1) * Math.Clamp(channelNoise - 0.42, 0, 1) * 1.7;
+                var riftChannel = riftProvince[index] * 0.25 + riftGraben[index] * 0.62;
+                var deepChannel = riftChannel + Math.Clamp(enclosure - 0.28, 0, 1) * Math.Clamp(channelNoise - 0.42, 0, 1) * 1.7;
                 var shallowBank = shelf * Math.Clamp(bankNoise - 0.30, 0, 1) * 1.15;
                 var abyssalBasin = deep * Math.Clamp(basinNoise - 0.44, 0, 1) * (1.0 - shelf * 0.55);
 
@@ -810,7 +824,8 @@ internal sealed class ElevationGenerator
         double[] ridgeContinuity,
         double[] ridgeMask,
         double[] subductionMask,
-        double[] riftMask,
+        double[] riftProvince,
+        double[] riftGraben,
         byte[] terrainClasses)
     {
         for (var y = 0; y < mask.Height; y++)
@@ -832,7 +847,7 @@ internal sealed class ElevationGenerator
                         shelfWidth,
                         ridgeMask[index],
                         subductionMask[index],
-                        riftMask[index]);
+                        riftProvince[index] * 0.42 + riftGraben[index] * 0.72);
                     continue;
                 }
 
@@ -992,6 +1007,18 @@ internal sealed class ElevationGenerator
         {
             for (var x = 0; x < provinces.Width; x++)
                 values[y * provinces.Width + x] = Math.Clamp(readValue(x, y), 0, 1.5);
+        }
+
+        return ShapeSignal(SmoothField(values, provinces.Width, provinces.Height, passes), threshold, gamma);
+    }
+
+    private static double[] BuildRiftProvinceSignal(RiftProvinceMap provinces, Func<int, int, double> readValue, int passes, double threshold, double gamma)
+    {
+        var values = new double[provinces.Width * provinces.Height];
+        for (var y = 0; y < provinces.Height; y++)
+        {
+            for (var x = 0; x < provinces.Width; x++)
+                values[y * provinces.Width + x] = Math.Clamp(readValue(x, y), 0, 1.8);
         }
 
         return ShapeSignal(SmoothField(values, provinces.Width, provinces.Height, passes), threshold, gamma);

@@ -33,6 +33,7 @@ public sealed class MapGenerationContext
     public PlateDomainMap? PlateDomains { get; set; }
     public TectonicBoundaryMap? TectonicBoundaries { get; set; }
     public OrogenProvinceMap? OrogenProvinces { get; set; }
+    public RiftProvinceMap? RiftProvinces { get; set; }
     public TectonicFeatureMap? TectonicFeatures { get; set; }
     public ElevationMap? Elevation { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
@@ -89,6 +90,8 @@ public sealed class MapGenerationContext
             TectonicBoundaries = null;
         else if (key == MapDataKeys.OrogenProvinces)
             OrogenProvinces = null;
+        else if (key == MapDataKeys.RiftProvinces)
+            RiftProvinces = null;
         else if (key == MapDataKeys.TectonicFeatures)
             TectonicFeatures = null;
         else if (key == MapDataKeys.Elevation)

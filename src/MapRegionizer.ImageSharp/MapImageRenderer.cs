@@ -715,33 +715,25 @@ public static class MapImageRenderer
         TectonicFeatureKind.Ridge or
         TectonicFeatureKind.Trench or
         TectonicFeatureKind.Arc or
-        TectonicFeatureKind.Rift or
         TectonicFeatureKind.Hotspot or
-        TectonicFeatureKind.Microplate or
-        TectonicFeatureKind.BackArcBasin;
+        TectonicFeatureKind.Microplate;
 
     private static bool IsSummaryLineamentKind(TectonicFeatureKind kind) => kind is
         TectonicFeatureKind.Ridge or
         TectonicFeatureKind.Trench or
         TectonicFeatureKind.Arc or
-        TectonicFeatureKind.Rift or
-        TectonicFeatureKind.Microplate or
-        TectonicFeatureKind.BackArcBasin;
+        TectonicFeatureKind.Microplate;
 
     private static bool IsHistoricalSummaryFeatureKind(TectonicFeatureKind kind) => kind is
         TectonicFeatureKind.Ridge or
         TectonicFeatureKind.Trench or
         TectonicFeatureKind.Arc or
-        TectonicFeatureKind.Rift or
         TectonicFeatureKind.Hotspot or
-        TectonicFeatureKind.Microplate or
-        TectonicFeatureKind.BackArcBasin;
+        TectonicFeatureKind.Microplate;
 
     private static bool IsImportantBoundaryFeatureKind(TectonicFeatureKind kind) => kind is
         TectonicFeatureKind.Trench or
-        TectonicFeatureKind.Ridge or
-        TectonicFeatureKind.Rift or
-        TectonicFeatureKind.BackArcBasin;
+        TectonicFeatureKind.Ridge;
 
     private static double ConnectedStepRatio(IReadOnlyList<GridPoint> points, int mapWidth, int maxStep)
     {
@@ -941,7 +933,7 @@ public sealed class CrustRenderOptions : TectonicPlateRenderOptions
         PlateBoundaryWidth = 0.75f;
     }
 
-    public bool DrawPlateBoundaries { get; init; } = true;
+    public bool DrawPlateBoundaries { get; init; }
     public int CrustSmoothingRadius { get; init; } = 1;
     public Color ContinentalColor { get; init; } = Color.FromRgb(213, 190, 142);
     public Color OceanicColor { get; init; } = Color.FromRgb(25, 93, 154);
@@ -1020,12 +1012,12 @@ public sealed class TectonicFeatureRenderOptions : TectonicPlateRenderOptions
     }
 
     public TectonicFeatureRenderMode Mode { get; init; } = TectonicFeatureRenderMode.Summary;
-    public bool DrawPlateBoundaries { get; init; } = true;
+    public bool DrawPlateBoundaries { get; init; }
     public int MaxConnectedFeatureStep { get; init; } = 6;
     public int MaxBoundaryDerivedPointMarkers { get; init; } = 1600;
     public int MaxBoundaryDerivedSummaryMarkers { get; init; } = 90;
     public int MaxHistoricalSummaryMarkers { get; init; } = 260;
-    public int MaxHotspotSummaryMarkers { get; init; } = 3;
+    public int MaxHotspotSummaryMarkers { get; init; } = 1;
     public int MinBoundaryDerivedLinePoints { get; init; } = 24;
     public int MinHistoricalLinePoints { get; init; } = 8;
     public int MinOrogenLinePoints { get; init; } = 28;

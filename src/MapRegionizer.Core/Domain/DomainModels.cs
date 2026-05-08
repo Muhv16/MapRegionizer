@@ -83,7 +83,8 @@ public sealed record TectonicPlateMap(
     PlateDomainMap? PlateDomains = null,
     TectonicBoundaryMap? BoundaryMap = null,
     TectonicFeatureMap? Features = null,
-    OrogenProvinceMap? OrogenProvinces = null);
+    OrogenProvinceMap? OrogenProvinces = null,
+    RiftProvinceMap? RiftProvinces = null);
 
 public sealed record TectonicPlate(
     TectonicPlateId Id,
@@ -337,6 +338,95 @@ public sealed record OrogenProvince(
     double BaseWidth,
     int? SourceLineamentId = null,
     int? SourceBoundarySegmentId = null);
+
+public sealed class RiftProvinceMap
+{
+    private readonly double[] _riftInfluence;
+    private readonly double[] _riftAxis;
+    private readonly double[] _grabenMask;
+    private readonly double[] _shoulderUpliftMask;
+    private readonly double[] _heatFlowMask;
+    private readonly double[] _breakupMask;
+
+    public int Width { get; }
+    public int Height { get; }
+    public IReadOnlyList<RiftProvince> Provinces { get; }
+
+    public RiftProvinceMap(
+        int width,
+        int height,
+        IReadOnlyList<RiftProvince> provinces,
+        double[] riftInfluence,
+        double[] riftAxis,
+        double[] grabenMask,
+        double[] shoulderUpliftMask,
+        double[] heatFlowMask,
+        double[] breakupMask)
+    {
+        var expectedLength = width * height;
+        ValidateLength(riftInfluence, expectedLength, nameof(riftInfluence));
+        ValidateLength(riftAxis, expectedLength, nameof(riftAxis));
+        ValidateLength(grabenMask, expectedLength, nameof(grabenMask));
+        ValidateLength(shoulderUpliftMask, expectedLength, nameof(shoulderUpliftMask));
+        ValidateLength(heatFlowMask, expectedLength, nameof(heatFlowMask));
+        ValidateLength(breakupMask, expectedLength, nameof(breakupMask));
+
+        Width = width;
+        Height = height;
+        Provinces = provinces;
+        _riftInfluence = riftInfluence;
+        _riftAxis = riftAxis;
+        _grabenMask = grabenMask;
+        _shoulderUpliftMask = shoulderUpliftMask;
+        _heatFlowMask = heatFlowMask;
+        _breakupMask = breakupMask;
+    }
+
+    public double GetRiftInfluence(int x, int y) => _riftInfluence[y * Width + x];
+
+    public double GetRiftAxis(int x, int y) => _riftAxis[y * Width + x];
+
+    public double GetGrabenMask(int x, int y) => _grabenMask[y * Width + x];
+
+    public double GetShoulderUpliftMask(int x, int y) => _shoulderUpliftMask[y * Width + x];
+
+    public double GetHeatFlowMask(int x, int y) => _heatFlowMask[y * Width + x];
+
+    public double GetBreakupMask(int x, int y) => _breakupMask[y * Width + x];
+
+    internal ReadOnlySpan<double> RiftInfluenceSpan => _riftInfluence;
+    internal ReadOnlySpan<double> RiftAxisSpan => _riftAxis;
+    internal ReadOnlySpan<double> GrabenMaskSpan => _grabenMask;
+    internal ReadOnlySpan<double> ShoulderUpliftMaskSpan => _shoulderUpliftMask;
+    internal ReadOnlySpan<double> HeatFlowMaskSpan => _heatFlowMask;
+    internal ReadOnlySpan<double> BreakupMaskSpan => _breakupMask;
+
+    private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
+    {
+        if (array.Length != expectedLength)
+            throw new ArgumentException($"Array length must be {expectedLength}", parameterName);
+    }
+}
+
+public sealed record RiftProvince(
+    int Id,
+    RiftProvinceKind Kind,
+    IReadOnlyList<GridPoint> AxisPoints,
+    IReadOnlyList<RiftProvinceSegment> Segments,
+    double Age,
+    double Activity,
+    double MeanScore,
+    double BaseWidth,
+    int? SourceLineamentId = null,
+    int? SourceBoundarySegmentId = null);
+
+public sealed record RiftProvinceSegment(
+    GridPoint Center,
+    GridVector Direction,
+    double Length,
+    double Width,
+    double Strength,
+    bool IsFailedArm);
 
 public sealed class TectonicFeatureMap
 {
@@ -623,6 +713,13 @@ public enum IslandKind
     Microcontinent,
     UpliftedRidge,
     ShelfArchipelago
+}
+
+public enum RiftProvinceKind
+{
+    ContinentalRift,
+    BackArcExtension,
+    DiffuseExtension
 }
 
 public enum TectonicFeatureKind

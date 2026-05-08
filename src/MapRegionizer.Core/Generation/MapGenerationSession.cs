@@ -39,6 +39,7 @@ public sealed class MapGenerationSession
     public PlateDomainMap? PlateDomains => _context.PlateDomains;
     public TectonicBoundaryMap? TectonicBoundaries => _context.TectonicBoundaries;
     public OrogenProvinceMap? OrogenProvinces => _context.OrogenProvinces;
+    public RiftProvinceMap? RiftProvinces => _context.RiftProvinces;
     public TectonicFeatureMap? TectonicFeatures => _context.TectonicFeatures;
     public ElevationMap? Elevation => _context.Elevation;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;
