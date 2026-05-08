@@ -127,6 +127,7 @@ public sealed class ElevationGenerationOptions
     public double SeaDepthScale { get; init; } = 1.0;
     public double ShelfWidthFactor { get; init; } = 1.0;
     public double VolcanismInfluence { get; init; } = 0.6;
+    public double SmallIslandReliefFactor { get; init; } = 0.55;
     public double RiftInfluence { get; init; } = 0.5;
     public bool PreserveMaskCoastline { get; init; } = true;
     public double MaxElevationMeters { get; init; } = 8500;
@@ -143,6 +144,7 @@ public sealed class ElevationGenerationOptions
         if (SeaDepthScale < 0) throw new ArgumentOutOfRangeException(nameof(SeaDepthScale), "Sea depth scale cannot be negative.");
         if (ShelfWidthFactor < 0) throw new ArgumentOutOfRangeException(nameof(ShelfWidthFactor), "Shelf width factor cannot be negative.");
         if (VolcanismInfluence < 0) throw new ArgumentOutOfRangeException(nameof(VolcanismInfluence), "Volcanism influence cannot be negative.");
+        if (SmallIslandReliefFactor < 0) throw new ArgumentOutOfRangeException(nameof(SmallIslandReliefFactor), "Small island relief factor cannot be negative.");
         if (RiftInfluence < 0) throw new ArgumentOutOfRangeException(nameof(RiftInfluence), "Rift influence cannot be negative.");
         if (MaxElevationMeters <= 0) throw new ArgumentOutOfRangeException(nameof(MaxElevationMeters), "Maximum elevation must be greater than zero.");
         if (MinOceanDepthMeters >= 0) throw new ArgumentOutOfRangeException(nameof(MinOceanDepthMeters), "Minimum ocean depth must be below zero.");

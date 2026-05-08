@@ -87,6 +87,7 @@ Elevation is configured through `ElevationGenerationOptions`.
 - `SeaDepthScale`: bathymetry multiplier.
 - `ShelfWidthFactor`: terrain-specific shelf width scale.
 - `VolcanismInfluence`: strength of volcanic islands, arcs, and seamount-like uplift.
+- `SmallIslandReliefFactor`: relief multiplier for classified small islands. Default value reduces excessive volcanic and ridge relief on very small islands while allowing larger island landmasses to keep stronger mountains. Values near `1` also relax the small-island relief ceiling; lower values make the ceiling stricter.
 - `RiftInfluence`: strength of rift valleys and back-arc lowering.
 - `PreserveMaskCoastline`: keeps source land above sea level and source water below sea level.
 - `MaxElevationMeters`: upper clamp for final terrain.
@@ -157,6 +158,8 @@ Small landmasses use `TectonicIsland` classification from the tectonic feature l
 - `Microcontinent`: mixed mini-relief;
 - `UpliftedRidge`: elongated ridge-like islands;
 - `Hotspot`: volcanic high points with a chain-like profile.
+
+Island profile relief is scaled by `SmallIslandReliefFactor`, blended back toward full strength as island area grows. The same pass applies a soft broad ceiling only to the truly small end of classified island landmasses: the ceiling is strongest on the smallest islands, fades out across the lower-middle size range, and is skipped for larger classified islands. Its strength also depends on `SmallIslandReliefFactor`, so a value near `1` leaves excess relief mostly unrestricted while lower values compress oversized peaks more aggressively. Local cone, hotspot-chain, or ridge cells can still receive extra peak allowance through a narrow size/shape/noise gate, so high points can form as local landmarks without occupying the whole island. This prevents tiny volcanic arcs or hotspot islands from turning into near-maximum-elevation rock walls after the general tectonic and volcanic uplift passes have already raised them, while larger islands remain capable of stronger mountains.
 
 ### 5. Bathymetric Structure
 

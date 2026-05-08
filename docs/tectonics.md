@@ -235,7 +235,7 @@ The raster stamp is an elongated lens/capsule, not a stroke. It separates:
 - boundary-derived feature intensity uses segment `Activity`;
 - shelves, slopes, and passive margins add subsidence and sediment supply;
 - rift crust adds only weak memory; active rift geometry comes from `RiftProvinceMap`;
-- small landmasses are classified as volcanic arcs, hotspots, microcontinents, uplifted ridges, or shelf archipelagos.
+- small landmasses are classified as volcanic arcs, hotspots, microcontinents, uplifted ridges, or shelf archipelagos. This classification is intentionally descriptive: the elevation stage can scale and cap island relief separately so a volcanic or arc-classified island does not automatically become a near-maximum-height mountain wall.
 
 Historical sutures, old orogens, and old rifts now stamp only weak memory into feature rasters; strong orogenic uplift comes from `OrogenProvinceMap`, while rift subsidence/heat comes from `RiftProvinceMap`. The raw feature rasters are intentionally diagnostic and can contain line-shaped traces. The default feature PNG renderer filters these fields so the summary image stays readable.
 

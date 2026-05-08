@@ -20,6 +20,7 @@ public sealed class MapGenerationRunOptions
     public MapProjectionMode ProjectionMode { get; set; } = MapProjectionMode.EquirectangularWorld;
     public int? PlateCount { get; set; }
     public int? HotspotCount { get; set; }
+    public double SmallIslandReliefFactor { get; set; } = 0.55;
     public TectonicPlateJsonExportMode TectonicJsonMode { get; set; } = TectonicPlateJsonExportMode.Summary;
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
 
@@ -51,6 +52,10 @@ public sealed class MapGenerationRunOptions
             {
                 PlateCount = PlateCount,
                 HotspotCount = HotspotCount
+            },
+            Elevation = new ElevationGenerationOptions
+            {
+                SmallIslandReliefFactor = SmallIslandReliefFactor
             }
         };
     }

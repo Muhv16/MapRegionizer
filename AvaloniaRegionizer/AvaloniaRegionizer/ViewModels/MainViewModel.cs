@@ -93,6 +93,7 @@ public sealed class MainViewModel : ReactiveObject
     private double _seaDepthScale = 1.0;
     private double _elevationShelfWidthFactor = 1.0;
     private double _volcanismInfluence = 0.6;
+    private double _smallIslandReliefFactor = 0.55;
     private double _riftInfluence = 0.5;
     private bool _preserveMaskCoastline = true;
     private double _maxElevationMeters = 8500;
@@ -315,6 +316,7 @@ public sealed class MainViewModel : ReactiveObject
     public double SeaDepthScale { get => _seaDepthScale; set => SetOption(ref _seaDepthScale, value, MapDataKeys.Elevation); }
     public double ElevationShelfWidthFactor { get => _elevationShelfWidthFactor; set => SetOption(ref _elevationShelfWidthFactor, value, MapDataKeys.Elevation); }
     public double VolcanismInfluence { get => _volcanismInfluence; set => SetOption(ref _volcanismInfluence, value, MapDataKeys.Elevation); }
+    public double SmallIslandReliefFactor { get => _smallIslandReliefFactor; set => SetOption(ref _smallIslandReliefFactor, value, MapDataKeys.Elevation); }
     public double RiftInfluence { get => _riftInfluence; set => SetOption(ref _riftInfluence, value, MapDataKeys.Elevation); }
     public bool PreserveMaskCoastline { get => _preserveMaskCoastline; set => SetOption(ref _preserveMaskCoastline, value, MapDataKeys.Elevation); }
     public double MaxElevationMeters { get => _maxElevationMeters; set => SetOption(ref _maxElevationMeters, value, MapDataKeys.Elevation); }
@@ -620,6 +622,7 @@ public sealed class MainViewModel : ReactiveObject
                 BoundaryNoise = 0.2;
                 ReliefScale = 1.0;
                 Roughness = 0.45;
+                SmallIslandReliefFactor = 0.55;
                 TectonicJsonMode = TectonicPlateJsonExportMode.Summary;
                 ElevationJsonMode = ElevationJsonExportMode.Summary;
             }
@@ -727,6 +730,7 @@ public sealed class MainViewModel : ReactiveObject
                 SeaDepthScale = SeaDepthScale,
                 ShelfWidthFactor = ElevationShelfWidthFactor,
                 VolcanismInfluence = VolcanismInfluence,
+                SmallIslandReliefFactor = SmallIslandReliefFactor,
                 RiftInfluence = RiftInfluence,
                 PreserveMaskCoastline = PreserveMaskCoastline,
                 MaxElevationMeters = MaxElevationMeters,
@@ -781,6 +785,7 @@ public sealed class MainViewModel : ReactiveObject
             SeaDepthScale = options.Elevation.SeaDepthScale;
             ElevationShelfWidthFactor = options.Elevation.ShelfWidthFactor;
             VolcanismInfluence = options.Elevation.VolcanismInfluence;
+            SmallIslandReliefFactor = options.Elevation.SmallIslandReliefFactor;
             RiftInfluence = options.Elevation.RiftInfluence;
             PreserveMaskCoastline = options.Elevation.PreserveMaskCoastline;
             MaxElevationMeters = options.Elevation.MaxElevationMeters;

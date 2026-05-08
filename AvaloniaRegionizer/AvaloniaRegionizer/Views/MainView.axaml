@@ -268,6 +268,8 @@
                                             <NumericUpDown Value="{Binding ElevationShelfWidthFactor}" Minimum="0" FormatString="N2"/>
                                             <TextBlock Text="{Binding L[VolcanismInfluence]}" FontWeight="SemiBold"/>
                                             <NumericUpDown Value="{Binding VolcanismInfluence}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[SmallIslandReliefFactor]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding SmallIslandReliefFactor}" Minimum="0" Maximum="1" FormatString="N2"/>
                                             <TextBlock Text="{Binding L[RiftInfluence]}" FontWeight="SemiBold"/>
                                             <NumericUpDown Value="{Binding RiftInfluence}" Minimum="0" FormatString="N2"/>
                                             <CheckBox Content="{Binding L[PreserveCoastline]}" IsChecked="{Binding PreserveMaskCoastline}"/>

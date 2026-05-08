@@ -150,7 +150,7 @@ internal sealed class ElevationGenerator
         ApplyLargeBasins(mask, elevation, basinInfluence, distanceToWater, shelfWidth);
         ApplyMountainCrossSection(mask, elevation, ridgeContinuity, mountainPassPotential, foothillInfluence, basinInfluence, distanceToWater, shelfWidth);
         ApplyBathymetricStructure(mask, elevation, distanceToLand, landEnclosure, shelfWidth, ridgeMask, subductionMask, riftProvince, riftGraben, crustFields, options);
-        ApplyIslandProfiles(mask, features.Islands, elevation, roughness, distanceToLand);
+        ApplyIslandProfiles(mask, features.Islands, elevation, roughness, distanceToLand, options);
         SmoothElevation(mask, elevation, ridgeMask, collisionMask, options, erosionMask);
         LiftInteriorLowlands(mask, elevation, distanceToWater, shelfWidth);
         EnforceConstraints(mask, elevation, options);
@@ -723,10 +723,14 @@ internal sealed class ElevationGenerator
         }
     }
 
-    private void ApplyIslandProfiles(MapMask mask, IReadOnlyList<TectonicIsland> islands, double[] elevation, double[] roughness, double[] distanceToLand)
+    private void ApplyIslandProfiles(MapMask mask, IReadOnlyList<TectonicIsland> islands, double[] elevation, double[] roughness, double[] distanceToLand, ElevationGenerationOptions options)
     {
+        var smallIslandAreaScale = Math.Max(1.0, Math.Min(mask.Width, mask.Height) * 0.10);
+
         foreach (var island in islands)
         {
+            var islandSize = Math.Clamp(Math.Sqrt(Math.Max(1.0, island.Area)) / smallIslandAreaScale, 0, 1);
+            var reliefFactor = Lerp(options.SmallIslandReliefFactor, 1.0, islandSize);
             var radius = Math.Clamp(Math.Sqrt(Math.Max(1.0, island.Area)) * 1.65, 3.0, 26.0);
             var stampRadius = (int)Math.Ceiling(radius * 2.2);
             var angle = Hash01(island.Center.X, island.Center.Y, island.PlateId.Value + 1901) * Math.PI * 2.0;
@@ -744,6 +748,8 @@ internal sealed class ElevationGenerator
                 var sideDistance = Math.Abs(dx * -axisY + dy * axisX);
                 var axial = Math.Clamp(1.0 - Math.Abs(projection) / Math.Max(1.0, radius * 1.8), 0, 1);
                 var narrowRidge = Math.Clamp(1.0 - sideDistance / Math.Max(1.0, radius * 0.32), 0, 1) * axial;
+                var peakNoise = SmoothStep(Math.Clamp((SmoothNoise(point.X + 19, point.Y - 31, island.PlateId.Value + 1931, 6.5) - 0.42) / 0.40, 0, 1));
+                var largeIslandPeakGate = SmoothStep(Math.Clamp((islandSize - 0.24) / 0.77, 0, 1));
 
                 switch (island.Kind)
                 {
@@ -751,8 +757,8 @@ internal sealed class ElevationGenerator
                         if (mask.IsLand(point))
                         {
                             var cone = Math.Pow(radial, 1.55);
-                            elevation[index] += cone * 920;
-                            roughness[index] = Math.Clamp(roughness[index] + cone * 0.28, 0, 1);
+                            elevation[index] += cone * 920 * reliefFactor;
+                            roughness[index] = Math.Clamp(roughness[index] + cone * 0.28 * reliefFactor, 0, 1);
                         }
                         break;
                     case IslandKind.ShelfArchipelago:
@@ -781,17 +787,17 @@ internal sealed class ElevationGenerator
                     case IslandKind.Microcontinent:
                         if (mask.IsLand(point))
                         {
-                            var relief = (FractalNoise(point.X + 41, point.Y - 17, 18.0, 4) - 0.35) * 420;
-                            elevation[index] += radial * 160 + relief;
-                            roughness[index] = Math.Clamp(roughness[index] + 0.10 + radial * 0.08, 0, 1);
+                            var relief = (FractalNoise(point.X + 41, point.Y - 17, 18.0, 4) - 0.35) * 420 * reliefFactor;
+                            elevation[index] += (radial * 160 * reliefFactor) + relief;
+                            roughness[index] = Math.Clamp(roughness[index] + (0.10 + radial * 0.08) * reliefFactor, 0, 1);
                         }
                         break;
                     case IslandKind.UpliftedRidge:
                         if (mask.IsLand(point))
                         {
                             var ridge = Math.Pow(narrowRidge, 1.2);
-                            elevation[index] += ridge * 520;
-                            roughness[index] = Math.Clamp(roughness[index] + ridge * 0.18, 0, 1);
+                            elevation[index] += ridge * 520 * reliefFactor;
+                            roughness[index] = Math.Clamp(roughness[index] + ridge * 0.18 * reliefFactor, 0, 1);
                         }
                         break;
                     case IslandKind.Hotspot:
@@ -799,13 +805,67 @@ internal sealed class ElevationGenerator
                         {
                             var chain = Math.Max(Math.Pow(radial, 1.8), Math.Pow(narrowRidge, 1.35) * 0.72);
                             var ageGradient = Math.Clamp(0.65 + projection / Math.Max(1.0, radius * 3.2), 0.35, 1.15);
-                            elevation[index] += chain * ageGradient * 820;
-                            roughness[index] = Math.Clamp(roughness[index] + chain * 0.24, 0, 1);
+                            elevation[index] += chain * ageGradient * 820 * reliefFactor;
+                            roughness[index] = Math.Clamp(roughness[index] + chain * 0.24 * reliefFactor, 0, 1);
                         }
                         break;
                 }
+
+                if (mask.IsLand(point))
+                {
+                    var peakPotential = ComputeIslandPeakPotential(island.Kind, radial, narrowRidge, peakNoise) * largeIslandPeakGate;
+                    ApplySmallIslandReliefCeiling(island.Kind, islandSize, options.SmallIslandReliefFactor, peakPotential, index, elevation);
+                }
             }
         }
+    }
+
+    private static double ComputeIslandPeakPotential(IslandKind kind, double radial, double narrowRidge, double peakNoise)
+    {
+        return kind switch
+        {
+            IslandKind.VolcanicArc => Math.Pow(radial, 2.5) * (0.30 + peakNoise * 0.70),
+            IslandKind.Hotspot => Math.Max(Math.Pow(radial, 2.8), Math.Pow(narrowRidge, 2.1) * 0.82) * (0.34 + peakNoise * 0.66),
+            IslandKind.Microcontinent => Math.Pow(radial, 2.2) * peakNoise * 0.48,
+            IslandKind.UpliftedRidge => Math.Pow(narrowRidge, 1.7) * (0.42 + peakNoise * 0.58),
+            _ => 0.0
+        };
+    }
+
+    private static void ApplySmallIslandReliefCeiling(IslandKind kind, double islandSize, double smallIslandReliefFactor, double peakPotential, int index, double[] elevation)
+    {
+        var ceilingSizeStrength = 1.0 - SmoothStep(Math.Clamp((islandSize - 0.35) / 0.35, 0, 1));
+        var reliefCeilingStrength = Math.Clamp(1.0 - smallIslandReliefFactor, 0, 1);
+        var ceilingStrength = ceilingSizeStrength * reliefCeilingStrength;
+        if (ceilingStrength <= 0)
+            return;
+
+        var broadCeiling = kind switch
+        {
+            IslandKind.VolcanicArc => 1150.0 + islandSize * 1850.0,
+            IslandKind.Hotspot => 1250.0 + islandSize * 1750.0,
+            IslandKind.Microcontinent => 850.0 + islandSize * 1450.0,
+            IslandKind.UpliftedRidge => 720.0 + islandSize * 1250.0,
+            IslandKind.ShelfArchipelago => 280.0 + islandSize * 520.0,
+            _ => 900.0 + islandSize * 1300.0
+        };
+        var peakAllowance = kind switch
+        {
+            IslandKind.VolcanicArc => 4600.0,
+            IslandKind.Hotspot => 3300.0,
+            IslandKind.Microcontinent => 2950.0,
+            IslandKind.UpliftedRidge => 1500.0,
+            _ => 0.0
+        };
+        var ceiling = broadCeiling + peakAllowance * Math.Clamp(peakPotential, 0, 1);
+
+        if (elevation[index] <= ceiling)
+            return;
+
+        var unrestrictedExcessScale = 1.0;
+        var restrictedExcessScale = Math.Clamp(smallIslandReliefFactor * Lerp(0.35, 0.62, peakPotential), 0.02, 1.0);
+        var excessScale = Lerp(unrestrictedExcessScale, restrictedExcessScale, ceilingStrength);
+        elevation[index] = ceiling + (elevation[index] - ceiling) * excessScale;
     }
 
     private static void ClassifyTerrain(
