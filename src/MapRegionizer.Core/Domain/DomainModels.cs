@@ -82,7 +82,8 @@ public sealed record TectonicPlateMap(
     CrustFieldMap? CrustFields = null,
     PlateDomainMap? PlateDomains = null,
     TectonicBoundaryMap? BoundaryMap = null,
-    TectonicFeatureMap? Features = null);
+    TectonicFeatureMap? Features = null,
+    OrogenProvinceMap? OrogenProvinces = null);
 
 public sealed record TectonicPlate(
     TectonicPlateId Id,
@@ -278,6 +279,64 @@ public sealed record PlateBoundarySegment(
     double? MeanOceanicAge,
     double? SubductingOceanicAge,
     TectonicPlateId? SubductingPlate);
+
+public sealed class OrogenProvinceMap
+{
+    private readonly double[] _influence;
+    private readonly double[] _strength;
+    private readonly double[] _axis;
+
+    public int Width { get; }
+    public int Height { get; }
+    public IReadOnlyList<OrogenProvince> Provinces { get; }
+
+    public OrogenProvinceMap(
+        int width,
+        int height,
+        IReadOnlyList<OrogenProvince> provinces,
+        double[] influence,
+        double[] strength,
+        double[] axis)
+    {
+        var expectedLength = width * height;
+        CrustFieldMapValidateLength(influence, expectedLength, nameof(influence));
+        CrustFieldMapValidateLength(strength, expectedLength, nameof(strength));
+        CrustFieldMapValidateLength(axis, expectedLength, nameof(axis));
+
+        Width = width;
+        Height = height;
+        Provinces = provinces;
+        _influence = influence;
+        _strength = strength;
+        _axis = axis;
+    }
+
+    public double GetInfluence(int x, int y) => _influence[y * Width + x];
+
+    public double GetStrength(int x, int y) => _strength[y * Width + x];
+
+    public double GetAxis(int x, int y) => _axis[y * Width + x];
+
+    internal ReadOnlySpan<double> InfluenceSpan => _influence;
+    internal ReadOnlySpan<double> StrengthSpan => _strength;
+    internal ReadOnlySpan<double> AxisSpan => _axis;
+
+    private static void CrustFieldMapValidateLength<T>(T[] array, int expectedLength, string parameterName)
+    {
+        if (array.Length != expectedLength)
+            throw new ArgumentException($"Array length must be {expectedLength}", parameterName);
+    }
+}
+
+public sealed record OrogenProvince(
+    int Id,
+    IReadOnlyList<GridPoint> AxisPoints,
+    double Age,
+    double Activity,
+    double MeanScore,
+    double BaseWidth,
+    int? SourceLineamentId = null,
+    int? SourceBoundarySegmentId = null);
 
 public sealed class TectonicFeatureMap
 {

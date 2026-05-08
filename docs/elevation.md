@@ -14,6 +14,7 @@ Mask
  -> CrustFields
  -> PlateDomains
  -> TectonicBoundaries
+ -> OrogenProvinces
  -> TectonicFeatures
  -> Elevation
 ```
@@ -105,9 +106,10 @@ The generator computes distance-to-land and distance-to-water rasters with horiz
 
 ### 2. Tectonic Contribution
 
-Tectonic features and boundary segments are converted into local height influence. Raw diagnostic tectonic rasters are not used directly as height lines: the terrain stage smooths and thresholds them first so historical craton, suture, ridge, trench, and orogen traces become broad regional influence instead of visible map scratches.
+Tectonic features, orogen provinces, and boundary segments are converted into local height influence. Raw diagnostic tectonic rasters are not used directly as height lines: the terrain stage smooths and thresholds them first so historical craton, suture, ridge, trench, and orogen traces become broad regional influence instead of visible map scratches.
 
 - collision and transpression produce major mountains;
+- `OrogenProvinceMap` produces broad highland, foothill, and roughness influence from validated local province masks instead of long historical lines;
 - subduction produces trenches offshore and broad uplift near active margins/arcs; its land contribution is deliberately diffused so it does not draw narrow non-mountain elevation lines across continents;
 - ridges subtly uplift ocean floor, but oceanic ridge/heat-flow signals are heavily smoothed and damped for the final playable map;
 - rifts and back-arc spreading lower land or ocean basins, with line influence diffused into wider regional fields so rift traces do not dominate playable elevation;
@@ -115,6 +117,8 @@ Tectonic features and boundary segments are converted into local height influenc
 - passive margins and sediment supply create lower, smoother lowlands and shelves.
 
 Collision and transpression boundaries are not treated as continuous mountain walls. The tectonic stage already stores local `PlateBoundarySegment` records by boundary mode; the terrain stage then gates individual segment points with broad noise. Boundary stamps also vary local radius, strength, and edge falloff, so ridges, rifts, passive margins, and basin-prone belts widen, narrow, and fade along their length instead of looking like constant-width brush strokes. Non-mountain boundary masks are diffused again before they affect height, while collision and massif masks retain more local strength. Weak gated stretches become passes or subdued uplands, while strong gated stretches expand into wider massif masks. A second broader foreland signal adds foothill belts around the strongest massifs, also with local breakup noise.
+
+Orogen provinces are applied separately from the active mountain axis. Their influence and strength rasters raise broad highlands, increase foothill influence, and add moderate roughness. They only add a small amount to ridge continuity, so old provinces read as upland belts and terrane memory rather than straight mountain roads. Young active provinces can reinforce nearby collision ranges, while old historical provinces decay into wider, weaker highland tendency.
 
 After raw tectonic uplift, the terrain stage builds a skeletal mountain network:
 

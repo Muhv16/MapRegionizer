@@ -26,6 +26,7 @@ TectonicHistory
 CrustFields
 PlateDomains
 TectonicBoundaries
+OrogenProvinces
 TectonicFeatures
 Elevation
 TectonicPlates
@@ -51,6 +52,7 @@ ExtractLandmassesStage
  -> GenerateCrustFieldsStage
  -> GeneratePlateDomainsStage
  -> GenerateTectonicBoundariesStage
+ -> GenerateOrogenProvincesStage
  -> GenerateTectonicFeaturesStage
  -> GenerateElevationStage
  -> AssembleTectonicPlateMapStage
@@ -85,16 +87,20 @@ GenerateTectonicBoundariesStage
   requires: PlateDomains, CrustFields
   produces: TectonicBoundaries
 
+GenerateOrogenProvincesStage
+  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries
+  produces: OrogenProvinces
+
 GenerateTectonicFeaturesStage
-  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries
+  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces
   produces: TectonicFeatures
 
 GenerateElevationStage
-  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, TectonicFeatures
+  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, TectonicFeatures
   produces: Elevation
 
 AssembleTectonicPlateMapStage
-  requires: TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, TectonicFeatures
+  requires: TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, TectonicFeatures
   produces: TectonicPlates
 
 GenerateRegionsStage
@@ -169,7 +175,7 @@ This ensures:
 Mask -> Landmasses -> RawRegions -> Regions
 ```
 
-`WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.TectonicFeatures)`, `RunUntil(MapDataKeys.Elevation)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
+`WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.OrogenProvinces)`, `RunUntil(MapDataKeys.TectonicFeatures)`, `RunUntil(MapDataKeys.Elevation)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
 
 ## Regeneration
 
@@ -256,7 +262,7 @@ If the custom stage produces a different key, dependent default stages will not 
 
 ## Future Extension
 
-World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, derived features, and a compatible assembled `TectonicPlates` view. Elevation is generated as a standalone height/bathymetry raster after tectonic feature fields. See [tectonics.md](tectonics.md) and [elevation.md](elevation.md) for the current domain models, options, algorithms, exports, and output map legends.
+World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, orogen provinces, derived features, and a compatible assembled `TectonicPlates` view. Elevation is generated as a standalone height/bathymetry raster after tectonic feature and orogen-province fields. See [tectonics.md](tectonics.md) and [elevation.md](elevation.md) for the current domain models, options, algorithms, exports, and output map legends.
 
 Tectonic GeoJSON export uses `Summary` mode by default. Summary output keeps runtime-friendly plate, boundary, crust, coastal, age, feature, and island metadata, but omits large diagnostic point clouds and writes compact JSON. Use `CompactDiagnostic` to include segment points without duplicate aggregate point lists, or `Diagnostic` for dense age rows and full feature point output.
 
@@ -272,7 +278,7 @@ Potential dependencies:
 
 ```text
 GenerateElevationStage
-  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, TectonicFeatures
+  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, TectonicFeatures
   produces: Elevation
 
 GenerateRiversStage

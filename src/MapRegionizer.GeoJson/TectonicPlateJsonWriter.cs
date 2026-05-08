@@ -55,12 +55,13 @@ public static class TectonicPlateJsonWriter
 
     private static TectonicLayersDto? ToLayersDto(TectonicPlateMap tectonicPlates, TectonicPlateJsonExportOptions options)
     {
-        if (tectonicPlates.CrustFields is null && tectonicPlates.BoundaryMap is null && tectonicPlates.Features is null)
+        if (tectonicPlates.CrustFields is null && tectonicPlates.BoundaryMap is null && tectonicPlates.Features is null && tectonicPlates.OrogenProvinces is null)
             return null;
 
         return new TectonicLayersDto(
             tectonicPlates.CrustFields is null ? null : ToDto(tectonicPlates.CrustFields, options),
             tectonicPlates.BoundaryMap?.Segments.Select(s => ToDto(s, options)).ToArray(),
+            tectonicPlates.OrogenProvinces is null ? null : ToDto(tectonicPlates.OrogenProvinces, options),
             tectonicPlates.Features?.Features.Select(f => ToDto(f, options)).ToArray(),
             tectonicPlates.Features?.Islands.Select(ToDto).ToArray());
     }
@@ -149,6 +150,31 @@ public static class TectonicPlateJsonWriter
     private static TectonicIslandDto ToDto(TectonicIsland island)
     {
         return new TectonicIslandDto(new PointDto(island.Center.X, island.Center.Y), island.Kind, island.Area, island.PlateId.Value);
+    }
+
+    private static OrogenProvinceLayerDto ToDto(OrogenProvinceMap provinces, TectonicPlateJsonExportOptions options)
+    {
+        var includeRows = options.Mode != TectonicPlateJsonExportMode.Summary;
+        var diagnostic = options.Mode == TectonicPlateJsonExportMode.Diagnostic;
+        return new OrogenProvinceLayerDto(
+            provinces.Provinces.Select(p => ToDto(p, options)).ToArray(),
+            includeRows ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetInfluence, diagnostic ? 100 : 25) : null,
+            includeRows ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetStrength, diagnostic ? 100 : 25) : null,
+            diagnostic ? EncodeScalarRows(provinces.Width, provinces.Height, provinces.GetAxis, 100) : null);
+    }
+
+    private static OrogenProvinceDto ToDto(OrogenProvince province, TectonicPlateJsonExportOptions options)
+    {
+        var includePoints = options.Mode == TectonicPlateJsonExportMode.Diagnostic;
+        return new OrogenProvinceDto(
+            province.Id,
+            province.Age,
+            province.Activity,
+            province.MeanScore,
+            province.BaseWidth,
+            province.SourceLineamentId,
+            province.SourceBoundarySegmentId,
+            includePoints ? ToPoints(province.AxisPoints) : null);
     }
 
     private static IReadOnlyList<PointDto> ToPoints(IEnumerable<GridPoint> points)
@@ -301,6 +327,35 @@ public static class TectonicPlateJsonWriter
         return rows;
     }
 
+    private static IReadOnlyList<string> EncodeScalarRows(int width, int height, Func<int, int, double> readValue, int bins)
+    {
+        var rows = new string[height];
+        var sb = new StringBuilder();
+
+        for (var y = 0; y < height; y++)
+        {
+            sb.Clear();
+            var runStart = 0;
+            var current = ScalarCode(readValue(0, y), bins);
+
+            for (var x = 1; x < width; x++)
+            {
+                var value = ScalarCode(readValue(x, y), bins);
+                if (value == current)
+                    continue;
+
+                AppendRun(sb, current, x - runStart);
+                current = value;
+                runStart = x;
+            }
+
+            AppendRun(sb, current, width - runStart);
+            rows[y] = sb.ToString();
+        }
+
+        return rows;
+    }
+
     private static void AppendRun(StringBuilder sb, string value, int length)
     {
         if (sb.Length > 0)
@@ -340,6 +395,12 @@ public static class TectonicPlateJsonWriter
         return bin.ToString(CultureInfo.InvariantCulture);
     }
 
+    private static string ScalarCode(double value, int bins)
+    {
+        var bin = (int)Math.Clamp(Math.Round(Math.Clamp(value, 0, 1.5) * bins), 0, ushort.MaxValue);
+        return bin.ToString(CultureInfo.InvariantCulture);
+    }
+
     private sealed record TectonicPlateMapDto(
         int Width,
         int Height,
@@ -355,8 +416,25 @@ public static class TectonicPlateJsonWriter
     private sealed record TectonicLayersDto(
         CrustFieldDto? CrustFields,
         IReadOnlyList<PlateBoundarySegmentDto>? BoundarySegments,
+        OrogenProvinceLayerDto? OrogenProvinces,
         IReadOnlyList<TectonicFeatureDto>? Features,
         IReadOnlyList<TectonicIslandDto>? Islands);
+
+    private sealed record OrogenProvinceLayerDto(
+        IReadOnlyList<OrogenProvinceDto> Provinces,
+        IReadOnlyList<string>? InfluenceRows,
+        IReadOnlyList<string>? StrengthRows,
+        IReadOnlyList<string>? AxisRows);
+
+    private sealed record OrogenProvinceDto(
+        int Id,
+        double Age,
+        double Activity,
+        double MeanScore,
+        double BaseWidth,
+        int? SourceLineamentId,
+        int? SourceBoundarySegmentId,
+        IReadOnlyList<PointDto>? AxisPoints);
 
     private sealed record CrustFieldDto(
         IReadOnlyList<string> CrustRows,

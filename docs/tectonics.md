@@ -16,6 +16,7 @@ Mask
  -> CrustFields
  -> PlateDomains
  -> TectonicBoundaries
+ -> OrogenProvinces
  -> TectonicFeatures
  -> TectonicPlates
 ```
@@ -26,6 +27,7 @@ Mask
 - `CrustFields`
 - `PlateDomains`
 - `BoundaryMap`
+- `OrogenProvinces`
 - `Features`
 
 `RawRegions` and `Regions` do not depend on tectonics, so region regeneration can remain fast and independent.
@@ -38,6 +40,7 @@ Main tectonic domain types:
 - `CrustFieldMap`: raster fields for local crust type, coastal zone, oceanic age, continental age, last rifting age, last orogeny age, and last volcanism age.
 - `PlateDomainMap`: raster plate id assignment plus `PlateDomain` metadata, including mean oceanic-crust age where available. It is the primary plate-domain layer before compatibility assembly.
 - `TectonicBoundaryMap`: local segmented boundary model. Contains `PlateBoundarySegment` records with local type, precise boundary mode, segment activity, motion metrics, and oceanic-age metadata.
+- `OrogenProvinceMap`: rasterized orogenic province layer generated from locally valid pieces of candidate axes. Stores province metadata plus influence, strength, and diagnostic axis rasters.
 - `TectonicFeatureMap`: derived downstream feature layer. Contains explicit `TectonicFeature` records, classified `TectonicIsland` records, and raster fields for uplift, subsidence, volcanism, seismicity, heat flow, and sediment supply.
 - `TectonicPlateMap`: compatibility aggregate. Contains plate metadata, legacy aggregate boundaries, plate/crust raster, and references to all rich tectonic layers.
 
@@ -90,10 +93,10 @@ Rendering options for diagnostic tectonic images live in `MapRegionizer.ImageSha
 - ocean-opening events and ridge lineaments as water-preferring curved meridians;
 - active margins from traced coastline samples, producing trench and offset arc lineaments;
 - continental rifts as land-preferring curved meridians;
-- sutures and old orogens as land-preferring curved latitude traces through craton zones;
+- sutures and old orogens as historical candidate traces through craton zones;
 - hotspot tracks from random hotspot points.
 
-The output is intentionally synthetic. These lineaments are not final plate boundaries by themselves; they influence crust fields, plate-domain assignment, features, and rendering.
+The output is intentionally synthetic. These lineaments are not final plate boundaries by themselves. Historical suture/orogen traces are especially treated as memory and candidates; they no longer become strong linear uplift on their own.
 
 ### 2. Crust Fields
 
@@ -170,11 +173,30 @@ It classifies each local sample into both a compatibility `BoundarySegmentKind` 
 
 Samples are grouped by plate pair and local mode into `PlateBoundarySegment` records. Short noisy segments are merged into longer dominant neighbors according to `MinBoundarySegmentLength`; if no mode dominates a merged segment, it becomes `MixedSegmentBoundary`. Segment `Activity` is derived from local normal/shear motion and is the preferred downstream intensity signal.
 
-### 5. Tectonic Features
+### 5. Orogen Provinces
+
+`OrogenProvinceGenerator` builds uplift provinces before generic tectonic features are stamped. It uses candidate axes from:
+
+- local `PlateBoundarySegment` records whose mode is `ContinentContinentCollision`, `Transpression`, or `AccretionaryBoundary`;
+- historical `Orogen` and `Suture` lineaments, treated only as candidate axes.
+
+Each candidate axis is ordered, split into short map-relative intervals, and scored point by point. The local score combines continental-like crust, convergence/transpression support from real boundary segments, boundary proximity, crust-age contrast, coastal penalties, craton-interior penalties, and low-frequency noise gates. Runs are cut when score falls below threshold, landmass id changes, stable craton interior continues unsupported, boundary support is too far away, or basin-like crust/coastal context dominates.
+
+Valid runs become `OrogenProvince` records. The raster mask is stamped as a variable-width belt rather than a line:
+
+- width varies with low-frequency noise and segment activity;
+- strength is based on local score, activity, age decay, and breakup noise;
+- segment ends taper smoothly so provinces fade instead of ending as blunt brush strokes;
+- old historical provinces are wider and weaker, while young/active provinces are narrower and stronger.
+
+This hard-limits the old "continental rail" failure mode: historical orogens can form local highland memory near plausible tectonic context, but unsupported lines through stable craton interiors are broken or reduced to near-zero influence.
+
+### 6. Tectonic Features
 
 `TectonicFeatureGenerator` converts history and boundary segments into downstream layers:
 
 - explicit `TectonicFeature` records are created from history lineaments;
+- province axes are added as diagnostic `Orogen` features, while province rasters provide the broad uplift field;
 - boundary modes are converted into feature kinds such as trench, ridge, rift, back-arc basin, or orogen;
 - feature and segment points stamp raster fields: uplift, subsidence, volcanism, seismicity, heat flow, and sediment supply;
 - boundary-derived feature intensity uses segment `Activity`;
@@ -182,9 +204,9 @@ Samples are grouped by plate pair and local mode into `PlateBoundarySegment` rec
 - rift crust adds heat flow and subsidence;
 - small landmasses are classified as volcanic arcs, hotspots, microcontinents, uplifted ridges, or shelf archipelagos.
 
-The raw feature rasters are intentionally diagnostic and can contain line-shaped traces. The default feature PNG renderer filters these fields so the summary image stays readable.
+Historical sutures and old orogens now stamp only weak memory into feature rasters; strong orogenic uplift comes from `OrogenProvinceMap` or active collision/transpression boundary masks. The raw feature rasters are intentionally diagnostic and can contain line-shaped traces. The default feature PNG renderer filters these fields so the summary image stays readable.
 
-### 6. Compatibility Assembly
+### 7. Compatibility Assembly
 
 `TectonicPlateAssembler` builds the existing `TectonicPlateMap` view:
 
@@ -192,15 +214,15 @@ The raw feature rasters are intentionally diagnostic and can contain line-shaped
 - groups boundary segments into legacy `PlateBoundary` records;
 - maps local boundary modes to legacy `PlateBoundaryKind` while preserving aggregate `BoundaryMode`;
 - stores segment ids in aggregate boundaries to avoid duplicating point clouds in compact exports;
-- attaches history, crust, domain, boundary, and feature layers to the final map.
+- attaches history, crust, domain, boundary, orogen-province, and feature layers to the final map.
 
 ## Exports
 
 `TectonicPlateJsonWriter` supports multiple export modes:
 
 - `Summary`: default runtime-friendly JSON. Keeps plates, aggregate boundaries, compact raster rows, compact age encodings, feature metadata, and islands without large point-cloud duplication.
-- `CompactDiagnostic`: keeps diagnostic meaning with compact JSON and no duplicated aggregate point lists.
-- `Diagnostic`: full debug export with dense age rows and feature/segment points.
+- `CompactDiagnostic`: keeps diagnostic meaning with compact JSON and no duplicated aggregate point lists. Orogen province influence and strength rows are included in compact scalar encoding.
+- `Diagnostic`: full debug export with dense age rows, feature/segment points, and orogen province axes.
 
 Age rasters are quantized and encoded compactly in summary export. Dense raw age arrays are diagnostic data. Plate and boundary age summaries are exported as nullable numbers; unknown values are omitted instead of writing `NaN`.
 

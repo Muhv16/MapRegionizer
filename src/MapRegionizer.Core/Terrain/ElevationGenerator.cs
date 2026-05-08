@@ -17,6 +17,7 @@ internal sealed class ElevationGenerator
         CrustFieldMap crustFields,
         PlateDomainMap plateDomains,
         TectonicBoundaryMap boundaries,
+        OrogenProvinceMap orogenProvinces,
         TectonicFeatureMap features,
         ElevationGenerationOptions options)
     {
@@ -61,8 +62,11 @@ internal sealed class ElevationGenerator
         var volcanism = BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15);
         var heatFlow = BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4);
         var sedimentSupply = BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35);
+        var orogenProvince = BuildOrogenProvinceSignal(orogenProvinces, orogenProvinces.GetInfluence, 5, 0.04, 0.95);
+        var orogenStrength = BuildOrogenProvinceSignal(orogenProvinces, orogenProvinces.GetStrength, 3, 0.03, 0.90);
 
         BuildMountainNetworkFields(mask, collisionMask, massifMask, forelandMask, ridgeContinuity, mountainPassPotential, foothillInfluence);
+        ApplyOrogenProvinceFields(mask, orogenProvince, orogenStrength, ridgeContinuity, mountainPassPotential, foothillInfluence);
         BuildBasinInfluence(mask, distanceToWater, shelfWidth, subsidence, sedimentSupply, passiveMask, riftMask, ridgeContinuity, foothillInfluence, basinInfluence);
 
         for (var y = 0; y < mask.Height; y++)
@@ -96,6 +100,8 @@ internal sealed class ElevationGenerator
                     collisionMask[index],
                     massifMask[index],
                     forelandMask[index],
+                    orogenProvince[index],
+                    orogenStrength[index],
                     mountainPassPotential[index],
                     ridgeContinuity[index],
                     foothillInfluence[index],
@@ -114,6 +120,7 @@ internal sealed class ElevationGenerator
                     volcanism[index],
                     ridgeMask[index],
                     collisionMask[index],
+                    orogenProvince[index],
                     riftMask[index],
                     basinInfluence[index],
                     options);
@@ -221,6 +228,8 @@ internal sealed class ElevationGenerator
         double collision,
         double massif,
         double foreland,
+        double orogenProvince,
+        double orogenStrength,
         double mountainPassPotential,
         double ridgeContinuity,
         double foothillInfluence,
@@ -238,7 +247,8 @@ internal sealed class ElevationGenerator
         var landBasinDampening = isLand ? 0.08 + coastalInfluence * 0.92 : 1.0;
         var passDampening = isLand ? 1.0 - mountainPassPotential * 0.44 : 1.0;
         var ridgeStrength = isLand ? 0.55 + ridgeContinuity * 0.45 : 1.0;
-        var mountainContext = Math.Clamp(collision * 0.55 + massif * 0.85 + ridgeContinuity * 0.32, 0, 1);
+        var provinceHighland = Math.Clamp(orogenProvince * 0.62 + orogenStrength * 0.82, 0, 1.4);
+        var mountainContext = Math.Clamp(collision * 0.55 + massif * 0.85 + provinceHighland * 0.38 + ridgeContinuity * 0.32, 0, 1);
         var regionalUpliftMeters = isLand
             ? 280 + mountainContext * 360 + Math.Clamp(volcanism, 0, 2) * 80
             : 35;
@@ -249,6 +259,7 @@ internal sealed class ElevationGenerator
         contribution += Math.Clamp(uplift, 0, 2) * regionalUpliftMeters * mountains;
         contribution += collision * passDampening * ridgeStrength * (isLand ? 1500 : 35) * mountains;
         contribution += massif * passDampening * (0.72 + ridgeContinuity * 0.38) * (isLand ? 3200 : 45) * mountains;
+        contribution += provinceHighland * (isLand ? 620 : 0) * mountains;
         contribution += Math.Max(foreland, foothillInfluence) * (isLand ? 360 : 0) * mountains;
         contribution += subduction * subductionMeters * mountains;
         contribution += Math.Clamp(volcanism, 0, 2) * options.VolcanismInfluence * (isLand ? 660 : 90);
@@ -278,6 +289,7 @@ internal sealed class ElevationGenerator
         double volcanism,
         double ridge,
         double collision,
+        double orogenProvince,
         double rift,
         double basinInfluence,
         ElevationGenerationOptions options)
@@ -295,7 +307,7 @@ internal sealed class ElevationGenerator
         roughness += coastal is CoastalZoneKind.PassiveMargin or CoastalZoneKind.Shelf ? -0.12 : 0;
         roughness += Math.Clamp(uplift, 0, 1) * 0.22;
         roughness += Math.Clamp(volcanism, 0, 1) * 0.16;
-        roughness += ridge * 0.18 + collision * 0.28 + rift * 0.18;
+        roughness += ridge * 0.18 + collision * 0.28 + orogenProvince * 0.18 + rift * 0.18;
         roughness -= basinInfluence * (isLand ? 0.18 : 0.06);
 
         return Math.Clamp(roughness * (0.55 + options.Roughness), 0.05, 1.0);
@@ -476,6 +488,41 @@ internal sealed class ElevationGenerator
                     foothill *= 0.58 + foothillBreak * 1.15;
 
                 foothillInfluence[index] = Math.Clamp(foothill, 0, 1);
+            }
+        }
+    }
+
+    private static void ApplyOrogenProvinceFields(
+        MapMask mask,
+        double[] orogenProvince,
+        double[] orogenStrength,
+        double[] ridgeContinuity,
+        double[] mountainPassPotential,
+        double[] foothillInfluence)
+    {
+        for (var y = 0; y < mask.Height; y++)
+        {
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+                if (!mask.IsLand(point))
+                    continue;
+
+                var index = y * mask.Width + x;
+                var province = Math.Clamp(orogenProvince[index], 0, 1.2);
+                var strength = Math.Clamp(orogenStrength[index], 0, 1.2);
+                if (province <= 0 && strength <= 0)
+                    continue;
+
+                var broadNoise = SmoothNoise(x + 23, y - 41, 1631, 30.0);
+                var breakupNoise = SmoothNoise(x - 59, y + 17, 1637, 13.0);
+                var highland = province * (0.58 + broadNoise * 0.34) + strength * 0.32;
+                if (breakupNoise < 0.22)
+                    highland *= 0.62 + breakupNoise * 1.15;
+
+                foothillInfluence[index] = Math.Max(foothillInfluence[index], Math.Clamp(highland, 0, 1));
+                ridgeContinuity[index] = Math.Max(ridgeContinuity[index], Math.Clamp(strength * 0.26 + province * 0.08, 0, 0.42));
+                mountainPassPotential[index] = Math.Max(mountainPassPotential[index], Math.Clamp(province * (1.0 - strength) * 0.28, 0, 0.32));
             }
         }
     }
@@ -936,6 +983,18 @@ internal sealed class ElevationGenerator
         }
 
         return ShapeSignal(SmoothField(values, features.Width, features.Height, passes), threshold, gamma);
+    }
+
+    private static double[] BuildOrogenProvinceSignal(OrogenProvinceMap provinces, Func<int, int, double> readValue, int passes, double threshold, double gamma)
+    {
+        var values = new double[provinces.Width * provinces.Height];
+        for (var y = 0; y < provinces.Height; y++)
+        {
+            for (var x = 0; x < provinces.Width; x++)
+                values[y * provinces.Width + x] = Math.Clamp(readValue(x, y), 0, 1.5);
+        }
+
+        return ShapeSignal(SmoothField(values, provinces.Width, provinces.Height, passes), threshold, gamma);
     }
 
     private static double[] DiffuseTectonicLineSignal(

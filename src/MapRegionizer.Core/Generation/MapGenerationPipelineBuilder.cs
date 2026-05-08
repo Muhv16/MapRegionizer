@@ -15,6 +15,7 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new GenerateCrustFieldsStage())
             .AddStage(new GeneratePlateDomainsStage())
             .AddStage(new GenerateTectonicBoundariesStage())
+            .AddStage(new GenerateOrogenProvincesStage())
             .AddStage(new GenerateTectonicFeaturesStage())
             .AddStage(new GenerateElevationStage())
             .AddStage(new AssembleTectonicPlateMapStage())
