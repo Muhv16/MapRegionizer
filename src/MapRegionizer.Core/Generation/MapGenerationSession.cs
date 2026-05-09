@@ -43,6 +43,7 @@ public sealed class MapGenerationSession
     public RiftProvinceMap? RiftProvinces => _context.RiftProvinces;
     public TectonicFeatureMap? TectonicFeatures => _context.TectonicFeatures;
     public ElevationMap? BaseTerrain => _context.BaseTerrain;
+    public GeneratedLakeMap? GeneratedLakes => _context.GeneratedLakes;
     public ElevationMap? Elevation => _context.Elevation;
     public WaterSurfaceMap? WaterSurfaces => _context.WaterSurfaces;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;

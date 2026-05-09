@@ -135,6 +135,10 @@ public static class MapGenerationArtifactWriter
                 options.ProjectionMode.ToString(),
                 options.TectonicPlates.PlateCount,
                 options.TectonicPlates.HotspotCount,
+                options.Elevation.GenerateSmallLakes,
+                options.Elevation.SmallLakeCountMultiplier,
+                options.Elevation.SmallLakeScatterMultiplier,
+                options.Elevation.SmallLakeSizeMultiplier,
                 tectonicJsonMode.ToString(),
                 elevationJsonMode.ToString()),
             new MapGenerationMapSummary(

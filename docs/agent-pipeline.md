@@ -94,6 +94,10 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --projection equirectangular-world|flat|regional
 --plate-count <int>
 --hotspot-count <int>
+--generate-small-lakes <bool>
+--small-lake-count-multiplier <number>
+--small-lake-scatter-multiplier <number>
+--small-lake-size-multiplier <number>
 --tectonic-json-mode Summary|CompactDiagnostic|Diagnostic
 --elevation-json-mode Summary|Diagnostic
 ```

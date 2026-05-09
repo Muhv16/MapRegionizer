@@ -13,6 +13,7 @@ internal sealed class LakeLevelGenerator
         RiftProvinceMap riftProvinces,
         TectonicFeatureMap features,
         WaterBodyTopology waterBodyTopology,
+        GeneratedLakeMap generatedLakes,
         ElevationGenerationOptions options)
     {
         var length = mask.Width * mask.Height;
@@ -52,6 +53,7 @@ internal sealed class LakeLevelGenerator
         var waterSurfaces = ApplyWaterSurfaceLevels(
             mask,
             waterBodyTopology,
+            generatedLakes,
             boundaries,
             elevation,
             waterSurface,
@@ -106,6 +108,7 @@ internal sealed class LakeLevelGenerator
     private static WaterSurfaceMap ApplyWaterSurfaceLevels(
         MapMask mask,
         WaterBodyTopology waterBodyTopology,
+        GeneratedLakeMap generatedLakes,
         TectonicBoundaryMap boundaries,
         double[] elevation,
         double[] waterSurface,
@@ -120,6 +123,9 @@ internal sealed class LakeLevelGenerator
     {
         var faultContext = BuildLakeFaultContext(boundaries, mask.Width, mask.Height);
         var bodyCells = new Dictionary<int, List<GridPoint>>();
+        var generatedBodies = generatedLakes.Bodies.ToDictionary(b => b.Id.Value);
+        bool IsHydrologyWater(GridPoint point) => !mask.IsLand(point) || generatedLakes.Contains(point);
+
         for (var y = 0; y < mask.Height; y++)
         {
             for (var x = 0; x < mask.Width; x++)
@@ -138,13 +144,25 @@ internal sealed class LakeLevelGenerator
             }
         }
 
+        foreach (var generated in generatedLakes.Bodies)
+        {
+            if (!bodyCells.TryGetValue(generated.Id.Value, out var cells))
+            {
+                cells = [];
+                bodyCells[generated.Id.Value] = cells;
+            }
+
+            cells.AddRange(generated.Cells);
+        }
+
         var surfaces = new List<WaterBodySurface>();
         foreach (var (idValue, cells) in bodyCells)
         {
             var id = new WaterBodyId(idValue);
+            var generatedBody = generatedBodies.GetValueOrDefault(idValue);
             var classification = waterBodyTopology.GetClassification(id);
-            var kind = classification?.Kind ?? WaterBodyKind.Ocean;
-            var shoreline = FindShoreline(mask, cells);
+            var kind = generatedBody is not null ? WaterBodyKind.InlandLake : classification?.Kind ?? WaterBodyKind.Ocean;
+            var shoreline = FindShoreline(mask, cells, IsHydrologyWater);
             var metrics = ComputeLakeMetrics(
                 id,
                 kind,
@@ -176,6 +194,8 @@ internal sealed class LakeLevelGenerator
             var maxDepth = kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea
                 ? ComputeLakeMaxDepth(metrics, options)
                 : Math.Max(0.0, surface - cells.Min(p => elevation[p.Y * mask.Width + p.X]));
+            if (generatedBody is not null)
+                maxDepth = Math.Min(maxDepth, Math.Max(options.MinLakeDepthMeters, generatedBody.MaxDepthMeters));
 
             foreach (var cell in cells)
                 waterSurface[cell.Y * mask.Width + cell.X] = surface;
@@ -183,7 +203,7 @@ internal sealed class LakeLevelGenerator
             if (kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea)
             {
                 if (options.PreserveInlandWaterMask || !options.AllowLakeExpansion)
-                    LiftShorelineRim(mask, shoreline, elevation, surface + margin);
+                    LiftShorelineRim(mask, shoreline, elevation, surface + margin, IsHydrologyWater);
 
                 ShapeLakeBed(mask, cells, elevation, surface, maxDepth, metrics, options);
             }
@@ -463,14 +483,17 @@ internal sealed class LakeLevelGenerator
         return sum / cells.Count;
     }
 
-    private static List<GridPoint> FindShoreline(MapMask mask, IReadOnlyList<GridPoint> waterCells)
+    private static List<GridPoint> FindShoreline(
+        MapMask mask,
+        IReadOnlyList<GridPoint> waterCells,
+        Func<GridPoint, bool> isHydrologyWater)
     {
         var shoreline = new HashSet<GridPoint>();
         foreach (var cell in waterCells)
         {
             foreach (var neighbor in Neighbors4(cell, mask.Width, mask.Height))
             {
-                if (mask.IsLand(neighbor))
+                if (!isHydrologyWater(neighbor))
                     shoreline.Add(neighbor);
             }
         }
@@ -478,11 +501,16 @@ internal sealed class LakeLevelGenerator
         return shoreline.ToList();
     }
 
-    private static void LiftShorelineRim(MapMask mask, IReadOnlyList<GridPoint> shoreline, double[] elevation, double rimFloor)
+    private static void LiftShorelineRim(
+        MapMask mask,
+        IReadOnlyList<GridPoint> shoreline,
+        double[] elevation,
+        double rimFloor,
+        Func<GridPoint, bool> isHydrologyWater)
     {
         foreach (var point in shoreline)
         {
-            if (!mask.IsLand(point))
+            if (isHydrologyWater(point))
                 continue;
 
             var index = point.Y * mask.Width + point.X;

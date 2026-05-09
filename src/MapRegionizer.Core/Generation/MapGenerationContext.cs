@@ -37,6 +37,7 @@ public sealed class MapGenerationContext
     public RiftProvinceMap? RiftProvinces { get; set; }
     public TectonicFeatureMap? TectonicFeatures { get; set; }
     public ElevationMap? BaseTerrain { get; set; }
+    public GeneratedLakeMap? GeneratedLakes { get; set; }
     public ElevationMap? Elevation { get; set; }
     public WaterSurfaceMap? WaterSurfaces { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
@@ -101,6 +102,8 @@ public sealed class MapGenerationContext
             TectonicFeatures = null;
         else if (key == MapDataKeys.BaseTerrain)
             BaseTerrain = null;
+        else if (key == MapDataKeys.GeneratedLakes)
+            GeneratedLakes = null;
         else if (key == MapDataKeys.Elevation)
             Elevation = null;
         else if (key == MapDataKeys.WaterSurfaces)

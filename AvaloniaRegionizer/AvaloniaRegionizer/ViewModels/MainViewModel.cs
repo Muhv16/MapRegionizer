@@ -94,6 +94,9 @@ public sealed class MainViewModel : ReactiveObject
     private double _elevationShelfWidthFactor = 1.0;
     private double _volcanismInfluence = 0.6;
     private double _smallIslandReliefFactor = 0.55;
+    private bool _generateSmallLakes = true;
+    private double _smallLakeCountMultiplier = 0.5;
+    private double _smallLakeSizeMultiplier = 0.2;
     private double _riftInfluence = 0.5;
     private bool _preserveMaskCoastline = true;
     private double _maxElevationMeters = 8500;
@@ -317,6 +320,9 @@ public sealed class MainViewModel : ReactiveObject
     public double ElevationShelfWidthFactor { get => _elevationShelfWidthFactor; set => SetOption(ref _elevationShelfWidthFactor, value, MapDataKeys.BaseTerrain); }
     public double VolcanismInfluence { get => _volcanismInfluence; set => SetOption(ref _volcanismInfluence, value, MapDataKeys.BaseTerrain); }
     public double SmallIslandReliefFactor { get => _smallIslandReliefFactor; set => SetOption(ref _smallIslandReliefFactor, value, MapDataKeys.BaseTerrain); }
+    public bool GenerateSmallLakes { get => _generateSmallLakes; set => SetOption(ref _generateSmallLakes, value, MapDataKeys.GeneratedLakes); }
+    public double SmallLakeCountMultiplier { get => _smallLakeCountMultiplier; set => SetOption(ref _smallLakeCountMultiplier, value, MapDataKeys.GeneratedLakes); }
+    public double SmallLakeSizeMultiplier { get => _smallLakeSizeMultiplier; set => SetOption(ref _smallLakeSizeMultiplier, value, MapDataKeys.GeneratedLakes); }
     public double RiftInfluence { get => _riftInfluence; set => SetOption(ref _riftInfluence, value, MapDataKeys.BaseTerrain); }
     public bool PreserveMaskCoastline { get => _preserveMaskCoastline; set => SetOption(ref _preserveMaskCoastline, value, MapDataKeys.BaseTerrain); }
     public double MaxElevationMeters { get => _maxElevationMeters; set => SetOption(ref _maxElevationMeters, value, MapDataKeys.BaseTerrain); }
@@ -597,6 +603,9 @@ public sealed class MainViewModel : ReactiveObject
                 BoundaryDetail = 0.18;
                 PlateCount = null;
                 ReliefScale = 0.85;
+                GenerateSmallLakes = true;
+                SmallLakeCountMultiplier = 0.65;
+                SmallLakeSizeMultiplier = 0.85;
                 TectonicJsonMode = TectonicPlateJsonExportMode.Summary;
                 ElevationJsonMode = ElevationJsonExportMode.Summary;
             }
@@ -608,9 +617,13 @@ public sealed class MainViewModel : ReactiveObject
                 BoundaryNoise = 0.28;
                 Roughness = 0.55;
                 ReliefScale = 1.1;
+                GenerateSmallLakes = true;
+                SmallLakeCountMultiplier = 1.25;
+                SmallLakeSizeMultiplier = 1.15;
             }
             else if (preset == "diagnostic")
             {
+                GenerateSmallLakes = true;
                 TectonicJsonMode = TectonicPlateJsonExportMode.CompactDiagnostic;
                 ElevationJsonMode = ElevationJsonExportMode.Diagnostic;
             }
@@ -623,6 +636,9 @@ public sealed class MainViewModel : ReactiveObject
                 ReliefScale = 1.0;
                 Roughness = 0.45;
                 SmallIslandReliefFactor = 0.55;
+                GenerateSmallLakes = true;
+                SmallLakeCountMultiplier = 1.0;
+                SmallLakeSizeMultiplier = 1.0;
                 TectonicJsonMode = TectonicPlateJsonExportMode.Summary;
                 ElevationJsonMode = ElevationJsonExportMode.Summary;
             }
@@ -632,7 +648,7 @@ public sealed class MainViewModel : ReactiveObject
             _suppressDirty = false;
         }
 
-        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain);
+        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain, MapDataKeys.GeneratedLakes);
         SaveSettings();
     }
 
@@ -731,6 +747,9 @@ public sealed class MainViewModel : ReactiveObject
                 ShelfWidthFactor = ElevationShelfWidthFactor,
                 VolcanismInfluence = VolcanismInfluence,
                 SmallIslandReliefFactor = SmallIslandReliefFactor,
+                GenerateSmallLakes = GenerateSmallLakes,
+                SmallLakeCountMultiplier = SmallLakeCountMultiplier,
+                SmallLakeSizeMultiplier = SmallLakeSizeMultiplier,
                 RiftInfluence = RiftInfluence,
                 PreserveMaskCoastline = PreserveMaskCoastline,
                 MaxElevationMeters = MaxElevationMeters,
@@ -786,6 +805,9 @@ public sealed class MainViewModel : ReactiveObject
             ElevationShelfWidthFactor = options.Elevation.ShelfWidthFactor;
             VolcanismInfluence = options.Elevation.VolcanismInfluence;
             SmallIslandReliefFactor = options.Elevation.SmallIslandReliefFactor;
+            GenerateSmallLakes = options.Elevation.GenerateSmallLakes;
+            SmallLakeCountMultiplier = options.Elevation.SmallLakeCountMultiplier;
+            SmallLakeSizeMultiplier = options.Elevation.SmallLakeSizeMultiplier;
             RiftInfluence = options.Elevation.RiftInfluence;
             PreserveMaskCoastline = options.Elevation.PreserveMaskCoastline;
             MaxElevationMeters = options.Elevation.MaxElevationMeters;
@@ -803,12 +825,17 @@ public sealed class MainViewModel : ReactiveObject
     {
         Stages.Add(CreateStage(MapStageIds.ExtractLandmasses, "StageLandmasses", MapDataKeys.Landmasses));
         Stages.Add(CreateStage(MapStageIds.ExtractWaterBodies, "StageWaterBodies", MapDataKeys.WaterBodies));
+        Stages.Add(CreateStage(MapStageIds.ClassifyWaterBodies, "StageWaterBodyTopology", MapDataKeys.WaterBodyTopology));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicHistory, "StageTectonicHistory", MapDataKeys.TectonicHistory));
         Stages.Add(CreateStage(MapStageIds.GenerateCrustFields, "StageCrustFields", MapDataKeys.CrustFields));
         Stages.Add(CreateStage(MapStageIds.GeneratePlateDomains, "StagePlateDomains", MapDataKeys.PlateDomains));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicBoundaries, "StageTectonicBoundaries", MapDataKeys.TectonicBoundaries));
+        Stages.Add(CreateStage(MapStageIds.GenerateOrogenProvinces, "StageOrogenProvinces", MapDataKeys.OrogenProvinces));
+        Stages.Add(CreateStage(MapStageIds.GenerateRiftProvinces, "StageRiftProvinces", MapDataKeys.RiftProvinces));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicFeatures, "StageTectonicFeatures", MapDataKeys.TectonicFeatures));
-        Stages.Add(CreateStage(MapStageIds.GenerateElevation, "StageElevation", MapDataKeys.Elevation));
+        Stages.Add(CreateStage(MapStageIds.GenerateElevation, "StageBaseTerrain", MapDataKeys.BaseTerrain));
+        Stages.Add(CreateStage(MapStageIds.GenerateSmallLakes, "StageGeneratedLakes", MapDataKeys.GeneratedLakes));
+        Stages.Add(CreateStage(MapStageIds.GenerateLakeLevels, "StageLakeLevels", MapDataKeys.WaterSurfaces));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicPlates, "StageTectonicPlates", MapDataKeys.TectonicPlates));
         Stages.Add(CreateStage(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RawRegions));
         Stages.Add(CreateStage(MapStageIds.DistortRegionBoundaries, "StageRegions", MapDataKeys.Regions));
@@ -939,6 +966,12 @@ public sealed class MainViewModel : ReactiveObject
 
         var map = _workspace.Session.CurrentMap;
         var elevationRange = map.Elevation is null ? string.Empty : $"{Environment.NewLine}{L["Elevation"]}: {GetElevationRange(map.Elevation)} m";
+        var lakeSummary = _workspace.Session.GeneratedLakes is null
+            ? string.Empty
+            : $"{Environment.NewLine}{L["GeneratedLakes"]}: {_workspace.Session.GeneratedLakes.Bodies.Count}";
+        var waterSurfaceSummary = _workspace.Session.WaterSurfaces is null
+            ? string.Empty
+            : $"{Environment.NewLine}{L["WaterSurfaces"]}: {_workspace.Session.WaterSurfaces.Bodies.Count}";
         Statistics =
             $"{L["Size"]}: {map.Bounds.Width:0} x {map.Bounds.Height:0}{Environment.NewLine}" +
             $"{L["Landmasses"]}: {map.Landmasses.Count}{Environment.NewLine}" +
@@ -946,7 +979,9 @@ public sealed class MainViewModel : ReactiveObject
             $"{L["Regions"]}: {map.Regions.Count}{Environment.NewLine}" +
             $"{L["Plates"]}: {map.TectonicPlates?.Plates.Count ?? 0}{Environment.NewLine}" +
             $"{L["Features"]}: {map.TectonicPlates?.Features?.Features.Count ?? 0}" +
-            elevationRange;
+            elevationRange +
+            lakeSummary +
+            waterSurfaceSummary;
     }
 
     private static string GetElevationRange(MapRegionizer.Core.Domain.ElevationMap elevation)
@@ -976,7 +1011,9 @@ public sealed class MainViewModel : ReactiveObject
                 ? PreviewLayerKind.TectonicPlates
             : key == MapDataKeys.TectonicFeatures
                 ? PreviewLayerKind.TectonicFeatures
-            : key == MapDataKeys.Elevation
+            : key == MapDataKeys.BaseTerrain
+                ? PreviewLayerKind.ElevationBase
+            : key == MapDataKeys.Elevation || key == MapDataKeys.WaterSurfaces || key == MapDataKeys.GeneratedLakes
                 ? PreviewLayerKind.Elevation
                 : PreviewLayerKind.Overview;
 

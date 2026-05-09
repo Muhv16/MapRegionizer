@@ -119,6 +119,18 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "hotspot-count":
                 options.HotspotCount = ParseInt(value, name);
                 break;
+            case "generate-small-lakes":
+                options.GenerateSmallLakes = ParseBool(value, name);
+                break;
+            case "small-lake-count-multiplier":
+                options.SmallLakeCountMultiplier = ParseDouble(value, name);
+                break;
+            case "small-lake-scatter-multiplier":
+                options.SmallLakeScatterMultiplier = ParseDouble(value, name);
+                break;
+            case "small-lake-size-multiplier":
+                options.SmallLakeSizeMultiplier = ParseDouble(value, name);
+                break;
             case "tectonic-json-mode":
                 options.TectonicJsonMode = ParseEnum<TectonicPlateJsonExportMode>(value, name);
                 break;
@@ -196,6 +208,19 @@ static double ParseDouble(string value, string name)
     throw new ArgumentException($"Option {name} expects a number with invariant culture decimal separator.");
 }
 
+static bool ParseBool(string value, string name)
+{
+    if (bool.TryParse(value, out var result))
+        return result;
+
+    return value.Trim().ToLowerInvariant() switch
+    {
+        "1" or "yes" or "y" or "on" or "enable" or "enabled" => true,
+        "0" or "no" or "n" or "off" or "disable" or "disabled" => false,
+        _ => throw new ArgumentException($"Option {name} expects a boolean value.")
+    };
+}
+
 static MapProjectionMode ParseProjection(string value, string name)
 {
     var normalized = value.Replace("-", string.Empty, StringComparison.Ordinal)
@@ -260,6 +285,10 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --projection <mode>              equirectangular-world, flat, regional.");
     Console.WriteLine("  --plate-count <int>              Override generated tectonic plate count.");
     Console.WriteLine("  --hotspot-count <int>            Override generated hotspot count.");
+    Console.WriteLine("  --generate-small-lakes <bool>    Generate small terrain-derived lakes. Default: true.");
+    Console.WriteLine("  --small-lake-count-multiplier <number>  Scales generated small-lake count. Default: 1.");
+    Console.WriteLine("  --small-lake-scatter-multiplier <number>  Scales scattered standalone lakes. Default: 1.");
+    Console.WriteLine("  --small-lake-size-multiplier <number>   Scales generated small-lake footprint size. Default: 0.1.");
     Console.WriteLine("  --tectonic-json-mode <mode>      Summary, CompactDiagnostic, Diagnostic.");
     Console.WriteLine("  --elevation-json-mode <mode>     Summary, Diagnostic.");
 }

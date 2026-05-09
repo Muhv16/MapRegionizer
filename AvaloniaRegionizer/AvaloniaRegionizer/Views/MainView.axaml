@@ -270,6 +270,11 @@
                                             <NumericUpDown Value="{Binding VolcanismInfluence}" Minimum="0" FormatString="N2"/>
                                             <TextBlock Text="{Binding L[SmallIslandReliefFactor]}" FontWeight="SemiBold"/>
                                             <NumericUpDown Value="{Binding SmallIslandReliefFactor}" Minimum="0" Maximum="1" FormatString="N2"/>
+                                            <CheckBox Content="{Binding L[GenerateSmallLakes]}" IsChecked="{Binding GenerateSmallLakes}"/>
+                                            <TextBlock Text="{Binding L[SmallLakeCountMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding SmallLakeCountMultiplier}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[SmallLakeSizeMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding SmallLakeSizeMultiplier}" Minimum="0.01" FormatString="N2"/>
                                             <TextBlock Text="{Binding L[RiftInfluence]}" FontWeight="SemiBold"/>
                                             <NumericUpDown Value="{Binding RiftInfluence}" Minimum="0" FormatString="N2"/>
                                             <CheckBox Content="{Binding L[PreserveCoastline]}" IsChecked="{Binding PreserveMaskCoastline}"/>

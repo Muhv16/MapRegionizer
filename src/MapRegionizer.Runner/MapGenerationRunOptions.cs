@@ -21,6 +21,10 @@ public sealed class MapGenerationRunOptions
     public int? PlateCount { get; set; }
     public int? HotspotCount { get; set; }
     public double SmallIslandReliefFactor { get; set; } = 0.55;
+    public bool GenerateSmallLakes { get; set; } = true;
+    public double SmallLakeCountMultiplier { get; set; } = 0.5;
+    public double SmallLakeScatterMultiplier { get; set; } = 0.5;
+    public double SmallLakeSizeMultiplier { get; set; } = 0.2;
     public TectonicPlateJsonExportMode TectonicJsonMode { get; set; } = TectonicPlateJsonExportMode.Summary;
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
 
@@ -55,7 +59,11 @@ public sealed class MapGenerationRunOptions
             },
             Elevation = new ElevationGenerationOptions
             {
-                SmallIslandReliefFactor = SmallIslandReliefFactor
+                SmallIslandReliefFactor = SmallIslandReliefFactor,
+                GenerateSmallLakes = GenerateSmallLakes,
+                SmallLakeCountMultiplier = SmallLakeCountMultiplier,
+                SmallLakeScatterMultiplier = SmallLakeScatterMultiplier,
+                SmallLakeSizeMultiplier = SmallLakeSizeMultiplier
             }
         };
     }

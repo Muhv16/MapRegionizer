@@ -20,6 +20,7 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new GenerateRiftProvincesStage())
             .AddStage(new GenerateTectonicFeaturesStage())
             .AddStage(new GenerateElevationStage())
+            .AddStage(new GenerateSmallLakesStage())
             .AddStage(new GenerateLakeLevelsStage())
             .AddStage(new AssembleTectonicPlateMapStage())
             .AddStage(new GenerateRegionsStage())

@@ -146,6 +146,10 @@ public sealed class ElevationGenerationOptions
     public double VolcanismInfluence { get; init; } = 0.6;
     public double SmallIslandReliefFactor { get; init; } = 0.55;
     public double RiftInfluence { get; init; } = 0.5;
+    public bool GenerateSmallLakes { get; init; } = true;
+    public double SmallLakeCountMultiplier { get; init; } = 0.5;
+    public double SmallLakeScatterMultiplier { get; init; } = 0.5;
+    public double SmallLakeSizeMultiplier { get; init; } = 0.2;
     public bool PreserveMaskCoastline { get; init; } = true;
     public bool PreserveOceanCoastline { get; init; } = true;
     public bool PreserveInlandWaterMask { get; init; } = true;
@@ -183,6 +187,9 @@ public sealed class ElevationGenerationOptions
         if (VolcanismInfluence < 0) throw new ArgumentOutOfRangeException(nameof(VolcanismInfluence), "Volcanism influence cannot be negative.");
         if (SmallIslandReliefFactor < 0) throw new ArgumentOutOfRangeException(nameof(SmallIslandReliefFactor), "Small island relief factor cannot be negative.");
         if (RiftInfluence < 0) throw new ArgumentOutOfRangeException(nameof(RiftInfluence), "Rift influence cannot be negative.");
+        if (SmallLakeCountMultiplier < 0) throw new ArgumentOutOfRangeException(nameof(SmallLakeCountMultiplier), "Small lake count multiplier cannot be negative.");
+        if (SmallLakeScatterMultiplier < 0) throw new ArgumentOutOfRangeException(nameof(SmallLakeScatterMultiplier), "Small lake scatter multiplier cannot be negative.");
+        if (SmallLakeSizeMultiplier <= 0) throw new ArgumentOutOfRangeException(nameof(SmallLakeSizeMultiplier), "Small lake size multiplier must be greater than zero.");
         if (LakeSurfacePercentile < 0 || LakeSurfacePercentile > 1) throw new ArgumentOutOfRangeException(nameof(LakeSurfacePercentile), "Lake surface percentile must be in [0, 1].");
         if (MinLakeSurfaceMarginMeters < 0) throw new ArgumentOutOfRangeException(nameof(MinLakeSurfaceMarginMeters), "Minimum lake surface margin cannot be negative.");
         if (MaxLakeSurfaceMarginMeters < MinLakeSurfaceMarginMeters) throw new ArgumentOutOfRangeException(nameof(MaxLakeSurfaceMarginMeters), "Maximum lake surface margin cannot be below minimum margin.");

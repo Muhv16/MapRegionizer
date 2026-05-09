@@ -51,6 +51,10 @@ public sealed record MapGenerationRunOptionSummary(
     string ProjectionMode,
     int? PlateCount,
     int? HotspotCount,
+    bool GenerateSmallLakes,
+    double SmallLakeCountMultiplier,
+    double SmallLakeScatterMultiplier,
+    double SmallLakeSizeMultiplier,
     string TectonicJsonMode,
     string ElevationJsonMode);
 

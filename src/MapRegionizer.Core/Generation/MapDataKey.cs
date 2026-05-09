@@ -21,6 +21,7 @@ public static class MapDataKeys
     public static readonly MapDataKey RiftProvinces = new("riftProvinces");
     public static readonly MapDataKey TectonicFeatures = new("tectonicFeatures");
     public static readonly MapDataKey BaseTerrain = new("baseTerrain");
+    public static readonly MapDataKey GeneratedLakes = new("generatedLakes");
     public static readonly MapDataKey Elevation = new("elevation");
     public static readonly MapDataKey WaterSurfaces = new("waterSurfaces");
     public static readonly MapDataKey TectonicPlates = new("tectonicPlates");
@@ -41,6 +42,7 @@ public static class MapStageIds
     public const string GenerateRiftProvinces = "generateRiftProvinces";
     public const string GenerateTectonicFeatures = "generateTectonicFeatures";
     public const string GenerateElevation = "generateElevation";
+    public const string GenerateSmallLakes = "generateSmallLakes";
     public const string GenerateLakeLevels = "generateLakeLevels";
     public const string GenerateTectonicPlates = "generateTectonicPlates";
 }

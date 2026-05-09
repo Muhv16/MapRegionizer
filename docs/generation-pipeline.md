@@ -31,6 +31,7 @@ OrogenProvinces
 RiftProvinces
 TectonicFeatures
 BaseTerrain
+GeneratedLakes
 Elevation
 WaterSurfaces
 TectonicPlates
@@ -61,6 +62,7 @@ ExtractLandmassesStage
  -> GenerateRiftProvincesStage
  -> GenerateTectonicFeaturesStage
  -> GenerateElevationStage
+ -> GenerateSmallLakesStage
  -> GenerateLakeLevelsStage
  -> AssembleTectonicPlateMapStage
  -> GenerateRegionsStage
@@ -114,8 +116,12 @@ GenerateElevationStage
   requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology
   produces: BaseTerrain
 
+GenerateSmallLakesStage
+  requires: Mask, WaterBodyTopology, BaseTerrain
+  produces: GeneratedLakes
+
 GenerateLakeLevelsStage
-  requires: BaseTerrain, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures
+  requires: BaseTerrain, GeneratedLakes, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures
   produces: Elevation, WaterSurfaces
 
 AssembleTectonicPlateMapStage
@@ -281,7 +287,7 @@ If the custom stage produces a different key, dependent default stages will not 
 
 ## Future Extension
 
-World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, orogen provinces, rift provinces, derived features, and a compatible assembled `TectonicPlates` view. Base terrain is generated as a standalone pre-hydrology bed-height/bathymetry raster after tectonic feature, orogen-province, rift-province, and water-topology fields. Lake levels then produce final `Elevation` and `WaterSurfaces`. See [tectonics.md](tectonics.md), [elevation.md](elevation.md), and [hydrology.md](hydrology.md) for the current domain models, options, algorithms, exports, and output map legends.
+World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, orogen provinces, rift provinces, derived features, and a compatible assembled `TectonicPlates` view. Base terrain is generated as a standalone pre-hydrology bed-height/bathymetry raster after tectonic feature, orogen-province, rift-province, and water-topology fields. Small generated lakes are selected from that base terrain before lake levels produce final `Elevation` and `WaterSurfaces`. See [tectonics.md](tectonics.md), [elevation.md](elevation.md), and [hydrology.md](hydrology.md) for the current domain models, options, algorithms, exports, and output map legends.
 
 `WaterSurfaces` now carries both water-level records and inland lake metadata. Inland lake/sea records include location class, origin class, depth profile, maximum depth, centroid, shoreline relief, and tectonic/volcanic influence. Artifact export writes those records to `lakes.json`; raster water levels remain in `Elevation.WaterSurfaceMeters`.
 
@@ -291,6 +297,7 @@ Current and future terrain-oriented data keys include:
 
 ```text
 BaseTerrain
+GeneratedLakes
 Elevation
 WaterSurfaces
 Rivers
@@ -304,8 +311,12 @@ GenerateElevationStage
   requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology
   produces: BaseTerrain
 
+GenerateSmallLakesStage
+  requires: Mask, WaterBodyTopology, BaseTerrain
+  produces: GeneratedLakes
+
 GenerateLakeLevelsStage
-  requires: BaseTerrain, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures
+  requires: BaseTerrain, GeneratedLakes, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures
   produces: Elevation, WaterSurfaces
 
 GenerateRiversStage

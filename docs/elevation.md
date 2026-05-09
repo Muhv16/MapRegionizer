@@ -19,11 +19,12 @@ Mask
  -> RiftProvinces
  -> TectonicFeatures
  -> BaseTerrain
+ -> GeneratedLakes
  -> Elevation
  -> WaterSurfaces
 ```
 
-`BaseTerrain` is the pre-hydrology terrain raster. `GenerateLakeLevelsStage` turns it into final `Elevation` by applying local water surfaces, shoreline rim fixes, and lake-bed shaping. Final `Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. Future river and climate stages should depend on final terrain and water-surface data, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level semantics and future `HydroSurfaceMeters`.
+`BaseTerrain` is the pre-hydrology terrain raster. `GenerateSmallLakesStage` can add small terrain-derived lake cells on top of this raster without changing the source mask, landmasses, or regions. `GenerateLakeLevelsStage` then turns base terrain plus user and generated lakes into final `Elevation` by applying local water surfaces, shoreline rim fixes, and lake-bed shaping. Final `Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. Future river and climate stages should depend on final terrain and water-surface data, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level semantics and future `HydroSurfaceMeters`.
 
 ## Domain Model
 
@@ -95,6 +96,10 @@ Elevation is configured through `ElevationGenerationOptions`.
 - `VolcanismInfluence`: strength of volcanic islands, arcs, and seamount-like uplift.
 - `SmallIslandReliefFactor`: relief multiplier for classified small islands. Default value reduces excessive volcanic and ridge relief on very small islands while allowing larger island landmasses to keep stronger mountains. Values near `1` also relax the small-island relief ceiling; lower values make the ceiling stricter.
 - `RiftInfluence`: strength of rift valleys and back-arc lowering.
+- `GenerateSmallLakes`: enables small terrain-derived lakes after `BaseTerrain` generation. Enabled by default.
+- `SmallLakeCountMultiplier`: scales the number of generated small lakes. `1` keeps default density; `0` suppresses generated lakes while leaving the stage available.
+- `SmallLakeScatterMultiplier`: scales the extra budget for scattered standalone small lakes. `1` keeps default scatter density; `0` keeps clustered generation but disables the global standalone pass.
+- `SmallLakeSizeMultiplier`: scales generated small-lake footprint area. `1` keeps default sizes; values above `1` make generated lakes larger.
 - `PreserveMaskCoastline`: legacy compatibility option retained for existing callers; new terrain constraints are controlled by the more specific options below.
 - `PreserveOceanCoastline`: keeps source land above ocean sea level and ocean water below sea level.
 - `PreserveInlandWaterMask`: keeps source inland lakes and seas as water bodies.
@@ -192,24 +197,30 @@ Oceanic water keeps final bed elevation in meters, but derived `TerrainClassKind
 
 These roles are generated from final depth, distance to land, local land enclosure, crust/coastal zones, and diffused ridge/subduction/rift masks. Their height adjustments are intentionally moderate so seas gain strategic structure without becoming visually overloaded.
 
-### 6. Lake Levels
+### 6. Generated Small Lakes
+
+After `BaseTerrain` is available, the small-lake stage scans source land cells for low, flat local minima. Candidate cells must be local 3x3 depressions, have low 5x5 relief, avoid mountain/high-plateau terrain, and stay away from steep roughness, ridge, foothill, ocean, and existing-water edges. Existing inland lakes add a moderate satellite-lake influence in nearby lowlands, so small lakes can appear as compact companions around larger user-provided water bodies.
+
+The stage groups eligible lowlands, then places a conservative mix of clusters, solitary lakes inside those lowlands, and standalone scattered lakes chosen from high-scoring candidates across the whole map. Cluster placement uses a coarse local grid-like selection and a shared area budget; local solitary lakes use larger spacing; scattered lakes reserve an even wider exclusion radius so they read as isolated basins. `SmallLakeCountMultiplier` scales body budgets and placement attempts, `SmallLakeScatterMultiplier` scales the standalone scatter pass, and `SmallLakeSizeMultiplier` scales footprint area budgets. Each generated lake receives a small oval, lightly noisy footprint and a local depth cap based on roughly `5..15%` of nearby relief, bounded by normal lake depth options. Generated lakes are hydrology-only: they contribute water surfaces, bed shaping, rendering, and `lakes.json`, but do not cut holes into exported landmass or region geometry.
+
+### 7. Lake Levels
 
 After the main terrain and ocean bathymetry passes, inland water bodies use `WaterBodyTopology` to compute a local water surface. The shoreline ring is all land adjacent to a lake. The lake spill point is estimated from the configured shoreline percentile, then the surface is set slightly below it. With the default preservation settings, shoreline cells below the rim are lifted to keep the original mask stable instead of expanding or draining the lake.
 
-Before bed shaping, each inland lake/sea is classified by location and origin. Location uses shoreline elevation, shoreline relief, roughness, ridge/foothill influence, and volcanic context to distinguish mountain, plain, and plateau basins. Origin then combines local tectonic boundary/rift/graben influence, volcanic/heat-flow influence, roundness, size, and deterministic per-lake variation:
+Before bed shaping, each user-provided inland lake/sea and generated small lake is classified by location and origin. Location uses shoreline elevation, shoreline relief, roughness, ridge/foothill influence, and volcanic context to distinguish mountain, plain, and plateau basins. Origin then combines local tectonic boundary/rift/graben influence, volcanic/heat-flow influence, roundness, size, and deterministic per-lake variation:
 
 - tectonic lakes become deep elongated troughs, preferentially aligned to local boundary/fault direction;
 - glacial lakes become steep mountain bowls;
 - erosional lakes become shallow lowland basins with Gaussian-like depth distribution;
 - volcanic/karst lakes become compact cone-like basins and can be deep for their size.
 
-Maximum depth is derived from size, origin, shoreline relief, tectonic/volcanic influence, and a deterministic `0.8..1.2` default depth coefficient. Large lakes can receive several local depressions so the bottom is not a single perfect basin. `InlandSea` bodies use broader sea-like depth ranges while still keeping a positive surface.
+Maximum depth is derived from size, origin, shoreline relief, tectonic/volcanic influence, and a deterministic `0.8..1.2` default depth coefficient. Generated small lakes additionally clamp maximum depth to their local relief-derived cap. Large lakes can receive several local depressions so the bottom is not a single perfect basin. `InlandSea` bodies use broader sea-like depth ranges while still keeping a positive surface.
 
-### 7. Procedural Detail
+### 8. Procedural Detail
 
 Multi-octave value noise adds local terrain variation without external dependencies. Noise amplitude is controlled by `Roughness`, local tectonic activity, crust type, and distance from the coastline. Ocean noise is lower than land noise so underwater relief remains a background signal. Ocean and shelf distances use weighted 8-neighbor distance so bathymetry changes in smoother rings rather than sharp Manhattan-distance steps.
 
-### 8. Smoothing and Constraints
+### 9. Smoothing and Constraints
 
 The erosion pass blends each cell toward nearby cells on the same land/water surface. Water receives stronger smoothing than land to remove hard ocean lines. Ridge and collision masks reduce smoothing so mountain belts remain legible. A final interior-lowland lift suppresses isolated beach-colored spots far from coasts while preserving coastal lowlands. The final pass clamps heights and, by default, re-enforces ocean coastline constraints without forcing inland lakes below zero.
 
