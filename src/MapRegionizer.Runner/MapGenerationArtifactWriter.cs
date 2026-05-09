@@ -43,6 +43,7 @@ public static class MapGenerationArtifactWriter
     {
         var hasTectonics = map.TectonicPlates is not null;
         var hasElevation = map.Elevation is not null;
+        var hasLakes = map.WaterSurfaces is not null || map.Elevation?.WaterSurfaces is not null;
 
         return new MapGenerationArtifactPaths(
             ResultImage: Path.Combine(outputDirectory, "result.png"),
@@ -63,6 +64,7 @@ public static class MapGenerationArtifactWriter
             WaterBodiesGeoJson: Path.Combine(outputDirectory, "water-bodies.geojson"),
             TectonicPlatesJson: hasTectonics ? Path.Combine(outputDirectory, "tectonic-plates.json") : null,
             ElevationJson: hasElevation ? Path.Combine(outputDirectory, "elevation.json") : null,
+            LakesJson: hasLakes ? Path.Combine(outputDirectory, "lakes.json") : null,
             SummaryJson: Path.Combine(outputDirectory, "summary.json"));
     }
 
@@ -95,6 +97,9 @@ public static class MapGenerationArtifactWriter
                 Mode = elevationJsonMode
             });
         }
+
+        if (artifacts.LakesJson is not null)
+            LakeJsonWriter.WriteToFile(map, artifacts.LakesJson);
 
         GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson);
         GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson);

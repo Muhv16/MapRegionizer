@@ -222,6 +222,8 @@ The raster stamp is an elongated lens/capsule, not a stroke. It separates:
 
 `BackArcSpreading` produces wider, softer `BackArcExtension` provinces. These are lens-like heat/subsidence patches behind arc systems rather than narrow rift valleys, with weaker graben and shoulder expression.
 
+The elevation/lake pass also uses the boundary and rift-province layers for lake classification. Boundary segments are rasterized into a local fault influence and axis field; rift influence and graben masks reinforce that signal. Lakes above the configured tectonic threshold are classified as tectonic and receive deeper, elongated trough profiles aligned to the local fault/boundary direction where possible. Volcanism and heat-flow fields similarly contribute to volcanic/karst lake classification.
+
 ### 7. Tectonic Features
 
 `TectonicFeatureGenerator` converts history and boundary segments into downstream layers:

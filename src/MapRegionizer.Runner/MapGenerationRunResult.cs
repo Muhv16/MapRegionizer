@@ -26,6 +26,7 @@ public sealed record MapGenerationArtifactPaths(
     string WaterBodiesGeoJson,
     string? TectonicPlatesJson,
     string? ElevationJson,
+    string? LakesJson,
     string SummaryJson);
 
 public sealed record MapGenerationRunSummary(

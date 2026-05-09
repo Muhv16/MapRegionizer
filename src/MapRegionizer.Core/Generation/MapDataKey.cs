@@ -20,6 +20,7 @@ public static class MapDataKeys
     public static readonly MapDataKey OrogenProvinces = new("orogenProvinces");
     public static readonly MapDataKey RiftProvinces = new("riftProvinces");
     public static readonly MapDataKey TectonicFeatures = new("tectonicFeatures");
+    public static readonly MapDataKey BaseTerrain = new("baseTerrain");
     public static readonly MapDataKey Elevation = new("elevation");
     public static readonly MapDataKey WaterSurfaces = new("waterSurfaces");
     public static readonly MapDataKey TectonicPlates = new("tectonicPlates");

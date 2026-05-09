@@ -32,10 +32,11 @@ landmasses.geojson
 water-bodies.geojson
 tectonic-plates.json
 elevation.json
+lakes.json
 summary.json
 ```
 
-`summary.json` records the input mask, generation options, output paths, entity counts, and elevation range. Prefer setting `--seed` for agent checks so repeated runs are comparable.
+`lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `summary.json` records the input mask, generation options, output paths, entity counts, and elevation range. Prefer setting `--seed` for agent checks so repeated runs are comparable.
 
 ## Build Notes For Agents
 

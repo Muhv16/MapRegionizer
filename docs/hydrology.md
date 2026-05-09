@@ -1,6 +1,6 @@
 # Hydrology
 
-This document records hydrology-facing terrain semantics. The current implementation only covers water-body classification and lake levels; river routing and full hydro-surface generation remain future stages.
+This document records hydrology-facing terrain semantics. The current implementation covers water-body classification, lake levels, lake origin/profile metadata, and lake-bed shaping; river routing and full hydro-surface generation remain future stages.
 
 ## Elevation Concepts
 
@@ -27,15 +27,31 @@ The classifier uses raster water components from the mask, then associates them 
 
 ## Lake Levels
 
-The elevation generator first builds potential terrain and bathymetry. Inland water cells are treated as basin cells rather than as global sea, so they are not clamped by `MaxSeaElevationMeters`.
+The elevation generator first builds pre-hydrology terrain and bathymetry as `BaseTerrain`. Inland water cells are treated as basin cells rather than as global sea, so they are not clamped by `MaxSeaElevationMeters`. `GenerateLakeLevelsStage` then applies lake surfaces and writes the final `Elevation` plus `WaterSurfaces`.
 
 For each inland lake or inland sea:
 
 1. Find shoreline cells: land cells adjacent to lake cells.
 2. Estimate the spill point from shoreline elevations using `LakeSurfacePercentile` instead of a single minimum cell.
-3. Set `lakeSurface = spillElevation - margin`.
-4. Lift shoreline rim cells below `lakeSurface + margin` when the inland-water mask is preserved.
-5. Shape the lake bed as `lakeSurface - depth`, with depth increasing from shore toward the center.
+3. Classify the lake by location and origin.
+4. Set `lakeSurface = spillElevation - margin`.
+5. Lift shoreline rim cells below `lakeSurface + margin` when the inland-water mask is preserved.
+6. Shape the lake bed as `lakeSurface - depth`, with depth increasing from shore toward the center according to the selected profile.
+
+Lake location classes:
+
+- `Mountain`: high or steep lakes in mountain belts, valleys, and rugged foothills.
+- `Plain`: low-relief lowland lakes.
+- `Plateau`: high basins with gentler local relief, including volcanic plateau settings.
+
+Lake origin classes:
+
+- `Tectonic`: lakes influenced by active boundary/fault, rift, or graben signals. These receive deeper, elongated trough profiles aligned to the local tectonic axis where available.
+- `Glacial`: steep mountain lakes without dominant tectonic or volcanic signal. These receive steep-sided bowl profiles.
+- `Erosional`: default lowland lakes. These are shallower and use smooth Gaussian-like profiles.
+- `VolcanicKarst`: volcanic or small round karst-like basins. These use compact cone-like profiles and can be deep relative to area.
+
+`WaterBodySurface` stores per-body lake metadata alongside the existing level fields: cell count, centroid, location, origin, profile, mean shoreline elevation, shoreline relief, tectonic influence, volcanic influence, and maximum depth. Ocean and ocean-sea records may leave lake-specific metadata unset.
 
 Current defaults preserve the source mask:
 
@@ -47,3 +63,7 @@ AllowLakeDrainage = false
 ```
 
 `AllowLakeExpansion` and `AllowLakeDrainage` are options for later hydrology work. The current implementation keeps the mask stable and fixes small shoreline inconsistencies by lifting the rim.
+
+## Lake Export
+
+Generated artifacts include `lakes.json` when lake-surface data is available. It exports one record per inland lake or inland sea with surface elevation, spill elevation, margin, maximum depth, shoreline metrics, classification, and profile metadata. Raster water levels remain in `ElevationMap.WaterSurfaceMeters`; future routing should still use the eventual `HydroSurfaceMeters` field rather than `lakes.json`.

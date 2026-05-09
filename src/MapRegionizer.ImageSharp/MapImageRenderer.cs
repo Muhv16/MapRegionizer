@@ -193,7 +193,7 @@ public static class MapImageRenderer
                     var shade = options.DrawHillshade && options.Mode == ElevationRenderMode.FinalElevation
                         ? ComputeHillshade(elevation, sourceX, sourceY, options)
                         : 1.0;
-                    row[x] = GetElevationColor(elevation, sourceX, sourceY, shade, options);
+                    row[x] = GetElevationColor(elevation, map.WaterSurfaces, map.WaterBodyTopology, sourceX, sourceY, shade, options);
                 }
             }
         });
@@ -433,7 +433,14 @@ public static class MapImageRenderer
         return Math.Pow(normalized, gamma);
     }
 
-    private static Rgba32 GetElevationColor(ElevationMap elevation, int x, int y, double shade, ElevationRenderOptions options)
+    private static Rgba32 GetElevationColor(
+        ElevationMap elevation,
+        WaterSurfaceMap? waterSurfaces,
+        WaterBodyTopology? waterBodyTopology,
+        int x,
+        int y,
+        double shade,
+        ElevationRenderOptions options)
     {
         return options.Mode switch
         {
@@ -444,11 +451,18 @@ public static class MapImageRenderer
             ElevationRenderMode.TerrainZones => GetTerrainClassColor(elevation.GetTerrainClass(x, y), 1.0, options),
             ElevationRenderMode.MountainInfluence => GetMountainInfluenceColor(elevation, x, y),
             ElevationRenderMode.BasinInfluence => GetUnitColor(elevation.GetBasinInfluence(x, y), Color.FromRgb(58, 93, 84), Color.FromRgb(207, 184, 108)),
-            _ => GetFinalElevationColor(elevation, x, y, shade, options)
+            _ => GetFinalElevationColor(elevation, waterSurfaces, waterBodyTopology, x, y, shade, options)
         };
     }
 
-    private static Rgba32 GetFinalElevationColor(ElevationMap elevationMap, int x, int y, double shade, ElevationRenderOptions options)
+    private static Rgba32 GetFinalElevationColor(
+        ElevationMap elevationMap,
+        WaterSurfaceMap? waterSurfaces,
+        WaterBodyTopology? waterBodyTopology,
+        int x,
+        int y,
+        double shade,
+        ElevationRenderOptions options)
     {
         var elevation = elevationMap.GetElevation(x, y);
         Rgba32 color;
@@ -463,6 +477,20 @@ public static class MapImageRenderer
                 : LerpColor(options.ShelfWaterColor, options.DeepWaterColor, (depth - 0.35) / 0.65);
             var terrainColor = GetTerrainClassColor(elevationMap.GetTerrainClass(x, y), 1.0, options);
             color = Blend(depthColor, terrainColor, 0.18);
+            var bodyId = waterBodyTopology?.GetWaterBodyId(x, y);
+            var body = bodyId.HasValue ? waterSurfaces?.GetBodySurface(bodyId.Value) : null;
+            if (body?.Kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea && body.MaxDepthMeters > 0)
+            {
+                var lakeDepth = Math.Clamp(depthMeters / Math.Max(1.0, body.MaxDepthMeters), 0, 1);
+                var lakeShade = Math.Pow(lakeDepth, 0.78);
+                var deepLakeColor = body.LakeOrigin switch
+                {
+                    LakeOriginKind.Tectonic => options.TectonicLakeDepthColor,
+                    LakeOriginKind.VolcanicKarst => options.VolcanicLakeDepthColor,
+                    _ => options.LakeDepthColor
+                };
+                color = Blend(color, deepLakeColor.ToPixel<Rgba32>(), lakeShade * options.LakeDepthTintStrength);
+            }
         }
         else
         {
@@ -972,6 +1000,10 @@ public sealed class ElevationRenderOptions : TectonicPlateRenderOptions
     public Color DeepWaterColor { get; init; } = Color.FromRgb(16, 53, 105);
     public Color ShelfWaterColor { get; init; } = Color.FromRgb(47, 133, 169);
     public Color ShallowWaterColor { get; init; } = Color.FromRgb(113, 198, 196);
+    public Color LakeDepthColor { get; init; } = Color.FromRgb(27, 98, 136);
+    public Color TectonicLakeDepthColor { get; init; } = Color.FromRgb(20, 81, 132);
+    public Color VolcanicLakeDepthColor { get; init; } = Color.FromRgb(31, 88, 121);
+    public double LakeDepthTintStrength { get; init; } = 0.26;
     public Color DeepChannelColor { get; init; } = Color.FromRgb(24, 78, 128);
     public Color ShallowBankColor { get; init; } = Color.FromRgb(136, 213, 194);
     public Color AbyssalBasinColor { get; init; } = Color.FromRgb(12, 43, 92);

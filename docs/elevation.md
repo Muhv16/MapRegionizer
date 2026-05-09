@@ -18,11 +18,12 @@ Mask
  -> OrogenProvinces
  -> RiftProvinces
  -> TectonicFeatures
+ -> BaseTerrain
  -> Elevation
  -> WaterSurfaces
 ```
 
-`Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. Future river and climate stages should depend on generated terrain and water-surface data, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level semantics and future `HydroSurfaceMeters`.
+`BaseTerrain` is the pre-hydrology terrain raster. `GenerateLakeLevelsStage` turns it into final `Elevation` by applying local water surfaces, shoreline rim fixes, and lake-bed shaping. Final `Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. Future river and climate stages should depend on final terrain and water-surface data, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level semantics and future `HydroSurfaceMeters`.
 
 ## Domain Model
 
@@ -33,6 +34,7 @@ Main field:
 - `ElevationMeters`: compatible final bed-height field in meters relative to sea level. On land it is exposed land elevation; under water it is the bed/bathymetry.
 - `BedElevationMeters`: explicit ground elevation. This currently matches `ElevationMeters` and exists so future hydrology does not have to infer whether a water cell stores bed or surface.
 - `WaterSurfaceMeters`: water level for water cells. Ocean is `0`, `OceanSea` is below `0`, and inland lakes/seas are above `0`. Land cells have no water surface.
+- `WaterSurfaces`: per-water-body surface records. Inland lake/sea records include lake location, origin, profile, depth, centroid, shoreline relief, and tectonic/volcanic influence metadata.
 
 Diagnostic fields:
 
@@ -105,6 +107,10 @@ Elevation is configured through `ElevationGenerationOptions`.
 - `LakeSurfacePercentile`: shoreline elevation percentile used as the stable spill-point estimate.
 - `MinLakeSurfaceMarginMeters` / `MaxLakeSurfaceMarginMeters`: margin subtracted from spill elevation.
 - `MinLakeDepthMeters`, `MaxLakeDepthMeters`, `MaxRiftLakeDepthMeters`, `MaxInlandSeaDepthMeters`: lake and inland-sea depth bounds.
+- `MountainLakeElevationMeters`, `PlateauLakeElevationMeters`, `MountainLakeReliefMeters`: thresholds used to classify lake location as mountain, plateau, or plain.
+- `LakeTectonicFaultThreshold`, `LakeVolcanicInfluenceThreshold`, `PlainLakeKarstChance`: origin-classification controls for tectonic, volcanic/karst, glacial, and erosional lakes.
+- `LakeDepthRandomnessMin` / `LakeDepthRandomnessMax`: deterministic per-lake depth variation around the profile's base depth.
+- `LargeLakeDepressionMinCellCount`: minimum cell count for adding multiple local bottom depressions to large lakes.
 
 ## Generation Algorithm
 
@@ -190,7 +196,14 @@ These roles are generated from final depth, distance to land, local land enclosu
 
 After the main terrain and ocean bathymetry passes, inland water bodies use `WaterBodyTopology` to compute a local water surface. The shoreline ring is all land adjacent to a lake. The lake spill point is estimated from the configured shoreline percentile, then the surface is set slightly below it. With the default preservation settings, shoreline cells below the rim are lifted to keep the original mask stable instead of expanding or draining the lake.
 
-Lake beds are shaped below their local surface. Depth increases from shore toward the center with a smooth profile, then receives small local noise. Small ponds stay shallow, ordinary lakes use moderate depths, rift lakes can become much deeper, and `InlandSea` bodies use broader sea-like depth ranges while still keeping a positive surface.
+Before bed shaping, each inland lake/sea is classified by location and origin. Location uses shoreline elevation, shoreline relief, roughness, ridge/foothill influence, and volcanic context to distinguish mountain, plain, and plateau basins. Origin then combines local tectonic boundary/rift/graben influence, volcanic/heat-flow influence, roundness, size, and deterministic per-lake variation:
+
+- tectonic lakes become deep elongated troughs, preferentially aligned to local boundary/fault direction;
+- glacial lakes become steep mountain bowls;
+- erosional lakes become shallow lowland basins with Gaussian-like depth distribution;
+- volcanic/karst lakes become compact cone-like basins and can be deep for their size.
+
+Maximum depth is derived from size, origin, shoreline relief, tectonic/volcanic influence, and a deterministic `0.8..1.2` default depth coefficient. Large lakes can receive several local depressions so the bottom is not a single perfect basin. `InlandSea` bodies use broader sea-like depth ranges while still keeping a positive surface.
 
 ### 7. Procedural Detail
 
@@ -202,9 +215,9 @@ The erosion pass blends each cell toward nearby cells on the same land/water sur
 
 ## Exports and Rendering
 
-`ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes bed elevation, water-surface elevation, base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows.
+`ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes bed elevation, water-surface elevation, base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows. `LakeJsonWriter` writes `lakes.json`, a readable per-lake metadata export with classification, profile, surface, spill, margin, and maximum depth.
 
-`MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
+`MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Inland lake depth now adds a subtle per-lake depth tint normalized against that lake's own maximum depth, so deep lake basins are visible on `elevation-final.png` without making oceans noisy. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
 
 ### `elevation.png`
 
@@ -242,6 +255,7 @@ elevation-terrain-zones.png
 elevation-mountain.png
 elevation-basin.png
 elevation.json
+lakes.json
 ```
 
 next to the existing region, tectonic, crust, and feature outputs.

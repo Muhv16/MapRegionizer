@@ -162,6 +162,15 @@ public sealed class ElevationGenerationOptions
     public double MaxLakeDepthMeters { get; init; } = 80.0;
     public double MaxRiftLakeDepthMeters { get; init; } = 320.0;
     public double MaxInlandSeaDepthMeters { get; init; } = 220.0;
+    public double MountainLakeElevationMeters { get; init; } = 900.0;
+    public double PlateauLakeElevationMeters { get; init; } = 1400.0;
+    public double MountainLakeReliefMeters { get; init; } = 260.0;
+    public double LakeTectonicFaultThreshold { get; init; } = 0.28;
+    public double LakeVolcanicInfluenceThreshold { get; init; } = 0.34;
+    public double PlainLakeKarstChance { get; init; } = 0.12;
+    public double LakeDepthRandomnessMin { get; init; } = 0.8;
+    public double LakeDepthRandomnessMax { get; init; } = 1.2;
+    public int LargeLakeDepressionMinCellCount { get; init; } = 900;
 
     public void Validate()
     {
@@ -181,6 +190,15 @@ public sealed class ElevationGenerationOptions
         if (MaxLakeDepthMeters < MinLakeDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxLakeDepthMeters), "Maximum lake depth cannot be below minimum lake depth.");
         if (MaxRiftLakeDepthMeters < MaxLakeDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxRiftLakeDepthMeters), "Maximum rift lake depth cannot be below maximum lake depth.");
         if (MaxInlandSeaDepthMeters < MaxLakeDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxInlandSeaDepthMeters), "Maximum inland sea depth cannot be below maximum lake depth.");
+        if (MountainLakeElevationMeters < 0) throw new ArgumentOutOfRangeException(nameof(MountainLakeElevationMeters), "Mountain lake elevation threshold cannot be negative.");
+        if (PlateauLakeElevationMeters < MountainLakeElevationMeters) throw new ArgumentOutOfRangeException(nameof(PlateauLakeElevationMeters), "Plateau lake elevation threshold should be greater than or equal to mountain lake elevation threshold.");
+        if (MountainLakeReliefMeters < 0) throw new ArgumentOutOfRangeException(nameof(MountainLakeReliefMeters), "Mountain lake relief threshold cannot be negative.");
+        if (LakeTectonicFaultThreshold < 0 || LakeTectonicFaultThreshold > 1) throw new ArgumentOutOfRangeException(nameof(LakeTectonicFaultThreshold), "Lake tectonic fault threshold must be in [0, 1].");
+        if (LakeVolcanicInfluenceThreshold < 0 || LakeVolcanicInfluenceThreshold > 1) throw new ArgumentOutOfRangeException(nameof(LakeVolcanicInfluenceThreshold), "Lake volcanic influence threshold must be in [0, 1].");
+        if (PlainLakeKarstChance < 0 || PlainLakeKarstChance > 1) throw new ArgumentOutOfRangeException(nameof(PlainLakeKarstChance), "Plain lake karst chance must be in [0, 1].");
+        if (LakeDepthRandomnessMin <= 0) throw new ArgumentOutOfRangeException(nameof(LakeDepthRandomnessMin), "Minimum lake depth randomness must be greater than zero.");
+        if (LakeDepthRandomnessMax < LakeDepthRandomnessMin) throw new ArgumentOutOfRangeException(nameof(LakeDepthRandomnessMax), "Maximum lake depth randomness cannot be below minimum randomness.");
+        if (LargeLakeDepressionMinCellCount < 0) throw new ArgumentOutOfRangeException(nameof(LargeLakeDepressionMinCellCount), "Large lake depression threshold cannot be negative.");
         if (MaxElevationMeters <= 0) throw new ArgumentOutOfRangeException(nameof(MaxElevationMeters), "Maximum elevation must be greater than zero.");
         if (MinOceanDepthMeters >= 0) throw new ArgumentOutOfRangeException(nameof(MinOceanDepthMeters), "Minimum ocean depth must be below zero.");
         if (MinLandElevationMeters < 0) throw new ArgumentOutOfRangeException(nameof(MinLandElevationMeters), "Minimum land elevation cannot be negative.");

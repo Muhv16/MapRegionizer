@@ -18,7 +18,7 @@ public sealed class GenerateElevationStage : IMapGenerationStage
         MapDataKeys.WaterBodyTopology
     };
 
-    public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.Elevation };
+    public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.BaseTerrain };
 
     public void Execute(MapGenerationContext context)
     {
@@ -30,7 +30,7 @@ public sealed class GenerateElevationStage : IMapGenerationStage
         var features = context.TectonicFeatures ?? throw new InvalidOperationException("Tectonic features are required.");
         var waterBodyTopology = context.WaterBodyTopology ?? throw new InvalidOperationException("Water body topology is required.");
         var generator = new ElevationGenerator(CreateElevationSeed(context));
-        context.Elevation = generator.Generate(context.Mask, crustFields, plateDomains, boundaries, orogenProvinces, riftProvinces, features, waterBodyTopology, context.Options.Elevation);
+        context.BaseTerrain = generator.Generate(context.Mask, crustFields, plateDomains, boundaries, orogenProvinces, riftProvinces, features, waterBodyTopology, context.Options.Elevation);
     }
 
     private static int CreateElevationSeed(MapGenerationContext context)

@@ -309,20 +309,20 @@ public sealed class MainViewModel : ReactiveObject
     public int MaxValidationCycles { get => _maxValidationCycles; set => SetOption(ref _maxValidationCycles, value, MapDataKeys.PlateDomains); }
     public int MinPlateSize { get => _minPlateSize; set => SetOption(ref _minPlateSize, value, MapDataKeys.PlateDomains); }
     public double MinPlateSizeRatio { get => _minPlateSizeRatio; set => SetOption(ref _minPlateSizeRatio, value, MapDataKeys.PlateDomains); }
-    public double ReliefScale { get => _reliefScale; set => SetOption(ref _reliefScale, value, MapDataKeys.Elevation); }
-    public double Mountaininess { get => _mountaininess; set => SetOption(ref _mountaininess, value, MapDataKeys.Elevation); }
-    public double Erosion { get => _erosion; set => SetOption(ref _erosion, value, MapDataKeys.Elevation); }
-    public double Roughness { get => _roughness; set => SetOption(ref _roughness, value, MapDataKeys.Elevation); }
-    public double SeaDepthScale { get => _seaDepthScale; set => SetOption(ref _seaDepthScale, value, MapDataKeys.Elevation); }
-    public double ElevationShelfWidthFactor { get => _elevationShelfWidthFactor; set => SetOption(ref _elevationShelfWidthFactor, value, MapDataKeys.Elevation); }
-    public double VolcanismInfluence { get => _volcanismInfluence; set => SetOption(ref _volcanismInfluence, value, MapDataKeys.Elevation); }
-    public double SmallIslandReliefFactor { get => _smallIslandReliefFactor; set => SetOption(ref _smallIslandReliefFactor, value, MapDataKeys.Elevation); }
-    public double RiftInfluence { get => _riftInfluence; set => SetOption(ref _riftInfluence, value, MapDataKeys.Elevation); }
-    public bool PreserveMaskCoastline { get => _preserveMaskCoastline; set => SetOption(ref _preserveMaskCoastline, value, MapDataKeys.Elevation); }
-    public double MaxElevationMeters { get => _maxElevationMeters; set => SetOption(ref _maxElevationMeters, value, MapDataKeys.Elevation); }
-    public double MinOceanDepthMeters { get => _minOceanDepthMeters; set => SetOption(ref _minOceanDepthMeters, value, MapDataKeys.Elevation); }
-    public double MinLandElevationMeters { get => _minLandElevationMeters; set => SetOption(ref _minLandElevationMeters, value, MapDataKeys.Elevation); }
-    public double MaxSeaElevationMeters { get => _maxSeaElevationMeters; set => SetOption(ref _maxSeaElevationMeters, value, MapDataKeys.Elevation); }
+    public double ReliefScale { get => _reliefScale; set => SetOption(ref _reliefScale, value, MapDataKeys.BaseTerrain); }
+    public double Mountaininess { get => _mountaininess; set => SetOption(ref _mountaininess, value, MapDataKeys.BaseTerrain); }
+    public double Erosion { get => _erosion; set => SetOption(ref _erosion, value, MapDataKeys.BaseTerrain); }
+    public double Roughness { get => _roughness; set => SetOption(ref _roughness, value, MapDataKeys.BaseTerrain); }
+    public double SeaDepthScale { get => _seaDepthScale; set => SetOption(ref _seaDepthScale, value, MapDataKeys.BaseTerrain); }
+    public double ElevationShelfWidthFactor { get => _elevationShelfWidthFactor; set => SetOption(ref _elevationShelfWidthFactor, value, MapDataKeys.BaseTerrain); }
+    public double VolcanismInfluence { get => _volcanismInfluence; set => SetOption(ref _volcanismInfluence, value, MapDataKeys.BaseTerrain); }
+    public double SmallIslandReliefFactor { get => _smallIslandReliefFactor; set => SetOption(ref _smallIslandReliefFactor, value, MapDataKeys.BaseTerrain); }
+    public double RiftInfluence { get => _riftInfluence; set => SetOption(ref _riftInfluence, value, MapDataKeys.BaseTerrain); }
+    public bool PreserveMaskCoastline { get => _preserveMaskCoastline; set => SetOption(ref _preserveMaskCoastline, value, MapDataKeys.BaseTerrain); }
+    public double MaxElevationMeters { get => _maxElevationMeters; set => SetOption(ref _maxElevationMeters, value, MapDataKeys.BaseTerrain); }
+    public double MinOceanDepthMeters { get => _minOceanDepthMeters; set => SetOption(ref _minOceanDepthMeters, value, MapDataKeys.BaseTerrain); }
+    public double MinLandElevationMeters { get => _minLandElevationMeters; set => SetOption(ref _minLandElevationMeters, value, MapDataKeys.BaseTerrain); }
+    public double MaxSeaElevationMeters { get => _maxSeaElevationMeters; set => SetOption(ref _maxSeaElevationMeters, value, MapDataKeys.BaseTerrain); }
     public TectonicPlateJsonExportMode TectonicJsonMode { get => _tectonicJsonMode; set => SetAndSave(ref _tectonicJsonMode, value); }
     public ElevationJsonExportMode ElevationJsonMode { get => _elevationJsonMode; set => SetAndSave(ref _elevationJsonMode, value); }
 
@@ -632,7 +632,7 @@ public sealed class MainViewModel : ReactiveObject
             _suppressDirty = false;
         }
 
-        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.Elevation);
+        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain);
         SaveSettings();
     }
 

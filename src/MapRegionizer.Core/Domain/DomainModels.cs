@@ -117,7 +117,39 @@ public sealed record WaterBodySurface(
     double SpillElevationMeters,
     double MarginMeters,
     double MaxDepthMeters,
-    int ShorelineCellCount);
+    int ShorelineCellCount,
+    int CellCount = 0,
+    GridPoint? Centroid = null,
+    LakeLocationKind? LakeLocation = null,
+    LakeOriginKind? LakeOrigin = null,
+    LakeProfileKind? LakeProfile = null,
+    double MeanShorelineElevationMeters = 0,
+    double ShorelineReliefMeters = 0,
+    double TectonicInfluence = 0,
+    double VolcanicInfluence = 0);
+
+public enum LakeLocationKind
+{
+    Mountain,
+    Plain,
+    Plateau
+}
+
+public enum LakeOriginKind
+{
+    Tectonic,
+    Glacial,
+    Erosional,
+    VolcanicKarst
+}
+
+public enum LakeProfileKind
+{
+    MountainBowl,
+    PlainGaussian,
+    TectonicTrough,
+    VolcanicCone
+}
 
 public sealed class WaterSurfaceMap
 {
