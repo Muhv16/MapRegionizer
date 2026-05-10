@@ -21,7 +21,8 @@ public enum PreviewLayerKind
     ElevationMountain,
     ElevationBasin,
     ElevationRivers,
-    ClimateBiomes,
+    ClimateBiomesDebug,
+    ClimateBiomesPresentation,
     ClimateTemperature,
     ClimateMoisture,
     ClimatePrecipitation,
@@ -70,7 +71,8 @@ public sealed class PreviewLayerViewModel : ReactiveObject
 
     public ClimateRenderMode? ClimateMode => Kind switch
     {
-        PreviewLayerKind.ClimateBiomes => ClimateRenderMode.Biomes,
+        PreviewLayerKind.ClimateBiomesDebug => ClimateRenderMode.DebugBiomes,
+        PreviewLayerKind.ClimateBiomesPresentation => ClimateRenderMode.Biomes,
         PreviewLayerKind.ClimateTemperature => ClimateRenderMode.Temperature,
         PreviewLayerKind.ClimateMoisture => ClimateRenderMode.Moisture,
         PreviewLayerKind.ClimatePrecipitation => ClimateRenderMode.Precipitation,

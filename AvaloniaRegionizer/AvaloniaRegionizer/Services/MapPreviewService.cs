@@ -41,7 +41,7 @@ public sealed class MapPreviewService
             PreviewLayerKind.Elevation or PreviewLayerKind.ElevationBase or PreviewLayerKind.ElevationTectonic or
                 PreviewLayerKind.ElevationRoughness or PreviewLayerKind.ElevationErosion or PreviewLayerKind.ElevationZones or
                 PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin or PreviewLayerKind.ElevationRivers => localization["LegendElevation"],
-            PreviewLayerKind.ClimateBiomes or PreviewLayerKind.ClimateTemperature or PreviewLayerKind.ClimateMoisture or
+            PreviewLayerKind.ClimateBiomesDebug or PreviewLayerKind.ClimateBiomesPresentation or PreviewLayerKind.ClimateTemperature or PreviewLayerKind.ClimateMoisture or
                 PreviewLayerKind.ClimatePrecipitation or PreviewLayerKind.ClimateSeasonality or PreviewLayerKind.ClimateHabitability or
                 PreviewLayerKind.ClimateAgriculture or PreviewLayerKind.ClimateIce => localization["LegendClimate"],
             _ => localization["LegendOverview"]
@@ -67,7 +67,9 @@ public sealed class MapPreviewService
                 PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin =>
                 MapImageRenderer.RenderElevation(map, new ElevationRenderOptions { Mode = layer.ElevationMode!.Value }),
             PreviewLayerKind.ElevationRivers => MapImageRenderer.RenderElevationRivers(map),
-            PreviewLayerKind.ClimateBiomes or PreviewLayerKind.ClimateTemperature or PreviewLayerKind.ClimateMoisture or
+            PreviewLayerKind.ClimateBiomesDebug =>
+                MapImageRenderer.RenderClimate(map, new ClimateRenderOptions { Mode = ClimateRenderMode.DebugBiomes, DrawRivers = false, DrawHillshade = false }),
+            PreviewLayerKind.ClimateBiomesPresentation or PreviewLayerKind.ClimateTemperature or PreviewLayerKind.ClimateMoisture or
                 PreviewLayerKind.ClimatePrecipitation or PreviewLayerKind.ClimateSeasonality or PreviewLayerKind.ClimateHabitability or
                 PreviewLayerKind.ClimateAgriculture or PreviewLayerKind.ClimateIce =>
                 MapImageRenderer.RenderClimate(map, new ClimateRenderOptions { Mode = layer.ClimateMode!.Value }),

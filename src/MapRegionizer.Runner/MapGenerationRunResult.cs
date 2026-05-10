@@ -23,6 +23,8 @@ public sealed record MapGenerationArtifactPaths(
     string? ElevationBasinImage,
     string? ElevationRiversImage,
     string? ClimateImage,
+    string? ClimateBiomesDebugImage,
+    string? ClimateBiomesPresentationImage,
     string? ClimateTemperatureImage,
     string? ClimateMoistureImage,
     string? ClimatePrecipitationImage,

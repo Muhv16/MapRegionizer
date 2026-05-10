@@ -264,7 +264,14 @@ public static class MapImageRenderer
             }
         });
 
-        if (options.Mode == ClimateRenderMode.Biomes && options.DrawRivers && map.Hydrology is not null)
+        if (options.Mode == ClimateRenderMode.Biomes && map.Hydrology is not null)
+        {
+            if (options.DrawRiverValleyAccents)
+                DrawRiverValleyAccents(image, map.Hydrology, map.Bounds.PixelSize, options);
+
+            if (!options.DrawRivers)
+                return image;
+
             DrawRivers(image, map.Hydrology, map.Bounds.PixelSize, new RiverRenderOptions
             {
                 Scale = options.Scale,
@@ -272,8 +279,14 @@ public static class MapImageRenderer
                 MaxRiverWidth = options.MaxRiverWidth,
                 WidthLowPercentile = options.RiverWidthLowPercentile,
                 WidthHighPercentile = options.RiverWidthHighPercentile,
-                WidthGamma = options.RiverWidthGamma
+                WidthGamma = options.RiverWidthGamma,
+                PlainRiverColor = options.PresentationRiverColor,
+                MountainRiverColor = options.PresentationMountainRiverColor,
+                RiftRiverColor = options.PresentationRiverColor,
+                DeltaRiverColor = options.PresentationDeltaRiverColor,
+                EndorheicRiverColor = options.PresentationRiverColor
             });
+        }
 
         return image;
     }
@@ -819,8 +832,10 @@ public static class MapImageRenderer
     {
         return options.Mode switch
         {
+            ClimateRenderMode.DebugBiomes => GetBiomeColor(climate.GetBiome(x, y), options),
             ClimateRenderMode.Temperature => GetTemperatureColor(climate.GetMeanAnnualTemperature(x, y), options),
             ClimateRenderMode.Moisture => GetUnitColor(climate.GetMoisture(x, y), options.DryColor, options.WetColor),
+            ClimateRenderMode.BiomeMoisture => GetUnitColor(climate.GetBiomeMoisture(x, y), options.DryColor, options.WetColor),
             ClimateRenderMode.Precipitation => GetUnitColor(climate.GetPrecipitation(x, y), options.DryColor, options.RainColor),
             ClimateRenderMode.Seasonality => GetUnitColor(Math.Clamp(climate.GetSeasonality(x, y) / 36.0, 0, 1), options.LowSeasonalityColor, options.HighSeasonalityColor),
             ClimateRenderMode.Habitability => GetUnitColor(climate.GetHabitability(x, y), options.LowHabitabilityColor, options.HighHabitabilityColor),
@@ -843,7 +858,8 @@ public static class MapImageRenderer
         if (elevation.HasWaterSurface(sourceX, sourceY) || biome == BiomeKind.Ocean)
             return GetFinalElevationColor(elevation, map.WaterSurfaces, map.WaterBodyTopology, sourceX, sourceY, shade, elevationOptions);
 
-        var biomeColor = GetBiomeColor(biome, options);
+        var biomeColor = GetBoundaryAwareBiomeColor(climate, x, y, options);
+        biomeColor = ApplyBiomeTexture(biomeColor, biome, x, y, climate, options);
         var terrainColor = GetFinalElevationColor(elevation, map.WaterSurfaces, map.WaterBodyTopology, sourceX, sourceY, 1.0, elevationOptions);
         var terrainClass = elevation.GetTerrainClass(sourceX, sourceY);
         var reliefBlend = terrainClass switch
@@ -858,16 +874,166 @@ public static class MapImageRenderer
         var color = Blend(biomeColor, terrainColor, reliefBlend);
         var ridge = elevation.GetRidgeContinuity(sourceX, sourceY);
         var foothill = elevation.GetFoothillInfluence(sourceX, sourceY);
-        if (ridge > 0.18 || terrainClass == TerrainClassKind.Mountain)
-            color = Blend(color, GetBiomeMountainTint(biome, options), Math.Clamp(0.18 + ridge * 0.34, 0, options.MountainTintStrength));
+        var mountainOverlay = climate.GetMountainOverlay(x, y);
+        if (ridge > 0.18 || terrainClass == TerrainClassKind.Mountain || mountainOverlay > 0.34)
+            color = Blend(color, GetBiomeMountainTint(biome, options), Math.Clamp(0.16 + Math.Max(ridge, mountainOverlay) * 0.36, 0, options.MountainTintStrength));
         else if (foothill > 0.15)
             color = Blend(color, terrainColor, Math.Clamp(foothill * 0.18, 0, 0.2));
 
-        var ice = climate.GetIceScore(x, y);
-        if (ice > 0.12)
-            color = Blend(color, options.IceColor.ToPixel<Rgba32>(), Math.Clamp((ice - 0.12) / 0.88 * options.IceOverlayStrength, 0, options.IceOverlayStrength));
+        if (IsDesertBiome(biome))
+            color = ApplyDesertPresentationModifiers(color, biome, x, y, options);
+
+        var river = Math.Pow(climate.GetRiverValleyInfluence(x, y), options.RiverValleyOverlayGamma);
+        if (river > options.RiverValleyOverlayThreshold)
+            color = Blend(color, options.RiverValleyOverlayColor.ToPixel<Rgba32>(), Math.Clamp((river - options.RiverValleyOverlayThreshold) / (1.0 - options.RiverValleyOverlayThreshold) * options.RiverValleyOverlayStrength, 0, options.RiverValleyOverlayStrength));
+
+        var wetland = climate.GetWetlandInfluence(x, y);
+        if (wetland > 0.12)
+            color = Blend(color, options.WetlandOverlayColor.ToPixel<Rgba32>(), Math.Clamp((wetland - 0.12) / 0.88 * options.WetlandOverlayStrength, 0, options.WetlandOverlayStrength));
+
+        var snow = Math.Max(climate.GetSnowOverlay(x, y), climate.GetIceScore(x, y) * 0.72);
+        if (snow > options.SnowOverlayThreshold)
+            color = Blend(color, options.IceColor.ToPixel<Rgba32>(), Math.Clamp((snow - options.SnowOverlayThreshold) / (1.0 - options.SnowOverlayThreshold) * options.IceOverlayStrength, 0, options.IceOverlayStrength));
 
         return ApplyShade(color, shade, options.BiomeHillshadeStrength);
+    }
+
+    private static Rgba32 GetBoundaryAwareBiomeColor(ClimateMap climate, int x, int y, ClimateRenderOptions options)
+    {
+        var center = climate.GetBiome(x, y);
+        var color = GetBiomeColor(center, options);
+        var neighborColor = new Rgba32(0, 0, 0, 255);
+        var neighborCount = 0;
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            var yy = y + dy;
+            if (yy < 0 || yy >= climate.Height)
+                continue;
+
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dy == 0)
+                    continue;
+
+                var xx = WrapX(x + dx, climate.Width);
+                var neighbor = climate.GetBiome(xx, yy);
+                if (neighbor == center)
+                    continue;
+
+                neighborColor = Blend(neighborColor, GetBiomeColor(neighbor, options), 1.0 / (neighborCount + 1));
+                neighborCount++;
+            }
+        }
+
+        if (neighborCount == 0)
+            return BoostSaturation(color, options.BiomeCenterSaturationBoost, options.BiomeCenterValueBoost);
+
+        var boundaryAmount = Math.Clamp((neighborCount - 1.0) / 7.0 * options.BiomeBoundaryBlend, 0, options.BiomeBoundaryBlend);
+        return Blend(color, neighborColor, boundaryAmount);
+    }
+
+    private static Rgba32 ApplyBiomeTexture(Rgba32 color, BiomeKind biome, int x, int y, ClimateMap climate, ClimateRenderOptions options)
+    {
+        if (options.TextureStrength <= 0 || biome == BiomeKind.Ocean)
+            return color;
+
+        var fine = HashNoise(x, y, 17);
+        var broad = HashNoise(x / 7, y / 7, 53);
+        var value = biome switch
+        {
+            BiomeKind.TropicalRainforest or BiomeKind.TemperateRainforest or BiomeKind.BorealForest => fine * 0.65 + broad * 0.35 - 0.55,
+            BiomeKind.Savanna => broad * 0.75 + fine * 0.25 - 0.42,
+            BiomeKind.OpenWoodland => broad * 0.68 + fine * 0.32 - 0.48,
+            BiomeKind.HotDesert or BiomeKind.SemiDesert => broad * 0.78 + fine * 0.22 - 0.34,
+            BiomeKind.RockyDesert => broad * 0.46 + fine * 0.54 - 0.42,
+            BiomeKind.Tundra or BiomeKind.PolarDesert => fine * 0.35 + broad * 0.65 - 0.50,
+            BiomeKind.Marsh or BiomeKind.Floodplain or BiomeKind.Mangrove => fine - 0.42,
+            _ => fine * 0.45 + broad * 0.55 - 0.50
+        };
+
+        var strength = Math.Clamp(Math.Abs(value) * options.TextureStrength, 0, options.TextureStrength);
+        var target = value >= 0
+            ? options.TextureLightColor.ToPixel<Rgba32>()
+            : options.TextureDarkColor.ToPixel<Rgba32>();
+        if (biome is BiomeKind.Marsh or BiomeKind.Floodplain or BiomeKind.Mangrove)
+            target = value >= 0 ? options.WetlandTextureLightColor.ToPixel<Rgba32>() : options.WetlandTextureDarkColor.ToPixel<Rgba32>();
+
+        return Blend(color, target, strength);
+    }
+
+    private static Rgba32 ApplyDesertPresentationModifiers(Rgba32 color, BiomeKind biome, int x, int y, ClimateRenderOptions options)
+    {
+        var broad = HashNoise(x / 9, y / 9, 211);
+        var streak = HashNoise((x + y) / 11, (x - y) / 11, 307);
+        var rocky = HashNoise(x / 3, y / 3, 401);
+        var warmAmount = Math.Clamp((broad - 0.28) * options.DesertWarmthStrength, 0, options.DesertWarmthStrength);
+        var result = Blend(color, options.DesertSunColor.ToPixel<Rgba32>(), warmAmount);
+
+        if (biome is BiomeKind.RockyDesert or BiomeKind.ColdDesert)
+            result = Blend(result, options.DesertRockColor.ToPixel<Rgba32>(), Math.Clamp((rocky - 0.35) * options.DesertRockStrength, 0, options.DesertRockStrength));
+        else
+            result = Blend(result, options.DesertDuneColor.ToPixel<Rgba32>(), Math.Clamp((streak - 0.38) * options.DesertDuneStrength, 0, options.DesertDuneStrength));
+
+        return result;
+    }
+
+    private static bool IsDesertBiome(BiomeKind biome) => biome is
+        BiomeKind.HotDesert or
+        BiomeKind.SemiDesert or
+        BiomeKind.RockyDesert or
+        BiomeKind.ColdDesert or
+        BiomeKind.SaltFlat;
+
+    private static Rgba32 BoostSaturation(Rgba32 color, double saturationBoost, double valueBoost)
+    {
+        var r = color.R / 255.0;
+        var g = color.G / 255.0;
+        var b = color.B / 255.0;
+        var luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
+        r = Math.Clamp(luma + (r - luma) * saturationBoost + valueBoost, 0, 1);
+        g = Math.Clamp(luma + (g - luma) * saturationBoost + valueBoost, 0, 1);
+        b = Math.Clamp(luma + (b - luma) * saturationBoost + valueBoost, 0, 1);
+        return new Rgba32((byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255), 255);
+    }
+
+    private static void DrawRiverValleyAccents(Image<Rgba32> image, HydrologyMap hydrology, double pixelSize, ClimateRenderOptions options)
+    {
+        var widthScale = BuildRiverWidthScale(hydrology.Rivers, new RiverRenderOptions
+        {
+            WidthLowPercentile = options.RiverWidthLowPercentile,
+            WidthHighPercentile = options.RiverWidthHighPercentile,
+            WidthGamma = options.RiverWidthGamma,
+            MinRiverWidth = options.RiverValleyAccentMinWidth,
+            MaxRiverWidth = options.RiverValleyAccentMaxWidth
+        });
+
+        foreach (var river in hydrology.Rivers.OrderBy(r => r.Discharge))
+        {
+            if (river.Polyline.Count < 2)
+                continue;
+
+            var normalized = Math.Clamp((river.Discharge - widthScale.Low) / Math.Max(0.0001, widthScale.High - widthScale.Low), 0, 1);
+            normalized = Math.Pow(normalized, options.RiverValleyAccentGamma);
+            var width = (float)(options.RiverValleyAccentMinWidth + (options.RiverValleyAccentMaxWidth - options.RiverValleyAccentMinWidth) * normalized);
+            var color = Color.FromPixel(Blend(options.RiverValleyAccentColor.ToPixel<Rgba32>(), options.RiverValleyMajorAccentColor.ToPixel<Rgba32>(), normalized));
+            image.Mutate(ctx =>
+            {
+                ctx.SetGraphicsOptions(new GraphicsOptions { Antialias = true });
+                foreach (var run in BuildRiverRenderRuns(river.Polyline, hydrology.Width, pixelSize, options.Scale))
+                    ctx.DrawLine(color, width, run);
+            });
+        }
+    }
+
+    private static double HashNoise(int x, int y, int seed)
+    {
+        unchecked
+        {
+            var hash = x * 374761393 + y * 668265263 + seed * 1442695041;
+            hash = (hash ^ (hash >> 13)) * 1274126177;
+            hash ^= hash >> 16;
+            return (hash & 0x7fffffff) / (double)int.MaxValue;
+        }
     }
 
     private static Rgba32 GetBiomeMountainTint(BiomeKind biome, ClimateRenderOptions options)
@@ -900,11 +1066,17 @@ public static class MapImageRenderer
             BiomeKind.Ocean => options.OceanColor.ToPixel<Rgba32>(),
             BiomeKind.TropicalRainforest => options.TropicalRainforestColor.ToPixel<Rgba32>(),
             BiomeKind.MonsoonForest => options.MonsoonForestColor.ToPixel<Rgba32>(),
+            BiomeKind.DryTropicalForest => options.DryTropicalForestColor.ToPixel<Rgba32>(),
             BiomeKind.TropicalSeasonalForest => options.TropicalSeasonalForestColor.ToPixel<Rgba32>(),
             BiomeKind.Savanna => options.SavannaColor.ToPixel<Rgba32>(),
+            BiomeKind.OpenWoodland => options.OpenWoodlandColor.ToPixel<Rgba32>(),
             BiomeKind.HotDesert => options.HotDesertColor.ToPixel<Rgba32>(),
+            BiomeKind.SemiDesert => options.SemiDesertColor.ToPixel<Rgba32>(),
+            BiomeKind.RockyDesert => options.RockyDesertColor.ToPixel<Rgba32>(),
+            BiomeKind.SaltFlat => options.SaltFlatColor.ToPixel<Rgba32>(),
             BiomeKind.ColdDesert => options.ColdDesertColor.ToPixel<Rgba32>(),
             BiomeKind.Steppe => options.SteppeColor.ToPixel<Rgba32>(),
+            BiomeKind.XericShrubland => options.XericShrublandColor.ToPixel<Rgba32>(),
             BiomeKind.MediterraneanShrubland => options.MediterraneanShrublandColor.ToPixel<Rgba32>(),
             BiomeKind.TemperateGrassland => options.TemperateGrasslandColor.ToPixel<Rgba32>(),
             BiomeKind.TemperateForest => options.TemperateForestColor.ToPixel<Rgba32>(),
@@ -915,6 +1087,13 @@ public static class MapImageRenderer
             BiomeKind.IceSheet => options.IceColor.ToPixel<Rgba32>(),
             BiomeKind.AlpineTundra => options.AlpineTundraColor.ToPixel<Rgba32>(),
             BiomeKind.Wetland => options.WetlandColor.ToPixel<Rgba32>(),
+            BiomeKind.Floodplain => options.FloodplainColor.ToPixel<Rgba32>(),
+            BiomeKind.Marsh => options.MarshColor.ToPixel<Rgba32>(),
+            BiomeKind.Mangrove => options.MangroveColor.ToPixel<Rgba32>(),
+            BiomeKind.MontaneForest => options.MontaneForestColor.ToPixel<Rgba32>(),
+            BiomeKind.CloudForest => options.CloudForestColor.ToPixel<Rgba32>(),
+            BiomeKind.SnowyMountain => options.SnowyMountainColor.ToPixel<Rgba32>(),
+            BiomeKind.VolcanicBadlands => options.VolcanicBadlandsColor.ToPixel<Rgba32>(),
             _ => options.UnknownBiomeColor.ToPixel<Rgba32>()
         };
     }
@@ -1383,16 +1562,32 @@ public sealed class ClimateRenderOptions
     public ClimateRenderMode Mode { get; init; } = ClimateRenderMode.Biomes;
     public bool DrawHillshade { get; init; } = true;
     public bool DrawRivers { get; init; } = true;
+    public bool DrawRiverValleyAccents { get; init; } = true;
     public double LandReliefBlend { get; init; } = 0.24;
     public double HighlandReliefBlend { get; init; } = 0.34;
     public double MountainReliefBlend { get; init; } = 0.52;
     public double PlateauReliefBlend { get; init; } = 0.42;
     public double BasinReliefBlend { get; init; } = 0.32;
     public double MountainTintStrength { get; init; } = 0.42;
-    public double IceOverlayStrength { get; init; } = 0.72;
+    public double IceOverlayStrength { get; init; } = 0.84;
+    public double SnowOverlayThreshold { get; init; } = 0.08;
+    public double RiverValleyOverlayStrength { get; init; } = 0.22;
+    public double RiverValleyOverlayThreshold { get; init; } = 0.48;
+    public double RiverValleyOverlayGamma { get; init; } = 1.85;
+    public double WetlandOverlayStrength { get; init; } = 0.42;
     public double BiomeHillshadeStrength { get; init; } = 0.48;
-    public double MinRiverWidth { get; init; } = 0.72;
-    public double MaxRiverWidth { get; init; } = 3.4;
+    public double BiomeBoundaryBlend { get; init; } = 0.16;
+    public double BiomeCenterSaturationBoost { get; init; } = 1.16;
+    public double BiomeCenterValueBoost { get; init; } = 0.015;
+    public double TextureStrength { get; init; } = 0.12;
+    public double DesertWarmthStrength { get; init; } = 0.20;
+    public double DesertDuneStrength { get; init; } = 0.18;
+    public double DesertRockStrength { get; init; } = 0.22;
+    public double MinRiverWidth { get; init; } = 0.38;
+    public double MaxRiverWidth { get; init; } = 2.25;
+    public double RiverValleyAccentMinWidth { get; init; } = 0.45;
+    public double RiverValleyAccentMaxWidth { get; init; } = 1.65;
+    public double RiverValleyAccentGamma { get; init; } = 1.35;
     public double RiverWidthLowPercentile { get; init; } = 0.06;
     public double RiverWidthHighPercentile { get; init; } = 0.98;
     public double RiverWidthGamma { get; init; } = 1.55;
@@ -1405,13 +1600,19 @@ public sealed class ClimateRenderOptions
     public Color OceanColor { get; init; } = Color.FromRgb(42, 113, 162);
     public Color TropicalRainforestColor { get; init; } = Color.FromRgb(20, 117, 63);
     public Color MonsoonForestColor { get; init; } = Color.FromRgb(58, 151, 77);
+    public Color DryTropicalForestColor { get; init; } = Color.FromRgb(113, 166, 68);
     public Color TropicalSeasonalForestColor { get; init; } = Color.FromRgb(96, 163, 82);
-    public Color SavannaColor { get; init; } = Color.FromRgb(198, 178, 82);
-    public Color HotDesertColor { get; init; } = Color.FromRgb(222, 190, 105);
-    public Color ColdDesertColor { get; init; } = Color.FromRgb(180, 168, 136);
-    public Color SteppeColor { get; init; } = Color.FromRgb(162, 174, 88);
-    public Color MediterraneanShrublandColor { get; init; } = Color.FromRgb(126, 151, 84);
-    public Color TemperateGrasslandColor { get; init; } = Color.FromRgb(119, 174, 91);
+    public Color SavannaColor { get; init; } = Color.FromRgb(190, 186, 54);
+    public Color OpenWoodlandColor { get; init; } = Color.FromRgb(132, 168, 67);
+    public Color HotDesertColor { get; init; } = Color.FromRgb(229, 161, 70);
+    public Color SemiDesertColor { get; init; } = Color.FromRgb(224, 196, 119);
+    public Color RockyDesertColor { get; init; } = Color.FromRgb(150, 126, 105);
+    public Color SaltFlatColor { get; init; } = Color.FromRgb(218, 214, 188);
+    public Color ColdDesertColor { get; init; } = Color.FromRgb(155, 158, 145);
+    public Color SteppeColor { get; init; } = Color.FromRgb(197, 170, 66);
+    public Color XericShrublandColor { get; init; } = Color.FromRgb(163, 146, 105);
+    public Color MediterraneanShrublandColor { get; init; } = Color.FromRgb(101, 132, 61);
+    public Color TemperateGrasslandColor { get; init; } = Color.FromRgb(139, 198, 84);
     public Color TemperateForestColor { get; init; } = Color.FromRgb(70, 143, 83);
     public Color TemperateRainforestColor { get; init; } = Color.FromRgb(40, 128, 106);
     public Color BorealForestColor { get; init; } = Color.FromRgb(61, 111, 86);
@@ -1420,9 +1621,30 @@ public sealed class ClimateRenderOptions
     public Color IceColor { get; init; } = Color.FromRgb(235, 242, 243);
     public Color AlpineTundraColor { get; init; } = Color.FromRgb(144, 137, 126);
     public Color WetlandColor { get; init; } = Color.FromRgb(72, 143, 128);
+    public Color FloodplainColor { get; init; } = Color.FromRgb(94, 163, 112);
+    public Color MarshColor { get; init; } = Color.FromRgb(54, 137, 121);
+    public Color MangroveColor { get; init; } = Color.FromRgb(25, 111, 87);
+    public Color MontaneForestColor { get; init; } = Color.FromRgb(67, 126, 84);
+    public Color CloudForestColor { get; init; } = Color.FromRgb(42, 130, 104);
+    public Color SnowyMountainColor { get; init; } = Color.FromRgb(202, 210, 205);
+    public Color VolcanicBadlandsColor { get; init; } = Color.FromRgb(121, 102, 91);
     public Color MountainColor { get; init; } = Color.FromRgb(128, 124, 112);
     public Color DryMountainColor { get; init; } = Color.FromRgb(158, 139, 106);
     public Color ColdMountainColor { get; init; } = Color.FromRgb(142, 145, 139);
+    public Color RiverValleyOverlayColor { get; init; } = Color.FromRgb(62, 184, 104);
+    public Color WetlandOverlayColor { get; init; } = Color.FromRgb(43, 139, 132);
+    public Color RiverValleyAccentColor { get; init; } = Color.FromRgb(75, 214, 119);
+    public Color RiverValleyMajorAccentColor { get; init; } = Color.FromRgb(67, 188, 169);
+    public Color PresentationRiverColor { get; init; } = Color.FromRgb(36, 119, 205);
+    public Color PresentationMountainRiverColor { get; init; } = Color.FromRgb(82, 184, 226);
+    public Color PresentationDeltaRiverColor { get; init; } = Color.FromRgb(31, 158, 179);
+    public Color DesertSunColor { get; init; } = Color.FromRgb(246, 188, 76);
+    public Color DesertDuneColor { get; init; } = Color.FromRgb(255, 222, 130);
+    public Color DesertRockColor { get; init; } = Color.FromRgb(111, 95, 88);
+    public Color TextureLightColor { get; init; } = Color.FromRgb(255, 246, 198);
+    public Color TextureDarkColor { get; init; } = Color.FromRgb(34, 50, 38);
+    public Color WetlandTextureLightColor { get; init; } = Color.FromRgb(110, 192, 166);
+    public Color WetlandTextureDarkColor { get; init; } = Color.FromRgb(22, 76, 91);
     public Color UnknownBiomeColor { get; init; } = Color.DarkGray;
     public Color ExtremeColdColor { get; init; } = Color.FromRgb(51, 85, 155);
     public Color ColdColor { get; init; } = Color.FromRgb(106, 169, 203);
@@ -1446,8 +1668,10 @@ public readonly record struct RiverWidthScale(double Low, double High);
 public enum ClimateRenderMode
 {
     Biomes,
+    DebugBiomes,
     Temperature,
     Moisture,
+    BiomeMoisture,
     Precipitation,
     Seasonality,
     Habitability,

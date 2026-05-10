@@ -63,7 +63,9 @@ public static class MapGenerationArtifactWriter
             ElevationMountainImage: hasElevation ? Path.Combine(outputDirectory, "elevation-mountain.png") : null,
             ElevationBasinImage: hasElevation ? Path.Combine(outputDirectory, "elevation-basin.png") : null,
             ElevationRiversImage: hasHydrology ? Path.Combine(outputDirectory, "elevation-rivers.png") : null,
-            ClimateImage: hasClimate ? Path.Combine(outputDirectory, "climate-biomes.png") : null,
+            ClimateImage: hasClimate ? Path.Combine(outputDirectory, "climate-biomes-presentation.png") : null,
+            ClimateBiomesDebugImage: hasClimate ? Path.Combine(outputDirectory, "climate-biomes-debug.png") : null,
+            ClimateBiomesPresentationImage: hasClimate ? Path.Combine(outputDirectory, "climate-biomes-presentation.png") : null,
             ClimateTemperatureImage: hasClimate ? Path.Combine(outputDirectory, "climate-temperature.png") : null,
             ClimateMoistureImage: hasClimate ? Path.Combine(outputDirectory, "climate-moisture.png") : null,
             ClimatePrecipitationImage: hasClimate ? Path.Combine(outputDirectory, "climate-precipitation.png") : null,
@@ -124,6 +126,7 @@ public static class MapGenerationArtifactWriter
         if (artifacts.ClimateJson is not null)
         {
             MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateImage!);
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateBiomesDebugImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.DebugBiomes, DrawRivers = false, DrawHillshade = false });
             MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateTemperatureImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Temperature });
             MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateMoistureImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Moisture });
             MapImageRenderer.RenderClimateToFile(map, artifacts.ClimatePrecipitationImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Precipitation });

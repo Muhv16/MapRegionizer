@@ -588,7 +588,7 @@ public sealed class MainViewModel : ReactiveObject
                 ElevationJsonMode,
                 ClimateJsonMode));
 
-            ArtifactSummary = result.Artifacts.SummaryJson;
+            ArtifactSummary = FormatArtifactSummary(result.Artifacts);
             StatusMessage = L["StatusExported"];
             this.RaisePropertyChanged(nameof(HasArtifacts));
             AddHistoryEntry();
@@ -958,7 +958,8 @@ public sealed class MainViewModel : ReactiveObject
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationMountain, "LayerElevationMountain", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationBasin, "LayerElevationBasin", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationRivers, "LayerElevationRivers", MapDataKeys.Hydrology, Localize));
-        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateBiomes, "LayerClimateBiomes", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateBiomesDebug, "LayerClimateBiomesDebug", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateBiomesPresentation, "LayerClimateBiomesPresentation", MapDataKeys.Climate, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateTemperature, "LayerClimateTemperature", MapDataKeys.Climate, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateMoisture, "LayerClimateMoisture", MapDataKeys.Climate, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimatePrecipitation, "LayerClimatePrecipitation", MapDataKeys.Climate, Localize));
@@ -1140,7 +1141,7 @@ public sealed class MainViewModel : ReactiveObject
             : key == MapDataKeys.Hydrology
                 ? PreviewLayerKind.ElevationRivers
             : key == MapDataKeys.Climate
-                ? PreviewLayerKind.ClimateBiomes
+                ? PreviewLayerKind.ClimateBiomesPresentation
             : key == MapDataKeys.Elevation || key == MapDataKeys.WaterSurfaces || key == MapDataKeys.GeneratedLakes
                 ? PreviewLayerKind.Elevation
                 : PreviewLayerKind.Overview;
@@ -1158,6 +1159,17 @@ public sealed class MainViewModel : ReactiveObject
         while (History.Count > 8)
             History.RemoveAt(History.Count - 1);
         this.RaisePropertyChanged(nameof(HasHistory));
+    }
+
+    private static string FormatArtifactSummary(MapGenerationArtifactPaths artifacts)
+    {
+        var paths = new List<string> { artifacts.SummaryJson };
+        if (artifacts.ClimateBiomesDebugImage is not null)
+            paths.Add(artifacts.ClimateBiomesDebugImage);
+        if (artifacts.ClimateBiomesPresentationImage is not null)
+            paths.Add(artifacts.ClimateBiomesPresentationImage);
+
+        return string.Join(Environment.NewLine, paths);
     }
 
     private void MarkRunningStageFailed(string error)

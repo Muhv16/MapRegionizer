@@ -47,8 +47,13 @@ public sealed class ClimateGenerator
         var atmosphericMoisture = new double[length];
         var precipitation = new double[length];
         var moisture = new double[length];
+        var biomeMoisture = new double[length];
         var rainShadow = new double[length];
         var monsoonInfluence = new double[length];
+        var riverValleyInfluence = new double[length];
+        var wetlandInfluence = new double[length];
+        var snowOverlay = new double[length];
+        var mountainOverlay = new double[length];
         var iceScore = new double[length];
         var habitability = new double[length];
         var agriculturalPotential = new double[length];
@@ -99,11 +104,40 @@ public sealed class ClimateGenerator
 
         SmoothUnitField(moisture, width, height, passes: 1, selfWeight: 0.52);
         SmoothUnitField(precipitation, width, height, passes: 1, selfWeight: 0.66);
+        BuildBiomeMoisture(
+            elevation,
+            water,
+            distanceToLargeWater,
+            riverInfluence,
+            meanAnnualTemperature,
+            precipitation,
+            moisture,
+            rainShadow,
+            biomeMoisture,
+            options);
+
+        BuildOverlayFields(
+            elevation,
+            water,
+            distanceToLargeWater,
+            riverInfluence,
+            meanAnnualTemperature,
+            summerTemperature,
+            precipitation,
+            biomeMoisture,
+            riverValleyInfluence,
+            wetlandInfluence,
+            snowOverlay,
+            mountainOverlay,
+            options);
 
         ClassifyClimate(
             elevation,
             water,
             riverInfluence,
+            wetlandInfluence,
+            snowOverlay,
+            mountainOverlay,
             latitudeNorm,
             meanAnnualTemperature,
             summerTemperature,
@@ -111,6 +145,7 @@ public sealed class ClimateGenerator
             seasonality,
             precipitation,
             moisture,
+            biomeMoisture,
             monsoonInfluence,
             iceScore,
             habitability,
@@ -130,8 +165,13 @@ public sealed class ClimateGenerator
             atmosphericMoisture,
             precipitation,
             moisture,
+            biomeMoisture,
             rainShadow,
             monsoonInfluence,
+            riverValleyInfluence,
+            wetlandInfluence,
+            snowOverlay,
+            mountainOverlay,
             iceScore,
             habitability,
             agriculturalPotential,
@@ -541,10 +581,144 @@ public sealed class ClimateGenerator
         return 0;
     }
 
+    private static void BuildBiomeMoisture(
+        ElevationMap elevation,
+        bool[] water,
+        int[] distanceToLargeWater,
+        double[] riverInfluence,
+        double[] meanAnnualTemperature,
+        double[] precipitation,
+        double[] moisture,
+        double[] rainShadow,
+        double[] biomeMoisture,
+        ClimateGenerationOptions options)
+    {
+        Array.Copy(moisture, biomeMoisture, moisture.Length);
+        NormalizeLandMoistureByBand(elevation, water, meanAnnualTemperature, biomeMoisture);
+
+        var width = elevation.Width;
+        var height = elevation.Height;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var index = y * width + x;
+                if (water[index])
+                    continue;
+
+                var coastalWetness = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / Math.Max(1.0, options.ContinentalityDistanceCells * 0.42));
+                var windwardWetness = Math.Clamp(precipitation[index] * 0.28 - rainShadow[index] * 0.12, -0.08, 0.24);
+                var physicalWetnessGate = Math.Clamp((moisture[index] - 0.12) / 0.32, 0, 1);
+                var riverBiomeBonus = riverInfluence[index] * (0.06 + physicalWetnessGate * 0.10);
+                var terrain = elevation.GetTerrainClass(x, y);
+                var basinPenalty = terrain is TerrainClassKind.DryBasin or TerrainClassKind.DesertPlateauCandidate ? 0.08 : 0.0;
+                biomeMoisture[index] = Math.Clamp(
+                    biomeMoisture[index] * 0.74 +
+                    moisture[index] * 0.18 +
+                    coastalWetness * 0.13 +
+                    windwardWetness +
+                    riverBiomeBonus -
+                    basinPenalty,
+                    0,
+                    1);
+            }
+        }
+    }
+
+    private static void NormalizeLandMoistureByBand(ElevationMap elevation, bool[] water, double[] meanAnnualTemperature, double[] biomeMoisture)
+    {
+        var stats = new[] { new TemperatureBandStats(), new TemperatureBandStats(), new TemperatureBandStats(), new TemperatureBandStats() };
+        for (var index = 0; index < biomeMoisture.Length; index++)
+        {
+            if (water[index])
+                continue;
+
+            var band = GetTemperatureBand(meanAnnualTemperature[index]);
+            stats[band].Values.Add(biomeMoisture[index]);
+        }
+
+        var width = elevation.Width;
+        for (var band = 0; band < stats.Length; band++)
+            stats[band].Prepare();
+
+        for (var y = 0; y < elevation.Height; y++)
+        {
+            for (var x = 0; x < elevation.Width; x++)
+            {
+                var index = y * width + x;
+                if (water[index])
+                    continue;
+
+                var band = GetTemperatureBand(meanAnnualTemperature[index]);
+                var normalized = stats[band].Normalize(biomeMoisture[index]);
+                biomeMoisture[index] = Math.Clamp(biomeMoisture[index] * 0.42 + normalized * 0.58, 0, 1);
+            }
+        }
+    }
+
+    private static void BuildOverlayFields(
+        ElevationMap elevation,
+        bool[] water,
+        int[] distanceToLargeWater,
+        double[] riverInfluence,
+        double[] meanAnnualTemperature,
+        double[] summerTemperature,
+        double[] precipitation,
+        double[] biomeMoisture,
+        double[] riverValleyInfluence,
+        double[] wetlandInfluence,
+        double[] snowOverlay,
+        double[] mountainOverlay,
+        ClimateGenerationOptions options)
+    {
+        var width = elevation.Width;
+        var height = elevation.Height;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var index = y * width + x;
+                if (water[index])
+                    continue;
+
+                var terrain = elevation.GetTerrainClass(x, y);
+                var elevationMeters = elevation.GetElevation(x, y);
+                var ridge = elevation.GetRidgeContinuity(x, y);
+                var foothill = elevation.GetFoothillInfluence(x, y);
+                var lowland = 1.0 - Math.Clamp((elevationMeters - 120.0) / 520.0, 0, 1);
+                var lakeLowland = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / 6.0) * lowland;
+                var warmWaterEdge = lakeLowland * Math.Clamp((meanAnnualTemperature[index] - 12.0) / 12.0, 0, 1);
+                var river = Math.Pow(Math.Clamp(riverInfluence[index], 0, 1), 0.72);
+                riverValleyInfluence[index] = Math.Clamp(river * (0.42 + lowland * 0.42) + warmWaterEdge * 0.22, 0, 1);
+
+                var wetness = biomeMoisture[index];
+                wetlandInfluence[index] = Math.Clamp(
+                    riverValleyInfluence[index] * Math.Clamp((wetness - 0.42) / 0.34, 0, 1) +
+                    lakeLowland * Math.Clamp((wetness - 0.34) / 0.38, 0, 1) +
+                    precipitation[index] * lowland * 0.18,
+                    0,
+                    1);
+
+                var mountainSignal = Math.Clamp(ridge * 0.70 + foothill * 0.32 + Math.Clamp((elevationMeters - 1200.0) / 2100.0, 0, 1), 0, 1);
+                mountainOverlay[index] = mountainSignal;
+                var coldHeight = Math.Clamp((elevationMeters - 1800.0) / 2200.0, 0, 1);
+                var coldSummer = Math.Clamp((8.0 - summerTemperature[index]) / 14.0, 0, 1);
+                var snow = Math.Clamp(coldHeight * 0.45 + coldSummer * 0.45 + precipitation[index] * 0.22, 0, 1) * Math.Clamp(mountainSignal * 1.25, 0, 1);
+                if (terrain == TerrainClassKind.Mountain && summerTemperature[index] < options.SnowMeltThresholdCelsius + 5.0)
+                    snow = Math.Max(snow, Math.Clamp((options.SnowMeltThresholdCelsius + 5.0 - summerTemperature[index]) / 12.0, 0, 1) * 0.62);
+
+                snowOverlay[index] = Math.Clamp(snow, 0, 1);
+            }
+        }
+    }
+
     private static void ClassifyClimate(
         ElevationMap elevation,
         bool[] water,
         double[] riverInfluence,
+        double[] wetlandInfluence,
+        double[] snowOverlay,
+        double[] mountainOverlay,
         double[] latitudeNorm,
         double[] meanAnnualTemperature,
         double[] summerTemperature,
@@ -552,6 +726,7 @@ public sealed class ClimateGenerator
         double[] seasonality,
         double[] precipitation,
         double[] moisture,
+        double[] biomeMoisture,
         double[] monsoonInfluence,
         double[] iceScore,
         double[] habitability,
@@ -580,19 +755,35 @@ public sealed class ClimateGenerator
                 var meanTemp = meanAnnualTemperature[index];
                 var summer = summerTemperature[index];
                 var winter = winterTemperature[index];
-                var wetness = moisture[index];
+                var wetness = biomeMoisture[index];
                 var rain = precipitation[index];
                 var elevationMeters = elevation.GetElevation(x, y);
                 var coldness = Math.Clamp((options.SnowMeltThresholdCelsius - summer) / 14.0, 0, 1);
                 var snowAvailability = Math.Clamp(rain / options.SnowPrecipitationScale, 0, 1);
-                var localIce = coldness * (0.32 + snowAvailability * 0.68);
+                var localIce = Math.Max(coldness * (0.32 + snowAvailability * 0.68), snowOverlay[index] * 0.72);
                 if (elevation.GetTerrainClass(x, y) == TerrainClassKind.Mountain && summer < 6)
                     localIce = Math.Max(localIce, Math.Clamp((6.0 - summer) / 10.0 * (0.35 + rain), 0, 1));
 
                 iceScore[index] = Math.Clamp(localIce, 0, 1);
-                var (climateClass, biome) = ClassifyCell(meanTemp, summer, winter, wetness, rain, seasonality[index], monsoonInfluence[index], localIce, elevationMeters);
-                if (riverInfluence[index] > 0.72 && wetness > 0.62 && elevationMeters < 420 && localIce < 0.15)
-                    biome = BiomeKind.Wetland;
+                var (climateClass, biome) = ClassifyCell(
+                    meanTemp,
+                    summer,
+                    winter,
+                    wetness,
+                    rain,
+                    seasonality[index],
+                    monsoonInfluence[index],
+                    localIce,
+                    elevationMeters,
+                    mountainOverlay[index]);
+                if (wetlandInfluence[index] > 0.72 && localIce < 0.20)
+                    biome = meanTemp > 20 && latitudeNorm[index] < 0.42 ? BiomeKind.Mangrove : BiomeKind.Marsh;
+                else if (wetlandInfluence[index] > 0.48 && localIce < 0.18)
+                    biome = BiomeKind.Floodplain;
+                else if (riverInfluence[index] > 0.58 && wetness > 0.32 && localIce < 0.16)
+                    biome = BiomeKind.Floodplain;
+                else if (snowOverlay[index] > 0.68 && mountainOverlay[index] > 0.42)
+                    biome = BiomeKind.SnowyMountain;
 
                 climateClasses[index] = (byte)climateClass;
                 biomes[index] = (byte)biome;
@@ -616,6 +807,19 @@ public sealed class ClimateGenerator
                     1);
             }
         }
+
+        ApplySoftBiomeTargets(
+            elevation,
+            water,
+            latitudeNorm,
+            meanAnnualTemperature,
+            biomeMoisture,
+            riverInfluence,
+            wetlandInfluence,
+            snowOverlay,
+            mountainOverlay,
+            climateClasses,
+            biomes);
     }
 
     private static (ClimateClassKind ClimateClass, BiomeKind Biome) ClassifyCell(
@@ -627,10 +831,13 @@ public sealed class ClimateGenerator
         double seasonality,
         double monsoon,
         double iceScore,
-        double elevationMeters)
+        double elevationMeters,
+        double mountainOverlay)
     {
-        if (iceScore > 0.64)
+        if (iceScore > 0.82)
             return (ClimateClassKind.IceCap, BiomeKind.IceSheet);
+        if (mountainOverlay > 0.62 && iceScore > 0.46)
+            return (ClimateClassKind.Alpine, BiomeKind.SnowyMountain);
         if (summerTemp < 5.0)
             return moisture < 0.22
                 ? (ClimateClassKind.PolarDesert, BiomeKind.PolarDesert)
@@ -639,9 +846,13 @@ public sealed class ClimateGenerator
             return (ClimateClassKind.Alpine, BiomeKind.AlpineTundra);
 
         if (moisture < 0.10)
-            return meanTemp >= 10.0 ? (ClimateClassKind.HotArid, BiomeKind.HotDesert) : (ClimateClassKind.SemiArid, BiomeKind.ColdDesert);
+            return meanTemp >= 17.0 ? (ClimateClassKind.HotArid, BiomeKind.RockyDesert) : (ClimateClassKind.SemiArid, BiomeKind.ColdDesert);
+        if (moisture < 0.16)
+            return meanTemp >= 17.0 ? (ClimateClassKind.HotArid, BiomeKind.HotDesert) : (ClimateClassKind.SemiArid, BiomeKind.ColdDesert);
         if (moisture < 0.22)
-            return (ClimateClassKind.SemiArid, meanTemp >= 12.0 ? BiomeKind.Steppe : BiomeKind.ColdDesert);
+            return (ClimateClassKind.SemiArid, meanTemp >= 14.0 ? BiomeKind.SemiDesert : BiomeKind.Steppe);
+        if (moisture < 0.30)
+            return (ClimateClassKind.SemiArid, meanTemp >= 14.0 ? BiomeKind.XericShrubland : BiomeKind.Steppe);
 
         if (meanTemp >= 22.0)
         {
@@ -649,9 +860,11 @@ public sealed class ClimateGenerator
                 return (ClimateClassKind.TropicalWet, BiomeKind.TropicalRainforest);
             if (monsoon > 0.34 || precipitation > 0.52)
                 return (ClimateClassKind.TropicalSeasonal, BiomeKind.MonsoonForest);
-            return moisture > 0.36
-                ? (ClimateClassKind.TropicalSeasonal, BiomeKind.TropicalSeasonalForest)
-                : (ClimateClassKind.TropicalSeasonal, BiomeKind.Savanna);
+            if (moisture > 0.48)
+                return (ClimateClassKind.TropicalSeasonal, BiomeKind.TropicalSeasonalForest);
+            if (moisture > 0.36)
+                return (ClimateClassKind.TropicalSeasonal, BiomeKind.DryTropicalForest);
+            return (ClimateClassKind.TropicalSeasonal, BiomeKind.Savanna);
         }
 
         if (meanTemp >= 12.0)
@@ -659,8 +872,10 @@ public sealed class ClimateGenerator
             if (moisture > 0.72)
                 return (ClimateClassKind.TemperateWet, BiomeKind.TemperateRainforest);
             if (moisture > 0.44)
-                return (ClimateClassKind.WarmTemperate, BiomeKind.TemperateForest);
-            if (seasonality > 20.0)
+                return mountainOverlay > 0.48 ? (ClimateClassKind.WarmTemperate, BiomeKind.MontaneForest) : (ClimateClassKind.WarmTemperate, BiomeKind.TemperateForest);
+            if (moisture > 0.35)
+                return (ClimateClassKind.WarmTemperate, BiomeKind.OpenWoodland);
+            if (seasonality > 18.0 || winterTemp < -3.0)
                 return (ClimateClassKind.Continental, BiomeKind.TemperateGrassland);
             return (ClimateClassKind.WarmTemperate, BiomeKind.MediterraneanShrubland);
         }
@@ -668,7 +883,9 @@ public sealed class ClimateGenerator
         if (meanTemp >= 3.0)
         {
             if (moisture > 0.52)
-                return winterTemp < -8.0 ? (ClimateClassKind.Boreal, BiomeKind.BorealForest) : (ClimateClassKind.TemperateWet, BiomeKind.TemperateForest);
+                return mountainOverlay > 0.56
+                    ? (ClimateClassKind.Alpine, BiomeKind.MontaneForest)
+                    : winterTemp < -8.0 ? (ClimateClassKind.Boreal, BiomeKind.BorealForest) : (ClimateClassKind.TemperateWet, BiomeKind.TemperateForest);
             return (ClimateClassKind.Continental, BiomeKind.TemperateGrassland);
         }
 
@@ -676,6 +893,188 @@ public sealed class ClimateGenerator
             return (ClimateClassKind.Boreal, BiomeKind.BorealForest);
 
         return (ClimateClassKind.Tundra, BiomeKind.Tundra);
+    }
+
+    private static void ApplySoftBiomeTargets(
+        ElevationMap elevation,
+        bool[] water,
+        double[] latitudeNorm,
+        double[] meanAnnualTemperature,
+        double[] biomeMoisture,
+        double[] riverInfluence,
+        double[] wetlandInfluence,
+        double[] snowOverlay,
+        double[] mountainOverlay,
+        byte[] climateClasses,
+        byte[] biomes)
+    {
+        var landCount = water.Count(isWater => !isWater);
+        if (landCount == 0)
+            return;
+
+        EnsureMinimumBiome(
+            BiomeKind.Marsh,
+            Math.Max(24, (int)Math.Round(landCount * 0.006)),
+            BuildCandidates(elevation, water, index =>
+            {
+                var warmEnough = meanAnnualTemperature[index] > -2.0;
+                var score = wetlandInfluence[index] * 1.15 + riverInfluence[index] * 0.22 + biomeMoisture[index] * 0.22;
+                return warmEnough && wetlandInfluence[index] > 0.24 ? score : -1.0;
+            }),
+            climateClasses,
+            biomes,
+            index => meanAnnualTemperature[index] >= 20.0 && latitudeNorm[index] < 0.42 ? BiomeKind.Mangrove : wetlandInfluence[index] > 0.66 ? BiomeKind.Marsh : BiomeKind.Floodplain,
+            index => meanAnnualTemperature[index] >= 20.0 ? ClimateClassKind.TropicalWet : ClimateClassKind.TemperateWet);
+
+        var tropicalLand = CountLandWhere(water, meanAnnualTemperature, value => value >= 22.0);
+        EnsureMinimumBiome(
+            BiomeKind.TropicalRainforest,
+            Math.Max(0, (int)Math.Round(tropicalLand * 0.045)),
+            BuildCandidates(elevation, water, index =>
+            {
+                if (meanAnnualTemperature[index] < 22.0 || biomeMoisture[index] < 0.48)
+                    return -1.0;
+
+                return biomeMoisture[index] * 0.90 + wetlandInfluence[index] * 0.18 - mountainOverlay[index] * 0.10;
+            }),
+            climateClasses,
+            biomes,
+            _ => BiomeKind.TropicalRainforest,
+            _ => ClimateClassKind.TropicalWet);
+
+        var temperateWetLand = CountLandWhere(water, meanAnnualTemperature, value => value is >= 5.0 and < 22.0);
+        EnsureMinimumBiome(
+            BiomeKind.TemperateRainforest,
+            Math.Max(0, (int)Math.Round(temperateWetLand * 0.025)),
+            BuildCandidates(elevation, water, index =>
+            {
+                if (meanAnnualTemperature[index] < 5.0 || meanAnnualTemperature[index] >= 22.0 || biomeMoisture[index] < 0.50)
+                    return -1.0;
+
+                return biomeMoisture[index] * 0.86 + mountainOverlay[index] * 0.14 + wetlandInfluence[index] * 0.10;
+            }),
+            climateClasses,
+            biomes,
+            index => mountainOverlay[index] > 0.52 ? BiomeKind.CloudForest : BiomeKind.TemperateRainforest,
+            _ => ClimateClassKind.TemperateWet);
+
+        EnsureMinimumBiome(
+            BiomeKind.SnowyMountain,
+            Math.Max(0, (int)Math.Round(landCount * 0.004)),
+            BuildCandidates(elevation, water, index =>
+            {
+                var score = snowOverlay[index] * 0.78 + mountainOverlay[index] * 0.42;
+                return score > 0.42 ? score : -1.0;
+            }),
+            climateClasses,
+            biomes,
+            _ => BiomeKind.SnowyMountain,
+            _ => ClimateClassKind.Alpine);
+
+        LimitMediterraneanShare(elevation, water, meanAnnualTemperature, biomeMoisture, mountainOverlay, climateClasses, biomes, landCount);
+    }
+
+    private static IReadOnlyList<ClimateCandidate> BuildCandidates(ElevationMap elevation, bool[] water, Func<int, double> score)
+    {
+        var candidates = new List<ClimateCandidate>();
+        for (var y = 0; y < elevation.Height; y++)
+        {
+            for (var x = 0; x < elevation.Width; x++)
+            {
+                var index = y * elevation.Width + x;
+                if (water[index])
+                    continue;
+
+                var value = score(index);
+                if (value > 0)
+                    candidates.Add(new ClimateCandidate(index, value));
+            }
+        }
+
+        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+        return candidates;
+    }
+
+    private static void EnsureMinimumBiome(
+        BiomeKind countedBiome,
+        int targetCount,
+        IReadOnlyList<ClimateCandidate> candidates,
+        byte[] climateClasses,
+        byte[] biomes,
+        Func<int, BiomeKind> chooseBiome,
+        Func<int, ClimateClassKind> chooseClimateClass)
+    {
+        if (targetCount <= 0)
+            return;
+
+        var current = biomes.Count(value => (BiomeKind)value == countedBiome);
+        if (countedBiome == BiomeKind.Marsh)
+            current += biomes.Count(value => (BiomeKind)value is BiomeKind.Floodplain or BiomeKind.Mangrove or BiomeKind.Wetland);
+        if (current >= targetCount)
+            return;
+
+        var needed = targetCount - current;
+        foreach (var candidate in candidates)
+        {
+            var currentBiome = (BiomeKind)biomes[candidate.Index];
+            if (currentBiome is BiomeKind.Ocean or BiomeKind.IceSheet or BiomeKind.SnowyMountain)
+                continue;
+
+            biomes[candidate.Index] = (byte)chooseBiome(candidate.Index);
+            climateClasses[candidate.Index] = (byte)chooseClimateClass(candidate.Index);
+            needed--;
+            if (needed <= 0)
+                break;
+        }
+    }
+
+    private static void LimitMediterraneanShare(
+        ElevationMap elevation,
+        bool[] water,
+        double[] meanAnnualTemperature,
+        double[] biomeMoisture,
+        double[] mountainOverlay,
+        byte[] climateClasses,
+        byte[] biomes,
+        int landCount)
+    {
+        var maxMediterranean = Math.Max(1, (int)Math.Round(landCount * 0.045));
+        var mediterranean = new List<ClimateCandidate>();
+        for (var index = 0; index < biomes.Length; index++)
+        {
+            if (water[index] || (BiomeKind)biomes[index] != BiomeKind.MediterraneanShrubland)
+                continue;
+
+            var keepScore = 1.0 - Math.Abs(biomeMoisture[index] - 0.33) + Math.Clamp((20.0 - meanAnnualTemperature[index]) / 16.0, 0, 0.25);
+            mediterranean.Add(new ClimateCandidate(index, keepScore));
+        }
+
+        if (mediterranean.Count <= maxMediterranean)
+            return;
+
+        mediterranean.Sort((a, b) => a.Score.CompareTo(b.Score));
+        var convertCount = mediterranean.Count - maxMediterranean;
+        for (var i = 0; i < convertCount; i++)
+        {
+            var index = mediterranean[i].Index;
+            var replacement = biomeMoisture[index] < 0.30
+                ? BiomeKind.XericShrubland
+                : mountainOverlay[index] > 0.42 ? BiomeKind.OpenWoodland : BiomeKind.TemperateGrassland;
+            biomes[index] = (byte)replacement;
+            climateClasses[index] = (byte)(replacement == BiomeKind.TemperateGrassland ? ClimateClassKind.Continental : ClimateClassKind.WarmTemperate);
+        }
+    }
+
+    private static int CountLandWhere(bool[] water, double[] values, Func<double, bool> predicate)
+    {
+        var count = 0;
+        for (var index = 0; index < values.Length; index++)
+        {
+            if (!water[index] && predicate(values[index]))
+                count++;
+        }
+
+        return count;
     }
 
     private static WindVector GetWind(int y, int height)
@@ -782,5 +1181,68 @@ public sealed class ClimateGenerator
 
     private static int WrapX(int x, int width) => (x % width + width) % width;
 
+    private static int GetTemperatureBand(double meanAnnualTemperature)
+    {
+        if (meanAnnualTemperature >= 22.0)
+            return 0;
+        if (meanAnnualTemperature >= 12.0)
+            return 1;
+        if (meanAnnualTemperature >= 3.0)
+            return 2;
+
+        return 3;
+    }
+
     private readonly record struct WindVector(double X, double Y);
+
+    private readonly record struct ClimateCandidate(int Index, double Score);
+
+    private sealed class TemperatureBandStats
+    {
+        private double _low;
+        private double _high;
+
+        public List<double> Values { get; } = [];
+
+        public void Prepare()
+        {
+            if (Values.Count == 0)
+            {
+                _low = 0;
+                _high = 1;
+                return;
+            }
+
+            Values.Sort();
+            _low = Percentile(Values, 0.08);
+            _high = Percentile(Values, 0.92);
+            if (_high <= _low + 0.001)
+            {
+                _low = Values[0];
+                _high = Values[^1] + 0.001;
+            }
+        }
+
+        public double Normalize(double value)
+        {
+            var normalized = Math.Clamp((value - _low) / Math.Max(0.001, _high - _low), 0, 1);
+            return Math.Clamp(0.08 + Math.Pow(normalized, 0.82) * 0.84, 0, 1);
+        }
+
+        private static double Percentile(IReadOnlyList<double> sortedValues, double percentile)
+        {
+            if (sortedValues.Count == 0)
+                return 0;
+            if (sortedValues.Count == 1)
+                return sortedValues[0];
+
+            var position = Math.Clamp(percentile, 0, 1) * (sortedValues.Count - 1);
+            var lower = (int)Math.Floor(position);
+            var upper = (int)Math.Ceiling(position);
+            if (lower == upper)
+                return sortedValues[lower];
+
+            return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * (position - lower);
+        }
+    }
 }

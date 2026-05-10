@@ -372,8 +372,13 @@ public sealed class ClimateMap
     private readonly double[] _atmosphericMoisture;
     private readonly double[] _precipitation;
     private readonly double[] _moisture;
+    private readonly double[] _biomeMoisture;
     private readonly double[] _rainShadow;
     private readonly double[] _monsoonInfluence;
+    private readonly double[] _riverValleyInfluence;
+    private readonly double[] _wetlandInfluence;
+    private readonly double[] _snowOverlay;
+    private readonly double[] _mountainOverlay;
     private readonly double[] _iceScore;
     private readonly double[] _habitability;
     private readonly double[] _agriculturalPotential;
@@ -394,8 +399,13 @@ public sealed class ClimateMap
         double[] atmosphericMoisture,
         double[] precipitation,
         double[] moisture,
+        double[] biomeMoisture,
         double[] rainShadow,
         double[] monsoonInfluence,
+        double[] riverValleyInfluence,
+        double[] wetlandInfluence,
+        double[] snowOverlay,
+        double[] mountainOverlay,
         double[] iceScore,
         double[] habitability,
         double[] agriculturalPotential,
@@ -411,8 +421,13 @@ public sealed class ClimateMap
         ValidateLength(atmosphericMoisture, expectedLength, nameof(atmosphericMoisture));
         ValidateLength(precipitation, expectedLength, nameof(precipitation));
         ValidateLength(moisture, expectedLength, nameof(moisture));
+        ValidateLength(biomeMoisture, expectedLength, nameof(biomeMoisture));
         ValidateLength(rainShadow, expectedLength, nameof(rainShadow));
         ValidateLength(monsoonInfluence, expectedLength, nameof(monsoonInfluence));
+        ValidateLength(riverValleyInfluence, expectedLength, nameof(riverValleyInfluence));
+        ValidateLength(wetlandInfluence, expectedLength, nameof(wetlandInfluence));
+        ValidateLength(snowOverlay, expectedLength, nameof(snowOverlay));
+        ValidateLength(mountainOverlay, expectedLength, nameof(mountainOverlay));
         ValidateLength(iceScore, expectedLength, nameof(iceScore));
         ValidateLength(habitability, expectedLength, nameof(habitability));
         ValidateLength(agriculturalPotential, expectedLength, nameof(agriculturalPotential));
@@ -429,8 +444,13 @@ public sealed class ClimateMap
         _atmosphericMoisture = atmosphericMoisture;
         _precipitation = precipitation;
         _moisture = moisture;
+        _biomeMoisture = biomeMoisture;
         _rainShadow = rainShadow;
         _monsoonInfluence = monsoonInfluence;
+        _riverValleyInfluence = riverValleyInfluence;
+        _wetlandInfluence = wetlandInfluence;
+        _snowOverlay = snowOverlay;
+        _mountainOverlay = mountainOverlay;
         _iceScore = iceScore;
         _habitability = habitability;
         _agriculturalPotential = agriculturalPotential;
@@ -454,9 +474,19 @@ public sealed class ClimateMap
 
     public double GetMoisture(int x, int y) => _moisture[y * Width + x];
 
+    public double GetBiomeMoisture(int x, int y) => _biomeMoisture[y * Width + x];
+
     public double GetRainShadow(int x, int y) => _rainShadow[y * Width + x];
 
     public double GetMonsoonInfluence(int x, int y) => _monsoonInfluence[y * Width + x];
+
+    public double GetRiverValleyInfluence(int x, int y) => _riverValleyInfluence[y * Width + x];
+
+    public double GetWetlandInfluence(int x, int y) => _wetlandInfluence[y * Width + x];
+
+    public double GetSnowOverlay(int x, int y) => _snowOverlay[y * Width + x];
+
+    public double GetMountainOverlay(int x, int y) => _mountainOverlay[y * Width + x];
 
     public double GetIceScore(int x, int y) => _iceScore[y * Width + x];
 
@@ -476,8 +506,13 @@ public sealed class ClimateMap
     internal ReadOnlySpan<double> AtmosphericMoistureSpan => _atmosphericMoisture;
     internal ReadOnlySpan<double> PrecipitationSpan => _precipitation;
     internal ReadOnlySpan<double> MoistureSpan => _moisture;
+    internal ReadOnlySpan<double> BiomeMoistureSpan => _biomeMoisture;
     internal ReadOnlySpan<double> RainShadowSpan => _rainShadow;
     internal ReadOnlySpan<double> MonsoonInfluenceSpan => _monsoonInfluence;
+    internal ReadOnlySpan<double> RiverValleyInfluenceSpan => _riverValleyInfluence;
+    internal ReadOnlySpan<double> WetlandInfluenceSpan => _wetlandInfluence;
+    internal ReadOnlySpan<double> SnowOverlaySpan => _snowOverlay;
+    internal ReadOnlySpan<double> MountainOverlaySpan => _mountainOverlay;
     internal ReadOnlySpan<double> IceScoreSpan => _iceScore;
     internal ReadOnlySpan<double> HabitabilitySpan => _habitability;
     internal ReadOnlySpan<double> AgriculturalPotentialSpan => _agriculturalPotential;
@@ -513,11 +548,17 @@ public enum BiomeKind
     Ocean,
     TropicalRainforest,
     MonsoonForest,
+    DryTropicalForest,
     TropicalSeasonalForest,
     Savanna,
+    OpenWoodland,
     HotDesert,
+    SemiDesert,
+    RockyDesert,
+    SaltFlat,
     ColdDesert,
     Steppe,
+    XericShrubland,
     MediterraneanShrubland,
     TemperateGrassland,
     TemperateForest,
@@ -527,7 +568,14 @@ public enum BiomeKind
     PolarDesert,
     IceSheet,
     AlpineTundra,
-    Wetland
+    Wetland,
+    Floodplain,
+    Marsh,
+    Mangrove,
+    MontaneForest,
+    CloudForest,
+    SnowyMountain,
+    VolcanicBadlands
 }
 
 public readonly record struct MapPoint(double X, double Y);

@@ -192,11 +192,17 @@ This allows:
 - `Ocean`
 - `TropicalRainforest`
 - `MonsoonForest`
+- `DryTropicalForest`
 - `TropicalSeasonalForest`
 - `Savanna`
+- `OpenWoodland`
 - `HotDesert`
+- `SemiDesert`
+- `RockyDesert`
+- `SaltFlat`
 - `ColdDesert`
 - `Steppe`
+- `XericShrubland`
 - `MediterraneanShrubland`
 - `TemperateGrassland`
 - `TemperateForest`
@@ -207,8 +213,26 @@ This allows:
 - `IceSheet`
 - `AlpineTundra`
 - `Wetland`
+- `Floodplain`
+- `Marsh`
+- `Mangrove`
+- `MontaneForest`
+- `CloudForest`
+- `SnowyMountain`
+- `VolcanicBadlands`
 
 Habitability and agriculture are normalized `0..1` fields. Habitability favors moderate temperature, moderate moisture, rivers, and lower elevations. Agriculture favors warm temperatures, sufficient but not excessive moisture, and river corridors more strongly than biome moisture.
+
+`Moisture` remains the physical-ish moisture field. `BiomeMoisture` is a presentation/classification field. It is land-normalized separately inside broad temperature bands, then nudged by wet coasts, windward rainfall, and small river-valley bonuses. This keeps a dry world from losing all rainforests and wet forests, while still letting physical moisture stay available for diagnostics.
+
+Overlay fields are not base biomes:
+
+- `RiverValleyInfluence`: green corridor signal along rivers and deltas.
+- `WetlandInfluence`: marsh/floodplain/lake-lowland signal.
+- `SnowOverlay`: snow tint for cold mountains and high-latitude ice.
+- `MountainOverlay`: rocky/highland tint and relief emphasis.
+
+These overlays let a desert remain `HotDesert` while still showing a Nile-like river corridor, or let a forested range show snowy summits without erasing the underlying forest biome.
 
 ## Options
 
@@ -247,7 +271,8 @@ The CLI exposes the main latitude and temperature controls:
 Artifact export writes:
 
 ```text
-climate-biomes.png
+climate-biomes-debug.png
+climate-biomes-presentation.png
 climate-temperature.png
 climate-moisture.png
 climate-precipitation.png
@@ -257,6 +282,10 @@ climate-ice.png
 climate.json
 ```
 
-`climate-biomes.png` is a presentation map rather than a flat class mask. Water uses the final elevation renderer so oceans, seas, and lakes keep bathymetry and lake-depth tone. Land blends biome color with final terrain color, hillshade, ridge/foothill influence, mountain tint, and ice overlay. Visible hydrology rivers are drawn over the biome-relief map so the layer can be used directly as a strategy-game world map.
+`climate-biomes-debug.png` is a flat class mask. `climate-biomes-presentation.png` is the game-facing map. Water uses the final elevation renderer so oceans, seas, and lakes keep bathymetry and lake-depth tone. Land blends biome color with final terrain color, hillshade, ridge/foothill influence, mountain tint, river-valley tint, wetland tint, texture, and snow overlay. Visible hydrology rivers are drawn over the biome-relief map so the layer can be used directly as a strategy-game world map.
 
-`climate.json` includes compact run-length encoded rows for climate class, biome, mean annual temperature, moisture, habitability, and agricultural potential. Diagnostic mode adds summer and winter temperature, seasonality, latitude, atmospheric moisture, precipitation, rain shadow, monsoon influence, and ice score rows.
+The presentation palette deliberately separates transitional dry biomes by value and saturation: grassland is brighter green, steppe is golden, savanna is yellow-green, Mediterranean shrubland is darker olive, xeric shrubland is gray-ochre, semi-desert is pale sand, rocky desert is gray-brown, hot desert is warmer orange, and cold desert is cooler gray. Desert biomes also receive dune/rock texture modifiers so large arid regions read as strategic obstacles rather than generic tan land.
+
+Biome edges are lightly blended with neighboring biome colors, while uninterrupted biome interiors get a small saturation/value lift. River-valley accents are rendered separately from broad floodplain data: floodplain and wetland biomes may occupy lowlands, but the presentation layer draws a thinner, brighter green/blue-green accent directly along river polylines based on discharge.
+
+`climate.json` includes compact run-length encoded rows for climate class, biome, mean annual temperature, physical moisture, biome moisture, habitability, and agricultural potential. Diagnostic mode adds summer and winter temperature, seasonality, latitude, atmospheric moisture, precipitation, rain shadow, monsoon influence, river-valley influence, wetland influence, snow overlay, mountain overlay, and ice score rows.

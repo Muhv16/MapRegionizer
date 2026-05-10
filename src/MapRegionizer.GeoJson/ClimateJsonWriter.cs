@@ -49,6 +49,7 @@ public static class ClimateJsonWriter
             EncodeBiomeRows(climate),
             EncodeRows(climate, climate.GetMeanAnnualTemperature, 1),
             EncodeUnitRows(climate, climate.GetMoisture, 1000),
+            EncodeUnitRows(climate, climate.GetBiomeMoisture, 1000),
             EncodeUnitRows(climate, climate.GetHabitability, 1000),
             EncodeUnitRows(climate, climate.GetAgriculturalPotential, 1000),
             diagnostic ? EncodeRows(climate, climate.GetSummerTemperature, 1) : null,
@@ -59,6 +60,10 @@ public static class ClimateJsonWriter
             diagnostic ? EncodeUnitRows(climate, climate.GetPrecipitation, 1000) : null,
             diagnostic ? EncodeUnitRows(climate, climate.GetRainShadow, 1000) : null,
             diagnostic ? EncodeUnitRows(climate, climate.GetMonsoonInfluence, 1000) : null,
+            diagnostic ? EncodeUnitRows(climate, climate.GetRiverValleyInfluence, 1000) : null,
+            diagnostic ? EncodeUnitRows(climate, climate.GetWetlandInfluence, 1000) : null,
+            diagnostic ? EncodeUnitRows(climate, climate.GetSnowOverlay, 1000) : null,
+            diagnostic ? EncodeUnitRows(climate, climate.GetMountainOverlay, 1000) : null,
             diagnostic ? EncodeUnitRows(climate, climate.GetIceScore, 1000) : null);
     }
 
@@ -252,11 +257,17 @@ public static class ClimateJsonWriter
         BiomeKind.Ocean => 'O',
         BiomeKind.TropicalRainforest => 'R',
         BiomeKind.MonsoonForest => 'M',
+        BiomeKind.DryTropicalForest => 'Y',
         BiomeKind.TropicalSeasonalForest => 'F',
         BiomeKind.Savanna => 'S',
+        BiomeKind.OpenWoodland => 'V',
         BiomeKind.HotDesert => 'D',
+        BiomeKind.SemiDesert => 'Q',
+        BiomeKind.RockyDesert => 'K',
+        BiomeKind.SaltFlat => 'Z',
         BiomeKind.ColdDesert => 'C',
         BiomeKind.Steppe => 'P',
+        BiomeKind.XericShrubland => 'X',
         BiomeKind.MediterraneanShrubland => 'H',
         BiomeKind.TemperateGrassland => 'G',
         BiomeKind.TemperateForest => 'T',
@@ -267,6 +278,13 @@ public static class ClimateJsonWriter
         BiomeKind.IceSheet => 'I',
         BiomeKind.AlpineTundra => 'L',
         BiomeKind.Wetland => 'N',
+        BiomeKind.Floodplain => 'J',
+        BiomeKind.Marsh => 'e',
+        BiomeKind.Mangrove => 'm',
+        BiomeKind.MontaneForest => 'o',
+        BiomeKind.CloudForest => 'c',
+        BiomeKind.SnowyMountain => 's',
+        BiomeKind.VolcanicBadlands => 'v',
         _ => '?'
     };
 
@@ -278,6 +296,7 @@ public static class ClimateJsonWriter
         IReadOnlyList<string> BiomeRows,
         IReadOnlyList<string> MeanAnnualTemperatureRows,
         IReadOnlyList<string> MoistureRows,
+        IReadOnlyList<string> BiomeMoistureRows,
         IReadOnlyList<string> HabitabilityRows,
         IReadOnlyList<string> AgriculturalPotentialRows,
         IReadOnlyList<string>? SummerTemperatureRows,
@@ -288,6 +307,10 @@ public static class ClimateJsonWriter
         IReadOnlyList<string>? PrecipitationRows,
         IReadOnlyList<string>? RainShadowRows,
         IReadOnlyList<string>? MonsoonInfluenceRows,
+        IReadOnlyList<string>? RiverValleyInfluenceRows,
+        IReadOnlyList<string>? WetlandInfluenceRows,
+        IReadOnlyList<string>? SnowOverlayRows,
+        IReadOnlyList<string>? MountainOverlayRows,
         IReadOnlyList<string>? IceScoreRows);
 
     private sealed record ClimateSummaryDto(
