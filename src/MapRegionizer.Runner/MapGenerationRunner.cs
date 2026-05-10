@@ -29,7 +29,8 @@ public sealed class MapGenerationRunner
             outputDirectory,
             options.GenerationOptions,
             options.TectonicJsonMode,
-            options.ElevationJsonMode);
+            options.ElevationJsonMode,
+            options.ClimateJsonMode);
     }
 
     private static void ValidateRunOptions(MapGenerationRequestOptions options)

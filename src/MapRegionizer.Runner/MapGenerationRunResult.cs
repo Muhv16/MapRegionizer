@@ -22,6 +22,13 @@ public sealed record MapGenerationArtifactPaths(
     string? ElevationMountainImage,
     string? ElevationBasinImage,
     string? ElevationRiversImage,
+    string? ClimateImage,
+    string? ClimateTemperatureImage,
+    string? ClimateMoistureImage,
+    string? ClimatePrecipitationImage,
+    string? ClimateHabitabilityImage,
+    string? ClimateAgricultureImage,
+    string? ClimateIceImage,
     string RegionsGeoJson,
     string LandmassesGeoJson,
     string WaterBodiesGeoJson,
@@ -29,6 +36,7 @@ public sealed record MapGenerationArtifactPaths(
     string? ElevationJson,
     string? LakesJson,
     string? RiversJson,
+    string? ClimateJson,
     string SummaryJson);
 
 public sealed record MapGenerationRunSummary(
@@ -69,8 +77,13 @@ public sealed record MapGenerationRunOptionSummary(
     double LakeOutletStrictness,
     bool PreserveRiverCoastline,
     bool AllowRiverCarving,
+    double ClimatePolarLatitudeMargin,
+    double ClimateEquatorTemperatureCelsius,
+    double ClimatePoleCoolingCelsius,
+    double ClimateLapseRateCelsiusPerMeter,
     string TectonicJsonMode,
-    string ElevationJsonMode);
+    string ElevationJsonMode,
+    string ClimateJsonMode);
 
 public sealed record MapGenerationMapSummary(
     double Width,
@@ -89,4 +102,8 @@ public sealed record MapGenerationMapSummary(
     int? RiverCount,
     int? MajorRiverCount,
     int? EndorheicBasinCount,
-    int? DeltaCount);
+    int? DeltaCount,
+    int? ClimateWidth,
+    int? ClimateHeight,
+    double? MinMeanAnnualTemperature,
+    double? MaxMeanAnnualTemperature);

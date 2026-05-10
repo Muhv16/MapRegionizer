@@ -29,16 +29,21 @@ public sealed class MapGenerationRunOptions
     public double MajorRiverCountMultiplier { get; set; } = 1.5;
     public double LongRiverCountMultiplier { get; set; } = 1.3;
     public double TributaryDensity { get; set; } = 3.5;
-    public double MajorRiverTributaryMultiplier { get; set; } = 1000.0;
-    public double LakeOutletInflowForceMultiplier { get; set; } = 1000.0;
+    public double MajorRiverTributaryMultiplier { get; set; } = 10.0;
+    public double LakeOutletInflowForceMultiplier { get; set; } = 10.0;
     public double EndorheicBasinChance { get; set; } = 0.22;
     public double DeltaFrequency { get; set; } = 0.8;
     public double MeanderStrength { get; set; } = 0.65;
     public double LakeOutletStrictness { get; set; } = 0.55;
     public bool PreserveRiverCoastline { get; set; } = true;
     public bool AllowRiverCarving { get; set; } = false;
+    public double ClimatePolarLatitudeMargin { get; set; } = 0.05;
+    public double ClimateEquatorTemperatureCelsius { get; set; } = 28.0;
+    public double ClimatePoleCoolingCelsius { get; set; } = 55.0;
+    public double ClimateLapseRateCelsiusPerMeter { get; set; } = 0.0045;
     public TectonicPlateJsonExportMode TectonicJsonMode { get; set; } = TectonicPlateJsonExportMode.Summary;
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
+    public ClimateJsonExportMode ClimateJsonMode { get; set; } = ClimateJsonExportMode.Summary;
 
     public MapGenerationOptions ToGenerationOptions()
     {
@@ -91,6 +96,13 @@ public sealed class MapGenerationRunOptions
                 LakeOutletStrictness = LakeOutletStrictness,
                 PreserveCoastline = PreserveRiverCoastline,
                 AllowRiverCarving = AllowRiverCarving
+            },
+            Climate = new ClimateGenerationOptions
+            {
+                PolarLatitudeMargin = ClimatePolarLatitudeMargin,
+                EquatorTemperatureCelsius = ClimateEquatorTemperatureCelsius,
+                PoleCoolingCelsius = ClimatePoleCoolingCelsius,
+                LapseRateCelsiusPerMeter = ClimateLapseRateCelsiusPerMeter
             }
         };
     }
@@ -103,7 +115,8 @@ public sealed class MapGenerationRunOptions
             OutputDirectory = OutputDirectory,
             GenerationOptions = ToGenerationOptions(),
             TectonicJsonMode = TectonicJsonMode,
-            ElevationJsonMode = ElevationJsonMode
+            ElevationJsonMode = ElevationJsonMode,
+            ClimateJsonMode = ClimateJsonMode
         };
     }
 }

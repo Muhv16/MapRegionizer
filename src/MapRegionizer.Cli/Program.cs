@@ -39,6 +39,9 @@ static int Run(string[] args)
         if (result.Summary.Map.MinElevationMeters is { } minElevation &&
             result.Summary.Map.MaxElevationMeters is { } maxElevation)
             Console.WriteLine($"Elevation range: {minElevation:F0}..{maxElevation:F0} m");
+        if (result.Summary.Map.MinMeanAnnualTemperature is { } minTemperature &&
+            result.Summary.Map.MaxMeanAnnualTemperature is { } maxTemperature)
+            Console.WriteLine($"Mean annual temperature: {minTemperature:F1}..{maxTemperature:F1} C");
         Console.WriteLine($"Summary: {result.Artifacts.SummaryJson}");
 
         return 0;
@@ -167,11 +170,26 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "allow-river-carving":
                 options.AllowRiverCarving = ParseBool(value, name);
                 break;
+            case "climate-polar-latitude-margin":
+                options.ClimatePolarLatitudeMargin = ParseDouble(value, name);
+                break;
+            case "climate-equator-temperature":
+                options.ClimateEquatorTemperatureCelsius = ParseDouble(value, name);
+                break;
+            case "climate-pole-cooling":
+                options.ClimatePoleCoolingCelsius = ParseDouble(value, name);
+                break;
+            case "climate-lapse-rate":
+                options.ClimateLapseRateCelsiusPerMeter = ParseDouble(value, name);
+                break;
             case "tectonic-json-mode":
                 options.TectonicJsonMode = ParseEnum<TectonicPlateJsonExportMode>(value, name);
                 break;
             case "elevation-json-mode":
                 options.ElevationJsonMode = ParseEnum<ElevationJsonExportMode>(value, name);
+                break;
+            case "climate-json-mode":
+                options.ClimateJsonMode = ParseEnum<ClimateJsonExportMode>(value, name);
                 break;
             default:
                 throw new ArgumentException($"Unknown option: {name}");
@@ -337,6 +355,11 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --lake-outlet-strictness <0..1> Controls how many lakes remain closed. Default: 0.55.");
     Console.WriteLine("  --preserve-river-coastline <bool> Keep hydrology from changing coastline. Default: true.");
     Console.WriteLine("  --allow-river-carving <bool>    Allow future terrain carving. Current default: false.");
+    Console.WriteLine("  --climate-polar-latitude-margin <0..1>  Keeps map edge below exact pole latitude. Default: 0.05.");
+    Console.WriteLine("  --climate-equator-temperature <celsius> Base equator temperature. Default: 28.");
+    Console.WriteLine("  --climate-pole-cooling <celsius> Latitude cooling at poles. Default: 55.");
+    Console.WriteLine("  --climate-lapse-rate <celsius/meter> Temperature loss with height. Default: 0.0045.");
     Console.WriteLine("  --tectonic-json-mode <mode>      Summary, CompactDiagnostic, Diagnostic.");
     Console.WriteLine("  --elevation-json-mode <mode>     Summary, Diagnostic.");
+    Console.WriteLine("  --climate-json-mode <mode>       Summary, Diagnostic.");
 }

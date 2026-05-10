@@ -273,6 +273,8 @@
                                             <CheckBox Content="{Binding L[GenerateSmallLakes]}" IsChecked="{Binding GenerateSmallLakes}"/>
                                             <TextBlock Text="{Binding L[SmallLakeCountMultiplier]}" FontWeight="SemiBold"/>
                                             <NumericUpDown Value="{Binding SmallLakeCountMultiplier}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[SmallLakeScatterMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding SmallLakeScatterMultiplier}" Minimum="0" FormatString="N2"/>
                                             <TextBlock Text="{Binding L[SmallLakeSizeMultiplier]}" FontWeight="SemiBold"/>
                                             <NumericUpDown Value="{Binding SmallLakeSizeMultiplier}" Minimum="0.01" FormatString="N2"/>
                                             <TextBlock Text="{Binding L[RiftInfluence]}" FontWeight="SemiBold"/>
@@ -290,6 +292,52 @@
                                             <ComboBox ItemsSource="{Binding TectonicJsonModes}" SelectedItem="{Binding TectonicJsonMode}"/>
                                             <TextBlock Text="{Binding L[ElevationJson]}" FontWeight="SemiBold"/>
                                             <ComboBox ItemsSource="{Binding ElevationJsonModes}" SelectedItem="{Binding ElevationJsonMode}"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <TabItem Header="{Binding L[Rivers]}">
+                                    <ScrollViewer MaxHeight="460">
+                                        <StackPanel Spacing="8" Margin="0,10,0,0">
+                                            <TextBlock Text="{Binding L[RiverDensity]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding RiverDensity}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[MajorRiverCountMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding MajorRiverCountMultiplier}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[LongRiverCountMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding LongRiverCountMultiplier}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[TributaryDensity]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding TributaryDensity}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[MajorRiverTributaryMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding MajorRiverTributaryMultiplier}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[LakeOutletInflowForceMultiplier]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding LakeOutletInflowForceMultiplier}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[EndorheicBasinChance]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding EndorheicBasinChance}" Minimum="0" Maximum="1" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[DeltaFrequency]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding DeltaFrequency}" Minimum="0" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[MeanderStrength]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding MeanderStrength}" Minimum="0" Maximum="1" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[LakeOutletStrictness]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding LakeOutletStrictness}" Minimum="0" Maximum="1" FormatString="N2"/>
+                                            <CheckBox Content="{Binding L[PreserveRiverCoastline]}" IsChecked="{Binding PreserveRiverCoastline}"/>
+                                            <CheckBox Content="{Binding L[AllowRiverCarving]}" IsChecked="{Binding AllowRiverCarving}"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <TabItem Header="{Binding L[Climate]}">
+                                    <ScrollViewer MaxHeight="460">
+                                        <StackPanel Spacing="8" Margin="0,10,0,0">
+                                            <TextBlock Text="{Binding L[ClimatePolarLatitudeMargin]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding ClimatePolarLatitudeMargin}" Minimum="0" Maximum="0.99" FormatString="N2"/>
+                                            <TextBlock Text="{Binding L[ClimateEquatorTemperature]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding ClimateEquatorTemperatureCelsius}" FormatString="N1"/>
+                                            <TextBlock Text="{Binding L[ClimatePoleCooling]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding ClimatePoleCoolingCelsius}" Minimum="0" FormatString="N1"/>
+                                            <TextBlock Text="{Binding L[ClimateLapseRate]}" FontWeight="SemiBold"/>
+                                            <NumericUpDown Value="{Binding ClimateLapseRateCelsiusPerMeter}" Minimum="0" Increment="0.0001" FormatString="N4"/>
+                                            <TextBlock Text="{Binding L[ClimateJson]}" FontWeight="SemiBold"/>
+                                            <ComboBox ItemsSource="{Binding ClimateJsonModes}" SelectedItem="{Binding ClimateJsonMode}"/>
                                         </StackPanel>
                                     </ScrollViewer>
                                 </TabItem>

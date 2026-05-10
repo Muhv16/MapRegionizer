@@ -96,6 +96,7 @@ public sealed class MainViewModel : ReactiveObject
     private double _smallIslandReliefFactor = 0.55;
     private bool _generateSmallLakes = true;
     private double _smallLakeCountMultiplier = 0.5;
+    private double _smallLakeScatterMultiplier = 0.5;
     private double _smallLakeSizeMultiplier = 0.2;
     private double _riftInfluence = 0.5;
     private bool _preserveMaskCoastline = true;
@@ -103,8 +104,25 @@ public sealed class MainViewModel : ReactiveObject
     private double _minOceanDepthMeters = -7000;
     private double _minLandElevationMeters = 1;
     private double _maxSeaElevationMeters = -1;
+    private double _riverDensity = 10;
+    private double _majorRiverCountMultiplier = 1.5;
+    private double _longRiverCountMultiplier = 1.3;
+    private double _tributaryDensity = 3.5;
+    private double _majorRiverTributaryMultiplier = 10.0;
+    private double _lakeOutletInflowForceMultiplier = 10.0;
+    private double _endorheicBasinChance = 0.22;
+    private double _deltaFrequency = 0.8;
+    private double _meanderStrength = 0.65;
+    private double _lakeOutletStrictness = 0.55;
+    private bool _preserveRiverCoastline = true;
+    private bool _allowRiverCarving;
+    private double _climatePolarLatitudeMargin = 0.05;
+    private double _climateEquatorTemperatureCelsius = 28.0;
+    private double _climatePoleCoolingCelsius = 55.0;
+    private double _climateLapseRateCelsiusPerMeter = 0.0045;
     private TectonicPlateJsonExportMode _tectonicJsonMode = TectonicPlateJsonExportMode.Summary;
     private ElevationJsonExportMode _elevationJsonMode = ElevationJsonExportMode.Summary;
+    private ClimateJsonExportMode _climateJsonMode = ClimateJsonExportMode.Summary;
 
     public MainViewModel()
     {
@@ -138,6 +156,7 @@ public sealed class MainViewModel : ReactiveObject
     public IReadOnlyList<MapProjectionMode> ProjectionModes { get; } = Enum.GetValues<MapProjectionMode>();
     public IReadOnlyList<TectonicPlateJsonExportMode> TectonicJsonModes { get; } = Enum.GetValues<TectonicPlateJsonExportMode>();
     public IReadOnlyList<ElevationJsonExportMode> ElevationJsonModes { get; } = Enum.GetValues<ElevationJsonExportMode>();
+    public IReadOnlyList<ClimateJsonExportMode> ClimateJsonModes { get; } = Enum.GetValues<ClimateJsonExportMode>();
 
     public ObservableCollection<GenerationStageViewModel> Stages { get; } = [];
     public ObservableCollection<GenerationStageViewModel> FutureStages { get; } = [];
@@ -322,6 +341,7 @@ public sealed class MainViewModel : ReactiveObject
     public double SmallIslandReliefFactor { get => _smallIslandReliefFactor; set => SetOption(ref _smallIslandReliefFactor, value, MapDataKeys.BaseTerrain); }
     public bool GenerateSmallLakes { get => _generateSmallLakes; set => SetOption(ref _generateSmallLakes, value, MapDataKeys.GeneratedLakes); }
     public double SmallLakeCountMultiplier { get => _smallLakeCountMultiplier; set => SetOption(ref _smallLakeCountMultiplier, value, MapDataKeys.GeneratedLakes); }
+    public double SmallLakeScatterMultiplier { get => _smallLakeScatterMultiplier; set => SetOption(ref _smallLakeScatterMultiplier, value, MapDataKeys.GeneratedLakes); }
     public double SmallLakeSizeMultiplier { get => _smallLakeSizeMultiplier; set => SetOption(ref _smallLakeSizeMultiplier, value, MapDataKeys.GeneratedLakes); }
     public double RiftInfluence { get => _riftInfluence; set => SetOption(ref _riftInfluence, value, MapDataKeys.BaseTerrain); }
     public bool PreserveMaskCoastline { get => _preserveMaskCoastline; set => SetOption(ref _preserveMaskCoastline, value, MapDataKeys.BaseTerrain); }
@@ -329,8 +349,25 @@ public sealed class MainViewModel : ReactiveObject
     public double MinOceanDepthMeters { get => _minOceanDepthMeters; set => SetOption(ref _minOceanDepthMeters, value, MapDataKeys.BaseTerrain); }
     public double MinLandElevationMeters { get => _minLandElevationMeters; set => SetOption(ref _minLandElevationMeters, value, MapDataKeys.BaseTerrain); }
     public double MaxSeaElevationMeters { get => _maxSeaElevationMeters; set => SetOption(ref _maxSeaElevationMeters, value, MapDataKeys.BaseTerrain); }
+    public double RiverDensity { get => _riverDensity; set => SetOption(ref _riverDensity, value, MapDataKeys.Hydrology); }
+    public double MajorRiverCountMultiplier { get => _majorRiverCountMultiplier; set => SetOption(ref _majorRiverCountMultiplier, value, MapDataKeys.Hydrology); }
+    public double LongRiverCountMultiplier { get => _longRiverCountMultiplier; set => SetOption(ref _longRiverCountMultiplier, value, MapDataKeys.Hydrology); }
+    public double TributaryDensity { get => _tributaryDensity; set => SetOption(ref _tributaryDensity, value, MapDataKeys.Hydrology); }
+    public double MajorRiverTributaryMultiplier { get => _majorRiverTributaryMultiplier; set => SetOption(ref _majorRiverTributaryMultiplier, value, MapDataKeys.Hydrology); }
+    public double LakeOutletInflowForceMultiplier { get => _lakeOutletInflowForceMultiplier; set => SetOption(ref _lakeOutletInflowForceMultiplier, value, MapDataKeys.Hydrology); }
+    public double EndorheicBasinChance { get => _endorheicBasinChance; set => SetOption(ref _endorheicBasinChance, value, MapDataKeys.Hydrology); }
+    public double DeltaFrequency { get => _deltaFrequency; set => SetOption(ref _deltaFrequency, value, MapDataKeys.Hydrology); }
+    public double MeanderStrength { get => _meanderStrength; set => SetOption(ref _meanderStrength, value, MapDataKeys.Hydrology); }
+    public double LakeOutletStrictness { get => _lakeOutletStrictness; set => SetOption(ref _lakeOutletStrictness, value, MapDataKeys.Hydrology); }
+    public bool PreserveRiverCoastline { get => _preserveRiverCoastline; set => SetOption(ref _preserveRiverCoastline, value, MapDataKeys.Hydrology); }
+    public bool AllowRiverCarving { get => _allowRiverCarving; set => SetOption(ref _allowRiverCarving, value, MapDataKeys.Hydrology); }
+    public double ClimatePolarLatitudeMargin { get => _climatePolarLatitudeMargin; set => SetOption(ref _climatePolarLatitudeMargin, value, MapDataKeys.Climate); }
+    public double ClimateEquatorTemperatureCelsius { get => _climateEquatorTemperatureCelsius; set => SetOption(ref _climateEquatorTemperatureCelsius, value, MapDataKeys.Climate); }
+    public double ClimatePoleCoolingCelsius { get => _climatePoleCoolingCelsius; set => SetOption(ref _climatePoleCoolingCelsius, value, MapDataKeys.Climate); }
+    public double ClimateLapseRateCelsiusPerMeter { get => _climateLapseRateCelsiusPerMeter; set => SetOption(ref _climateLapseRateCelsiusPerMeter, value, MapDataKeys.Climate); }
     public TectonicPlateJsonExportMode TectonicJsonMode { get => _tectonicJsonMode; set => SetAndSave(ref _tectonicJsonMode, value); }
     public ElevationJsonExportMode ElevationJsonMode { get => _elevationJsonMode; set => SetAndSave(ref _elevationJsonMode, value); }
+    public ClimateJsonExportMode ClimateJsonMode { get => _climateJsonMode; set => SetAndSave(ref _climateJsonMode, value); }
 
     private async Task BrowseMaskAsync()
     {
@@ -548,7 +585,8 @@ public sealed class MainViewModel : ReactiveObject
                 OutputDirectory,
                 BuildOptions(),
                 TectonicJsonMode,
-                ElevationJsonMode));
+                ElevationJsonMode,
+                ClimateJsonMode));
 
             ArtifactSummary = result.Artifacts.SummaryJson;
             StatusMessage = L["StatusExported"];
@@ -605,9 +643,13 @@ public sealed class MainViewModel : ReactiveObject
                 ReliefScale = 0.85;
                 GenerateSmallLakes = true;
                 SmallLakeCountMultiplier = 0.65;
+                SmallLakeScatterMultiplier = 0.65;
                 SmallLakeSizeMultiplier = 0.85;
+                RiverDensity = 6.0;
+                TributaryDensity = 2.0;
                 TectonicJsonMode = TectonicPlateJsonExportMode.Summary;
                 ElevationJsonMode = ElevationJsonExportMode.Summary;
+                ClimateJsonMode = ClimateJsonExportMode.Summary;
             }
             else if (preset == "detailed")
             {
@@ -619,13 +661,17 @@ public sealed class MainViewModel : ReactiveObject
                 ReliefScale = 1.1;
                 GenerateSmallLakes = true;
                 SmallLakeCountMultiplier = 1.25;
+                SmallLakeScatterMultiplier = 1.0;
                 SmallLakeSizeMultiplier = 1.15;
+                RiverDensity = 12.0;
+                TributaryDensity = 4.5;
             }
             else if (preset == "diagnostic")
             {
                 GenerateSmallLakes = true;
                 TectonicJsonMode = TectonicPlateJsonExportMode.CompactDiagnostic;
                 ElevationJsonMode = ElevationJsonExportMode.Diagnostic;
+                ClimateJsonMode = ClimateJsonExportMode.Diagnostic;
             }
             else
             {
@@ -638,9 +684,13 @@ public sealed class MainViewModel : ReactiveObject
                 SmallIslandReliefFactor = 0.55;
                 GenerateSmallLakes = true;
                 SmallLakeCountMultiplier = 1.0;
+                SmallLakeScatterMultiplier = 0.5;
                 SmallLakeSizeMultiplier = 1.0;
+                RiverDensity = 10.0;
+                TributaryDensity = 3.5;
                 TectonicJsonMode = TectonicPlateJsonExportMode.Summary;
                 ElevationJsonMode = ElevationJsonExportMode.Summary;
+                ClimateJsonMode = ClimateJsonExportMode.Summary;
             }
         }
         finally
@@ -648,7 +698,7 @@ public sealed class MainViewModel : ReactiveObject
             _suppressDirty = false;
         }
 
-        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain, MapDataKeys.GeneratedLakes);
+        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain, MapDataKeys.GeneratedLakes, MapDataKeys.Hydrology, MapDataKeys.Climate);
         SaveSettings();
     }
 
@@ -749,6 +799,7 @@ public sealed class MainViewModel : ReactiveObject
                 SmallIslandReliefFactor = SmallIslandReliefFactor,
                 GenerateSmallLakes = GenerateSmallLakes,
                 SmallLakeCountMultiplier = SmallLakeCountMultiplier,
+                SmallLakeScatterMultiplier = SmallLakeScatterMultiplier,
                 SmallLakeSizeMultiplier = SmallLakeSizeMultiplier,
                 RiftInfluence = RiftInfluence,
                 PreserveMaskCoastline = PreserveMaskCoastline,
@@ -756,6 +807,28 @@ public sealed class MainViewModel : ReactiveObject
                 MinOceanDepthMeters = MinOceanDepthMeters,
                 MinLandElevationMeters = MinLandElevationMeters,
                 MaxSeaElevationMeters = MaxSeaElevationMeters
+            },
+            Hydrology = new HydrologyGenerationOptions
+            {
+                RiverDensity = RiverDensity,
+                MajorRiverCountMultiplier = MajorRiverCountMultiplier,
+                LongRiverCountMultiplier = LongRiverCountMultiplier,
+                TributaryDensity = TributaryDensity,
+                MajorRiverTributaryMultiplier = MajorRiverTributaryMultiplier,
+                LakeOutletInflowForceMultiplier = LakeOutletInflowForceMultiplier,
+                EndorheicBasinChance = EndorheicBasinChance,
+                DeltaFrequency = DeltaFrequency,
+                MeanderStrength = MeanderStrength,
+                LakeOutletStrictness = LakeOutletStrictness,
+                PreserveCoastline = PreserveRiverCoastline,
+                AllowRiverCarving = AllowRiverCarving
+            },
+            Climate = new ClimateGenerationOptions
+            {
+                PolarLatitudeMargin = ClimatePolarLatitudeMargin,
+                EquatorTemperatureCelsius = ClimateEquatorTemperatureCelsius,
+                PoleCoolingCelsius = ClimatePoleCoolingCelsius,
+                LapseRateCelsiusPerMeter = ClimateLapseRateCelsiusPerMeter
             }
         };
     }
@@ -807,6 +880,7 @@ public sealed class MainViewModel : ReactiveObject
             SmallIslandReliefFactor = options.Elevation.SmallIslandReliefFactor;
             GenerateSmallLakes = options.Elevation.GenerateSmallLakes;
             SmallLakeCountMultiplier = options.Elevation.SmallLakeCountMultiplier;
+            SmallLakeScatterMultiplier = options.Elevation.SmallLakeScatterMultiplier;
             SmallLakeSizeMultiplier = options.Elevation.SmallLakeSizeMultiplier;
             RiftInfluence = options.Elevation.RiftInfluence;
             PreserveMaskCoastline = options.Elevation.PreserveMaskCoastline;
@@ -814,6 +888,22 @@ public sealed class MainViewModel : ReactiveObject
             MinOceanDepthMeters = options.Elevation.MinOceanDepthMeters;
             MinLandElevationMeters = options.Elevation.MinLandElevationMeters;
             MaxSeaElevationMeters = options.Elevation.MaxSeaElevationMeters;
+            RiverDensity = options.Hydrology.RiverDensity;
+            MajorRiverCountMultiplier = options.Hydrology.MajorRiverCountMultiplier;
+            LongRiverCountMultiplier = options.Hydrology.LongRiverCountMultiplier;
+            TributaryDensity = options.Hydrology.TributaryDensity;
+            MajorRiverTributaryMultiplier = options.Hydrology.MajorRiverTributaryMultiplier;
+            LakeOutletInflowForceMultiplier = options.Hydrology.LakeOutletInflowForceMultiplier;
+            EndorheicBasinChance = options.Hydrology.EndorheicBasinChance;
+            DeltaFrequency = options.Hydrology.DeltaFrequency;
+            MeanderStrength = options.Hydrology.MeanderStrength;
+            LakeOutletStrictness = options.Hydrology.LakeOutletStrictness;
+            PreserveRiverCoastline = options.Hydrology.PreserveCoastline;
+            AllowRiverCarving = options.Hydrology.AllowRiverCarving;
+            ClimatePolarLatitudeMargin = options.Climate.PolarLatitudeMargin;
+            ClimateEquatorTemperatureCelsius = options.Climate.EquatorTemperatureCelsius;
+            ClimatePoleCoolingCelsius = options.Climate.PoleCoolingCelsius;
+            ClimateLapseRateCelsiusPerMeter = options.Climate.LapseRateCelsiusPerMeter;
         }
         finally
         {
@@ -837,11 +927,11 @@ public sealed class MainViewModel : ReactiveObject
         Stages.Add(CreateStage(MapStageIds.GenerateSmallLakes, "StageGeneratedLakes", MapDataKeys.GeneratedLakes));
         Stages.Add(CreateStage(MapStageIds.GenerateLakeLevels, "StageLakeLevels", MapDataKeys.WaterSurfaces));
         Stages.Add(CreateStage(MapStageIds.GenerateHydrology, "StageHydrology", MapDataKeys.Hydrology));
+        Stages.Add(CreateStage(MapStageIds.GenerateClimate, "StageClimate", MapDataKeys.Climate));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicPlates, "StageTectonicPlates", MapDataKeys.TectonicPlates));
         Stages.Add(CreateStage(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RawRegions));
         Stages.Add(CreateStage(MapStageIds.DistortRegionBoundaries, "StageRegions", MapDataKeys.Regions));
 
-        FutureStages.Add(CreateStage("climate", "Climate", null));
         FutureStages.Add(CreateStage("resources", "Resources", null));
         foreach (var stage in FutureStages)
             stage.Status = GenerationStageStatus.Future;
@@ -868,6 +958,14 @@ public sealed class MainViewModel : ReactiveObject
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationMountain, "LayerElevationMountain", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationBasin, "LayerElevationBasin", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationRivers, "LayerElevationRivers", MapDataKeys.Hydrology, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateBiomes, "LayerClimateBiomes", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateTemperature, "LayerClimateTemperature", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateMoisture, "LayerClimateMoisture", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimatePrecipitation, "LayerClimatePrecipitation", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateSeasonality, "LayerClimateSeasonality", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateHabitability, "LayerClimateHabitability", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateAgriculture, "LayerClimateAgriculture", MapDataKeys.Climate, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ClimateIce, "LayerClimateIce", MapDataKeys.Climate, Localize));
         SelectedPreviewLayer = PreviewLayers[0];
     }
 
@@ -973,6 +1071,12 @@ public sealed class MainViewModel : ReactiveObject
         var waterSurfaceSummary = _workspace.Session.WaterSurfaces is null
             ? string.Empty
             : $"{Environment.NewLine}{L["WaterSurfaces"]}: {_workspace.Session.WaterSurfaces.Bodies.Count}";
+        var riverSummary = _workspace.Session.Hydrology is null
+            ? string.Empty
+            : $"{Environment.NewLine}{L["Rivers"]}: {_workspace.Session.Hydrology.Rivers.Count}";
+        var climateSummary = _workspace.Session.Climate is null
+            ? string.Empty
+            : $"{Environment.NewLine}{L["Climate"]}: {GetTemperatureRange(_workspace.Session.Climate)} C";
         Statistics =
             $"{L["Size"]}: {map.Bounds.Width:0} x {map.Bounds.Height:0}{Environment.NewLine}" +
             $"{L["Landmasses"]}: {map.Landmasses.Count}{Environment.NewLine}" +
@@ -982,7 +1086,9 @@ public sealed class MainViewModel : ReactiveObject
             $"{L["Features"]}: {map.TectonicPlates?.Features?.Features.Count ?? 0}" +
             elevationRange +
             lakeSummary +
-            waterSurfaceSummary;
+            waterSurfaceSummary +
+            riverSummary +
+            climateSummary;
     }
 
     private static string GetElevationRange(MapRegionizer.Core.Domain.ElevationMap elevation)
@@ -1002,6 +1108,23 @@ public sealed class MainViewModel : ReactiveObject
         return $"{min:0}..{max:0}";
     }
 
+    private static string GetTemperatureRange(MapRegionizer.Core.Domain.ClimateMap climate)
+    {
+        var min = double.PositiveInfinity;
+        var max = double.NegativeInfinity;
+        for (var y = 0; y < climate.Height; y++)
+        {
+            for (var x = 0; x < climate.Width; x++)
+            {
+                var value = climate.GetMeanAnnualTemperature(x, y);
+                min = Math.Min(min, value);
+                max = Math.Max(max, value);
+            }
+        }
+
+        return $"{min:0.0}..{max:0.0}";
+    }
+
     private void SelectBestAvailableLayer(MapDataKey key)
     {
         var preferred = key == MapDataKeys.Regions
@@ -1016,6 +1139,8 @@ public sealed class MainViewModel : ReactiveObject
                 ? PreviewLayerKind.ElevationBase
             : key == MapDataKeys.Hydrology
                 ? PreviewLayerKind.ElevationRivers
+            : key == MapDataKeys.Climate
+                ? PreviewLayerKind.ClimateBiomes
             : key == MapDataKeys.Elevation || key == MapDataKeys.WaterSurfaces || key == MapDataKeys.GeneratedLakes
                 ? PreviewLayerKind.Elevation
                 : PreviewLayerKind.Overview;

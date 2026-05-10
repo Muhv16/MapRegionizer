@@ -20,7 +20,15 @@ public enum PreviewLayerKind
     ElevationZones,
     ElevationMountain,
     ElevationBasin,
-    ElevationRivers
+    ElevationRivers,
+    ClimateBiomes,
+    ClimateTemperature,
+    ClimateMoisture,
+    ClimatePrecipitation,
+    ClimateSeasonality,
+    ClimateHabitability,
+    ClimateAgriculture,
+    ClimateIce
 }
 
 public sealed class PreviewLayerViewModel : ReactiveObject
@@ -57,6 +65,19 @@ public sealed class PreviewLayerViewModel : ReactiveObject
         PreviewLayerKind.ElevationZones => ElevationRenderMode.TerrainZones,
         PreviewLayerKind.ElevationMountain => ElevationRenderMode.MountainInfluence,
         PreviewLayerKind.ElevationBasin => ElevationRenderMode.BasinInfluence,
+        _ => null
+    };
+
+    public ClimateRenderMode? ClimateMode => Kind switch
+    {
+        PreviewLayerKind.ClimateBiomes => ClimateRenderMode.Biomes,
+        PreviewLayerKind.ClimateTemperature => ClimateRenderMode.Temperature,
+        PreviewLayerKind.ClimateMoisture => ClimateRenderMode.Moisture,
+        PreviewLayerKind.ClimatePrecipitation => ClimateRenderMode.Precipitation,
+        PreviewLayerKind.ClimateSeasonality => ClimateRenderMode.Seasonality,
+        PreviewLayerKind.ClimateHabitability => ClimateRenderMode.Habitability,
+        PreviewLayerKind.ClimateAgriculture => ClimateRenderMode.Agriculture,
+        PreviewLayerKind.ClimateIce => ClimateRenderMode.Ice,
         _ => null
     };
 

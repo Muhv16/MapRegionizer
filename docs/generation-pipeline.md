@@ -35,6 +35,7 @@ GeneratedLakes
 Elevation
 WaterSurfaces
 Hydrology
+Climate
 TectonicPlates
 RawRegions
 Regions
@@ -66,6 +67,7 @@ ExtractLandmassesStage
  -> GenerateSmallLakesStage
  -> GenerateLakeLevelsStage
  -> GenerateHydrologyStage
+ -> GenerateClimateStage
  -> AssembleTectonicPlateMapStage
  -> GenerateRegionsStage
  -> DistortRegionBoundariesStage
@@ -129,6 +131,10 @@ GenerateLakeLevelsStage
 GenerateHydrologyStage
   requires: Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes
   produces: Hydrology
+
+GenerateClimateStage
+  requires: Elevation, WaterSurfaces, WaterBodyTopology, Hydrology
+  produces: Climate
 
 AssembleTectonicPlateMapStage
   requires: TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures
@@ -206,7 +212,7 @@ This ensures:
 Mask -> Landmasses -> RawRegions -> Regions
 ```
 
-`WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.OrogenProvinces)`, `RunUntil(MapDataKeys.RiftProvinces)`, `RunUntil(MapDataKeys.TectonicFeatures)`, `RunUntil(MapDataKeys.BaseTerrain)`, `RunUntil(MapDataKeys.Elevation)`, `RunUntil(MapDataKeys.WaterSurfaces)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
+`WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.OrogenProvinces)`, `RunUntil(MapDataKeys.RiftProvinces)`, `RunUntil(MapDataKeys.TectonicFeatures)`, `RunUntil(MapDataKeys.BaseTerrain)`, `RunUntil(MapDataKeys.Elevation)`, `RunUntil(MapDataKeys.WaterSurfaces)`, `RunUntil(MapDataKeys.Hydrology)`, `RunUntil(MapDataKeys.Climate)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
 
 ## Regeneration
 
@@ -293,7 +299,7 @@ If the custom stage produces a different key, dependent default stages will not 
 
 ## Future Extension
 
-World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, orogen provinces, rift provinces, derived features, and a compatible assembled `TectonicPlates` view. Base terrain is generated as a standalone pre-hydrology bed-height/bathymetry raster after tectonic feature, orogen-province, rift-province, and water-topology fields. Small generated lakes are selected from that base terrain before lake levels produce final `Elevation` and `WaterSurfaces`; hydrology then produces `Hydrology` from final terrain and lake surfaces. See [tectonics.md](tectonics.md), [elevation.md](elevation.md), and [hydrology.md](hydrology.md) for the current domain models, options, algorithms, exports, and output map legends.
+World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, orogen provinces, rift provinces, derived features, and a compatible assembled `TectonicPlates` view. Base terrain is generated as a standalone pre-hydrology bed-height/bathymetry raster after tectonic feature, orogen-province, rift-province, and water-topology fields. Small generated lakes are selected from that base terrain before lake levels produce final `Elevation` and `WaterSurfaces`; hydrology then produces `Hydrology` from final terrain and lake surfaces; climate then produces temperature, moisture, biome, habitability, agriculture, monsoon, rain-shadow, and ice rasters. See [tectonics.md](tectonics.md), [elevation.md](elevation.md), [hydrology.md](hydrology.md), and [climate.md](climate.md) for the current domain models, options, algorithms, exports, and output map legends.
 
 `WaterSurfaces` now carries both water-level records and inland lake metadata. Inland lake/sea records include location class, origin class, depth profile, maximum depth, centroid, shoreline relief, and tectonic/volcanic influence. Artifact export writes those records to `lakes.json`; raster water levels remain in `Elevation.WaterSurfaceMeters`. `Hydrology` carries hydro surface, D8 flow, accumulation, drainage basin ids, length-aware distributed visible rivers, forced long mainstem candidates, major-river side tributary expansion, guaranteed inland-sea inflows where feasible, lake outlets, and river mouths. Artifact export writes those records to `rivers.json` and `elevation-rivers.png`; river mouths are exported as visible segment endpoints and `DrainageTerminal` records the final ocean, lake, or dry-basin target.
 
@@ -330,7 +336,7 @@ GenerateHydrologyStage
   produces: Hydrology
 
 GenerateClimateStage
-  requires: Elevation, Hydrology
+  requires: Elevation, WaterSurfaces, WaterBodyTopology, Hydrology
   produces: Climate
 ```
 

@@ -25,6 +25,7 @@ public static class MapDataKeys
     public static readonly MapDataKey Elevation = new("elevation");
     public static readonly MapDataKey WaterSurfaces = new("waterSurfaces");
     public static readonly MapDataKey Hydrology = new("hydrology");
+    public static readonly MapDataKey Climate = new("climate");
     public static readonly MapDataKey TectonicPlates = new("tectonicPlates");
 }
 
@@ -46,5 +47,6 @@ public static class MapStageIds
     public const string GenerateSmallLakes = "generateSmallLakes";
     public const string GenerateLakeLevels = "generateLakeLevels";
     public const string GenerateHydrology = "generateHydrology";
+    public const string GenerateClimate = "generateClimate";
     public const string GenerateTectonicPlates = "generateTectonicPlates";
 }

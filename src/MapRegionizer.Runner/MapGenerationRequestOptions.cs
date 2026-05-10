@@ -10,4 +10,5 @@ public sealed class MapGenerationRequestOptions
     public MapGenerationOptions GenerationOptions { get; set; } = new();
     public TectonicPlateJsonExportMode TectonicJsonMode { get; set; } = TectonicPlateJsonExportMode.Summary;
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
+    public ClimateJsonExportMode ClimateJsonMode { get; set; } = ClimateJsonExportMode.Summary;
 }
