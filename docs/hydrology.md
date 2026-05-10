@@ -104,23 +104,28 @@ cost = hydro height
      + deterministic noise
 ```
 
-Small dry depressions can be crossed by a limited logical breach when the uphill cost is low, especially near passes or basin outlets. Large closed basins are preserved as `EndorheicDryBasin` targets instead of being forced to the ocean. Lakes without outlets are terminal drainage targets.
+In low-slope plains, the routing cost also applies a deterministic multi-scale lateral bias and a small straight-axis penalty. Lake and ocean target attraction remains, but is softened in flat terrain so rivers do not always snap into the nearest water cell along long straight runs. Small dry depressions can be crossed by a limited logical breach when the uphill cost is low, especially near passes or basin outlets. Large closed basins are preserved as `EndorheicDryBasin` targets instead of being forced to the ocean. Lakes without outlets are terminal drainage targets unless a shallow non-inland-sea lake receives many significant inflows; in that case a forced outlet is placed on shoreline far from the inflow cluster. `LakeOutletInflowForceMultiplier` scales the inflow-count threshold for this forced outlet.
 
 Local runoff is an heuristic potential field. It is higher at elevation, foothills, passes, moderate roughness, alluvial plains, and basin edges. It is lower on extreme ridges, dry basins, desert plateau candidates, and ocean water. Accumulation is then propagated downstream through the flow graph after cycle breaking.
 
-Visible river cells are selected from accumulation with terrain-dependent thresholds:
+Visible river cells are selected from accumulation with terrain-dependent thresholds and distributed source selection. Instead of turning every above-threshold cell into a source, the stage finds local headwater candidates whose upstream cells are still below the local threshold, scores them by discharge and downstream dry run length, groups them by land component, basin, and coarse map bucket, then selects candidates round-robin across those groups. Candidate selection reserves chosen downstream corridors, so later sources need a short independent run before merging. This keeps one wet mountain range from consuming the whole visible river budget while still letting strong basins produce tributaries and avoiding one-cell outlet stubs as the common case.
 
 - mountains and delta candidates use lower thresholds;
 - ordinary plains use medium thresholds;
 - dry basins and desert plateau candidates use higher thresholds.
 
-Extracted `RiverSegment` records include raw raster cells, a smoothed render polyline, source, mouth, discharge, length, mean slope, target basin, river kind, and mouth kind. River kinds are `Mountain`, `Plain`, `Rift`, `Deltaic`, and `Endorheic`. Mouth kinds are `SimpleMouth`, `Estuary`, `Delta`, `MarshDelta`, and `InlandDelta`.
+After the distributed pass, a forced-long-river pass chooses the best ocean/lake/inland-sea basins by upstream path length and passes those paths into normal river extraction as priority mainstems. Before extraction, large inland seas receive at least one visible inflow of eight or more cells when such a path exists. Major forced mainstems also seed additional side tributaries along their length; confluence points are spaced along the main river, and tributary lengths can range from short four-cell branches to the longest available upstream branch. `LongRiverCountMultiplier` scales the forced-mainstem budget; `MajorRiverTributaryMultiplier` scales the number of guaranteed side tributaries.
+
+Extracted `RiverSegment` records include raw dry-land raster cells, a smoothed render polyline, source, segment mouth, drainage terminal, discharge, length, mean slope, target basin, river kind, and mouth kind. `RiverSegment.Mouth` and `rivers.json.Rivers[].Mouth` are the end of the visible segment: receiving water, dry-basin endpoint, or confluence with an already extracted downstream segment. `DrainageTerminal` records the final ocean/lake/dry-basin target downstream. This keeps tributary polylines ending at confluences instead of drawing over the downstream river to the final ocean mouth. River kinds are `Mountain`, `Plain`, `Rift`, `Deltaic`, and `Endorheic`. Mouth kinds are `SimpleMouth`, `Estuary`, `Delta`, `MarshDelta`, and `InlandDelta`.
 
 Current river options live in `HydrologyGenerationOptions`:
 
-- `RiverDensity`
+- `RiverDensity` (default `10`)
 - `MajorRiverCountMultiplier`
-- `TributaryDensity`
+- `LongRiverCountMultiplier`
+- `TributaryDensity` (default `3.5`)
+- `MajorRiverTributaryMultiplier`
+- `LakeOutletInflowForceMultiplier`
 - `EndorheicBasinChance`
 - `DeltaFrequency`
 - `MeanderStrength`
@@ -136,4 +141,4 @@ Generated artifacts include `lakes.json` when lake-surface data is available. It
 
 Generated artifacts include `rivers.json` when hydrology data is available. It exports summary river statistics, river segments, render polylines, mouths, lake outlets, and drainage basins. The default export keeps JSON compact by omitting full raster cell paths; diagnostic rasters can be added through `RiverJsonExportOptions`.
 
-`elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled.
+`elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled. The renderer samples river polylines into anti-aliased Catmull-Rom-like curves, while preserving wrap breaks so world-edge rivers do not draw across the full image.

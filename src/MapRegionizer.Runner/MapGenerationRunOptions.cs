@@ -25,9 +25,12 @@ public sealed class MapGenerationRunOptions
     public double SmallLakeCountMultiplier { get; set; } = 0.5;
     public double SmallLakeScatterMultiplier { get; set; } = 0.5;
     public double SmallLakeSizeMultiplier { get; set; } = 0.2;
-    public double RiverDensity { get; set; } = 1.0;
-    public double MajorRiverCountMultiplier { get; set; } = 1.0;
-    public double TributaryDensity { get; set; } = 1.0;
+    public double RiverDensity { get; set; } = 10;
+    public double MajorRiverCountMultiplier { get; set; } = 1.5;
+    public double LongRiverCountMultiplier { get; set; } = 1.3;
+    public double TributaryDensity { get; set; } = 3.5;
+    public double MajorRiverTributaryMultiplier { get; set; } = 1000.0;
+    public double LakeOutletInflowForceMultiplier { get; set; } = 1000.0;
     public double EndorheicBasinChance { get; set; } = 0.22;
     public double DeltaFrequency { get; set; } = 0.8;
     public double MeanderStrength { get; set; } = 0.65;
@@ -78,7 +81,10 @@ public sealed class MapGenerationRunOptions
             {
                 RiverDensity = RiverDensity,
                 MajorRiverCountMultiplier = MajorRiverCountMultiplier,
+                LongRiverCountMultiplier = LongRiverCountMultiplier,
                 TributaryDensity = TributaryDensity,
+                MajorRiverTributaryMultiplier = MajorRiverTributaryMultiplier,
+                LakeOutletInflowForceMultiplier = LakeOutletInflowForceMultiplier,
                 EndorheicBasinChance = EndorheicBasinChance,
                 DeltaFrequency = DeltaFrequency,
                 MeanderStrength = MeanderStrength,

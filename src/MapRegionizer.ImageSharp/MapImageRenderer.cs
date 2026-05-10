@@ -264,19 +264,9 @@ public static class MapImageRenderer
             var width = GetRiverWidth(river, options, widthScale);
             image.Mutate(ctx =>
             {
-                for (var index = 1; index < river.Polyline.Count; index++)
-                {
-                    var previous = river.Polyline[index - 1];
-                    var current = river.Polyline[index];
-                    if (Math.Abs(previous.X - current.X) > hydrology.Width / 2.0)
-                        continue;
-
-                    ctx.DrawLine(
-                        color,
-                        width,
-                        ToPixelPoint(previous, pixelSize, options.Scale),
-                        ToPixelPoint(current, pixelSize, options.Scale));
-                }
+                ctx.SetGraphicsOptions(new GraphicsOptions { Antialias = true });
+                foreach (var run in BuildRiverRenderRuns(river.Polyline, hydrology.Width, pixelSize, options.Scale))
+                    ctx.DrawLine(color, width, run);
             });
 
             if (options.DrawDebugMarkers && river.MouthKind is RiverMouthKind.Delta or RiverMouthKind.MarshDelta or RiverMouthKind.InlandDelta)
@@ -351,6 +341,64 @@ public static class MapImageRenderer
     private static PointF ToPixelPoint(MapPoint point, double pixelSize, float scale)
     {
         return new PointF((float)(point.X * pixelSize * scale), (float)(point.Y * pixelSize * scale));
+    }
+
+    private static IReadOnlyList<PointF[]> BuildRiverRenderRuns(IReadOnlyList<MapPoint> polyline, int mapWidth, double pixelSize, float scale)
+    {
+        var runs = new List<PointF[]>();
+        var current = new List<MapPoint>();
+        foreach (var point in polyline)
+        {
+            if (current.Count > 0 && Math.Abs(current[^1].X - point.X) > mapWidth / 2.0)
+            {
+                AddSmoothedRun(current, runs, pixelSize, scale);
+                current.Clear();
+            }
+
+            current.Add(point);
+        }
+
+        AddSmoothedRun(current, runs, pixelSize, scale);
+        return runs;
+    }
+
+    private static void AddSmoothedRun(IReadOnlyList<MapPoint> run, List<PointF[]> runs, double pixelSize, float scale)
+    {
+        if (run.Count < 2)
+            return;
+
+        if (run.Count == 2)
+        {
+            runs.Add(run.Select(p => ToPixelPoint(p, pixelSize, scale)).ToArray());
+            return;
+        }
+
+        var points = new List<PointF> { ToPixelPoint(run[0], pixelSize, scale) };
+        for (var index = 0; index < run.Count - 1; index++)
+        {
+            var p0 = run[Math.Max(0, index - 1)];
+            var p1 = run[index];
+            var p2 = run[index + 1];
+            var p3 = run[Math.Min(run.Count - 1, index + 2)];
+            var distance = Math.Sqrt(Math.Pow(p2.X - p1.X, 2) + Math.Pow(p2.Y - p1.Y, 2));
+            var samples = Math.Clamp((int)Math.Ceiling(distance * pixelSize * scale * 0.55), 3, 8);
+            for (var sample = 1; sample <= samples; sample++)
+            {
+                var t = sample / (double)samples;
+                points.Add(ToPixelPoint(CatmullRom(p0, p1, p2, p3, t), pixelSize, scale));
+            }
+        }
+
+        runs.Add(points.ToArray());
+    }
+
+    private static MapPoint CatmullRom(MapPoint p0, MapPoint p1, MapPoint p2, MapPoint p3, double t)
+    {
+        var t2 = t * t;
+        var t3 = t2 * t;
+        return new MapPoint(
+            0.5 * (2.0 * p1.X + (-p0.X + p2.X) * t + (2.0 * p0.X - 5.0 * p1.X + 4.0 * p2.X - p3.X) * t2 + (-p0.X + 3.0 * p1.X - 3.0 * p2.X + p3.X) * t3),
+            0.5 * (2.0 * p1.Y + (-p0.Y + p2.Y) * t + (2.0 * p0.Y - 5.0 * p1.Y + 4.0 * p2.Y - p3.Y) * t2 + (-p0.Y + 3.0 * p1.Y - 3.0 * p2.Y + p3.Y) * t3));
     }
 
     private static void FillPolygon(Image<Rgba32> image, NtsPolygon polygon, Color color, float scale)

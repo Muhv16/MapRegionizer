@@ -42,7 +42,7 @@ internal sealed class HydrologyGenerator
         BreakCycles(flowDirections, width, height);
         var localRunoff = BuildLocalRunoff(mask, elevation, waterBodyTopology, generatedLakes);
         var accumulation = AccumulateFlow(flowDirections, localRunoff, width, height);
-        if (ForceSmallLakeOutlets(mask, elevation, waterBodyTopology, waterSurfaces, lakeCells, lakeIds, flowDirections, accumulation, outlets, options))
+        if (ForceLakeOutlets(mask, elevation, waterBodyTopology, waterSurfaces, lakeCells, lakeIds, flowDirections, accumulation, outlets, options))
         {
             lakeNext = BuildLakeRouting(width, height, lakeCells, outlets);
             flowDirections = BuildFlowDirections(mask, elevation, waterBodyTopology, generatedLakes, hydroSurface, lakeIds, lakeNext, outlets, options);
@@ -56,8 +56,11 @@ internal sealed class HydrologyGenerator
         var validEndorheicBasins = BuildValidEndorheicBasinSet(basins, elevation);
         var allowedRiverBasins = BuildAllowedRiverBasinSet(basins, validEndorheicBasins);
         var riverCells = SelectRiverCells(mask, elevation, waterBodyTopology, generatedLakes, accumulation, flowDirections, basinIds, allowedRiverBasins, lakeIds, landComponents, options);
+        EnsureInlandSeaInflowRiverCells(mask, waterBodyTopology, waterSurfaces, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells);
+        var forcedLongPaths = BuildForcedLongRiverPaths(mask, waterBodyTopology, flowDirections, accumulation, basinIds, basins, allowedRiverBasins, lakeIds, riverCells, options);
+        AddMajorRiverTributaryCells(mask, waterBodyTopology, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths, options);
         var mouths = new List<RiverMouth>();
-        var rivers = ExtractRivers(mask, elevation, waterBodyTopology, waterSurfaces, flowDirections, accumulation, basinIds, riverCells, lakeIds, landComponents, validEndorheicBasins, options, mouths);
+        var rivers = ExtractRivers(mask, elevation, waterBodyTopology, waterSurfaces, flowDirections, accumulation, basinIds, riverCells, lakeIds, landComponents, validEndorheicBasins, options, mouths, forcedLongPaths);
 
         return new HydrologyMap(
             width,
@@ -266,7 +269,7 @@ internal sealed class HydrologyGenerator
         return result;
     }
 
-    private bool ForceSmallLakeOutlets(
+    private bool ForceLakeOutlets(
         MapMask mask,
         ElevationMap elevation,
         WaterBodyTopology topology,
@@ -288,7 +291,7 @@ internal sealed class HydrologyGenerator
 
         foreach (var body in waterSurfaces.Bodies
                      .Where(b => b.Kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea)
-                     .Where(b => b.CellCount is > 0 and <= 24)
+                     .Where(b => b.CellCount > 0)
                      .OrderBy(b => b.Id.Value))
         {
             if (!lakeCells.TryGetValue(body.Id.Value, out var cells) || cells.Count == 0)
@@ -298,9 +301,17 @@ internal sealed class HydrologyGenerator
             if (inflows.Count == 0)
                 continue;
             var hasExistingOutlet = outletByLake.TryGetValue(body.Id.Value, out var existingIndex) && outlets[existingIndex].HasOutlet;
+            var isSmallLakeOutletFix = body.CellCount <= 24;
+            var isCrowdedShallowLake = ShouldForceCrowdedShallowLakeOutlet(body, inflows.Count, options);
+            if (!isSmallLakeOutletFix && !isCrowdedShallowLake)
+                continue;
+
+            var requiredOutletSeparation = isCrowdedShallowLake
+                ? Math.Max(3, Math.Min(18, (int)Math.Round(Math.Sqrt(body.CellCount) * 0.35)))
+                : 2;
             if (hasExistingOutlet &&
                 outlets[existingIndex].OutletCell is { } existingOutlet &&
-                inflows.All(inflow => ChebyshevDistance(existingOutlet, inflow) >= 2))
+                inflows.All(inflow => ChebyshevDistance(existingOutlet, inflow) >= requiredOutletSeparation))
             {
                 continue;
             }
@@ -324,6 +335,8 @@ internal sealed class HydrologyGenerator
                     var (downstream, downstreamScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell);
                     var breach = Math.Max(0.0, elevation.GetBedElevation(cell) - body.SpillElevationMeters);
                     var separationBonus = Math.Min(8.0, inflows.Min(inflow => ChebyshevDistance(cell, inflow))) * 5.0;
+                    if (isCrowdedShallowLake)
+                        separationBonus += Math.Min(24.0, inflows.Average(inflow => Distance(cell, inflow, width))) * 3.5;
                     var score = elevation.GetBedElevation(cell)
                                 + elevation.GetRidgeContinuity(cell) * 58.0
                                 - elevation.GetBasinInfluence(cell) * 24.0
@@ -351,6 +364,23 @@ internal sealed class HydrologyGenerator
         }
 
         return changed;
+    }
+
+    private static bool ShouldForceCrowdedShallowLakeOutlet(
+        WaterBodySurface body,
+        int inflowCount,
+        HydrologyGenerationOptions options)
+    {
+        if (body.Kind != WaterBodyKind.InlandLake || body.CellCount <= 24)
+            return false;
+
+        var shallowDepthLimit = Math.Clamp(8.0 + Math.Sqrt(body.CellCount) * 0.12, 10.0, 24.0);
+        if (body.MaxDepthMeters > shallowDepthLimit)
+            return false;
+
+        var forceMultiplier = Math.Max(0.05, options.LakeOutletInflowForceMultiplier);
+        var inflowThreshold = Math.Clamp((int)Math.Round((2.0 + Math.Sqrt(body.CellCount) / 18.0) * forceMultiplier), 3, 28);
+        return inflowCount >= inflowThreshold;
     }
 
     private List<GridPoint> FindLakeInflowCells(
@@ -529,6 +559,22 @@ internal sealed class HydrologyGenerator
 
             var terrain = elevation.GetTerrainClass(n);
             var ridgeCrossing = Math.Max(0.0, elevation.GetRidgeContinuity(n) - elevation.GetMountainPassPotential(n) * 0.45);
+            var plainness = terrain is TerrainClassKind.AlluvialPlain or TerrainClassKind.InteriorLowland or TerrainClassKind.CoastalPlain or TerrainClassKind.SedimentaryBasin or TerrainClassKind.DeltaCandidate
+                ? 1.0
+                : terrain == TerrainClassKind.Highland ? 0.35 : 0.15;
+            var lowSlope = Math.Clamp(1.0 - Math.Abs(uphill) / 38.0, 0, 1);
+            var bendX = Hash01(point.X / 13, point.Y / 13, _seed + 7391) * 0.62 +
+                        Hash01(point.X / 29, point.Y / 19, _seed + 7393) * 0.38;
+            var bendY = Hash01(point.X / 17, point.Y / 17, _seed + 7397) * 0.58 +
+                        Hash01(point.X / 23, point.Y / 31, _seed + 7399) * 0.42;
+            var bendLen = Math.Sqrt(bendX * bendX + bendY * bendY);
+            var bendBias = bendLen <= 0.001
+                ? 0.0
+                : -((Directions[direction].Dx * bendX + Directions[direction].Dy * bendY) / bendLen) * plainness * lowSlope * 5.2;
+            var axisPenalty = Directions[direction].Dx == 0 || Directions[direction].Dy == 0
+                ? plainness * lowSlope * 1.15
+                : 0.0;
+            var targetBiasScale = Math.Clamp(1.0 - plainness * lowSlope * 0.48, 0.42, 1.0);
             var cost = neighborHeight
                        + uphill * (uphill > 0 ? 2.8 : 0.18)
                        + elevation.GetRoughness(n) * 16.0
@@ -536,9 +582,11 @@ internal sealed class HydrologyGenerator
                        - elevation.GetMountainPassPotential(n) * 34.0
                        - elevation.GetBasinInfluence(n) * 31.0
                        - TerrainValleyBias(terrain)
-                       - (isLake ? 18.0 : 0.0)
-                       - (isOcean ? 30.0 : 0.0)
+                       - (isLake ? 12.0 * targetBiasScale : 0.0)
+                       - (isOcean ? 22.0 * targetBiasScale : 0.0)
                        + diagonalPenalty
+                       + axisPenalty
+                       + bendBias
                        + HashUnit(n.X, n.Y, _seed + 7321) * 3.5;
 
             if (cost >= bestCost)
@@ -866,8 +914,12 @@ internal sealed class HydrologyGenerator
         if (options.RiverDensity <= 0 || options.TributaryDensity <= 0)
             return riverCells;
 
-        var baseThreshold = Math.Clamp(Math.Sqrt(width * height) * 0.42, 28.0, 155.0) / Math.Max(0.1, options.RiverDensity * options.TributaryDensity);
+        var baseThreshold = Math.Clamp(Math.Sqrt(width * height) * 0.22, 18.0, 96.0) / Math.Max(0.1, options.RiverDensity * options.TributaryDensity);
         var componentThresholds = BuildComponentRiverThresholds(mask, generatedLakes, accumulation, flowDirections, landComponents, baseThreshold);
+        var upstream = BuildUpstreamLists(flowDirections, width, height);
+        var candidates = new List<RiverSourceCandidate>();
+        var bucketSize = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) / 30.0), 14, 44);
+        const int desiredVisibleLength = 6;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -885,12 +937,220 @@ internal sealed class HydrologyGenerator
                     ? localThreshold
                     : baseThreshold;
                 var threshold = Math.Min(baseThreshold, componentThreshold) * TerrainRiverThresholdMultiplier(terrain);
-                if (accumulation[index] >= threshold)
-                    MarkRiverCorridor(index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height);
+                if (accumulation[index] < threshold || !IsDistributedHeadwater(index, upstream, accumulation, threshold, basinIds, lakeIds, mask, topology))
+                    continue;
+
+                var bucketX = x / bucketSize;
+                var bucketY = y / bucketSize;
+                var terrainScore = terrain is TerrainClassKind.Mountain or TerrainClassKind.Highland ? 0.92 : 1.0;
+                var downstreamLength = CountDownstreamDryLength(index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height, maxLength: 48);
+                var lengthFactor = downstreamLength >= desiredVisibleLength
+                    ? Math.Clamp(0.92 + downstreamLength / 28.0, 1.0, 2.25)
+                    : Math.Clamp(0.24 + downstreamLength / (double)desiredVisibleLength * 0.48, 0.24, 0.72);
+                var score = accumulation[index] * terrainScore * lengthFactor * (0.94 + HashUnit(x, y, _seed + 7607) * 0.12);
+                candidates.Add(new RiverSourceCandidate(index, componentId, basinIds[index], bucketX, bucketY, downstreamLength, score));
             }
         }
 
+        if (candidates.Count == 0)
+            return riverCells;
+
+        var selected = SelectDistributedRiverSources(candidates, width, height, flowDirections, lakeIds, mask, topology, options);
+        foreach (var candidate in selected)
+            MarkRiverCorridor(candidate.Index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height);
+
         return riverCells;
+    }
+
+    private static bool IsDistributedHeadwater(
+        int index,
+        List<int>[] upstream,
+        double[] accumulation,
+        double threshold,
+        int[] basinIds,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology)
+    {
+        var width = mask.Width;
+        var basinId = basinIds[index];
+        foreach (var upstreamIndex in upstream[index])
+        {
+            if (lakeIds[upstreamIndex] > 0 || basinIds[upstreamIndex] != basinId)
+                continue;
+
+            var point = new GridPoint(upstreamIndex % width, upstreamIndex / width);
+            if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
+                continue;
+
+            if (accumulation[upstreamIndex] >= threshold * 0.72)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyList<RiverSourceCandidate> SelectDistributedRiverSources(
+        IReadOnlyList<RiverSourceCandidate> candidates,
+        int width,
+        int height,
+        int[] flowDirections,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        HydrologyGenerationOptions options)
+    {
+        var areaRoot = Math.Sqrt(width * height);
+        var maxSources = Math.Clamp((int)Math.Round(areaRoot * 0.44 * Math.Max(0.2, options.RiverDensity) * Math.Max(0.35, options.TributaryDensity)), 24, 960);
+        var minSpacing = Math.Clamp((int)Math.Round(areaRoot / 72.0 / Math.Max(0.72, Math.Sqrt(Math.Max(0.1, options.RiverDensity)))), 6, 22);
+        var selected = new List<RiverSourceCandidate>();
+        var reservedCorridors = new bool[width * height];
+        var selectedByComponent = new Dictionary<int, int>();
+        var selectedByBasin = new Dictionary<int, int>();
+        var selectedByBucket = new Dictionary<RiverSourceGroupKey, int>();
+        var groupsByComponent = candidates
+            .GroupBy(c => c.ComponentId > 0 ? c.ComponentId : -c.BasinId)
+            .OrderByDescending(g => g.Max(c => c.Score))
+            .Select(g => new ComponentRiverSourceQueue(
+                g.Key,
+                g.GroupBy(c => new RiverSourceGroupKey(c.ComponentId, c.BasinId, c.BucketX, c.BucketY))
+                    .SelectMany(bucket => bucket
+                        .OrderByDescending(c => c.DownstreamDryLength >= 6)
+                        .ThenByDescending(c => c.Score)
+                        .Take(3))
+                    .OrderByDescending(c => c.Score)
+                    .ToList()))
+            .Where(g => g.Candidates.Count > 0)
+            .ToList();
+        var componentCap = groupsByComponent.Count <= 1
+            ? maxSources
+            : Math.Clamp(maxSources / Math.Max(2, groupsByComponent.Count / 4), 14, 36);
+        var basinCap = Math.Clamp(maxSources / 6, 12, 42);
+        const int bucketCap = 2;
+
+        var progress = true;
+        while (selected.Count < maxSources && progress)
+        {
+            progress = false;
+            foreach (var group in groupsByComponent)
+            {
+                while (group.NextIndex < group.Candidates.Count)
+                {
+                    var candidate = group.Candidates[group.NextIndex++];
+                    var bucketKey = new RiverSourceGroupKey(candidate.ComponentId, candidate.BasinId, candidate.BucketX, candidate.BucketY);
+                    if (selectedByComponent.GetValueOrDefault(candidate.ComponentId) >= componentCap ||
+                        selectedByBasin.GetValueOrDefault(candidate.BasinId) >= basinCap ||
+                        selectedByBucket.GetValueOrDefault(bucketKey) >= bucketCap)
+                    {
+                        continue;
+                    }
+
+                    if (IsFarEnoughFromSelected(candidate, selected, width, minSpacing) &&
+                        HasEnoughIndependentDownstreamRun(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, desiredLength: 4))
+                    {
+                        selected.Add(candidate);
+                        ReserveDownstreamCorridor(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height);
+                        selectedByComponent[candidate.ComponentId] = selectedByComponent.GetValueOrDefault(candidate.ComponentId) + 1;
+                        selectedByBasin[candidate.BasinId] = selectedByBasin.GetValueOrDefault(candidate.BasinId) + 1;
+                        selectedByBucket[bucketKey] = selectedByBucket.GetValueOrDefault(bucketKey) + 1;
+                        progress = true;
+                        break;
+                    }
+                }
+
+                if (selected.Count >= maxSources)
+                    break;
+            }
+        }
+
+        if (selected.Count == 0)
+        {
+            foreach (var candidate in candidates.OrderByDescending(c => c.Score).Take(maxSources))
+                selected.Add(candidate);
+        }
+
+        return selected;
+    }
+
+    private static bool IsFarEnoughFromSelected(RiverSourceCandidate candidate, IReadOnlyList<RiverSourceCandidate> selected, int width, int minSpacing)
+    {
+        var candidatePoint = new GridPoint(candidate.Index % width, candidate.Index / width);
+        foreach (var other in selected)
+        {
+            if (other.ComponentId != candidate.ComponentId && other.BasinId != candidate.BasinId)
+                continue;
+
+            var otherPoint = new GridPoint(other.Index % width, other.Index / width);
+            var dx = Math.Abs(WrappedDeltaX(candidatePoint.X - otherPoint.X, width));
+            var dy = Math.Abs(candidatePoint.Y - otherPoint.Y);
+            if (Math.Sqrt(dx * dx + dy * dy) < minSpacing)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasEnoughIndependentDownstreamRun(
+        int start,
+        bool[] reservedCorridors,
+        int[] flowDirections,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height,
+        int desiredLength)
+    {
+        var current = start;
+        var length = 0;
+        var seen = new HashSet<int>();
+        while (current >= 0 && current < flowDirections.Length && seen.Add(current))
+        {
+            var point = new GridPoint(current % width, current / width);
+            if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
+                return length >= desiredLength;
+            if (reservedCorridors[current])
+                return length >= desiredLength;
+
+            length++;
+            if (length >= desiredLength)
+                return true;
+
+            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            if (downstream < 0)
+                return length >= desiredLength;
+
+            current = downstream;
+        }
+
+        return length >= desiredLength;
+    }
+
+    private static void ReserveDownstreamCorridor(
+        int start,
+        bool[] reservedCorridors,
+        int[] flowDirections,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height)
+    {
+        var current = start;
+        var seen = new HashSet<int>();
+        while (current >= 0 && current < flowDirections.Length && seen.Add(current))
+        {
+            var point = new GridPoint(current % width, current / width);
+            if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
+                break;
+
+            reservedCorridors[current] = true;
+            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            if (downstream < 0)
+                break;
+
+            current = downstream;
+        }
     }
 
     private static Dictionary<int, double> BuildComponentRiverThresholds(
@@ -931,10 +1191,10 @@ internal sealed class HydrologyGenerator
             values.Sort();
             var percentile = component.CellCount switch
             {
-                < 180 => 0.995,
-                < 750 => 0.988,
-                < 2400 => 0.978,
-                _ => 0.965
+                < 180 => 0.992,
+                < 750 => 0.982,
+                < 2400 => 0.968,
+                _ => 0.942
             };
             var local = PercentileSorted(values, percentile);
             thresholds[component.Id] = Math.Clamp(local, baseThreshold * 0.32, baseThreshold * 1.55);
@@ -982,6 +1242,476 @@ internal sealed class HydrologyGenerator
         }
     }
 
+    private static int CountDownstreamDryLength(
+        int start,
+        int[] flowDirections,
+        byte[] riverCells,
+        int[] basinIds,
+        HashSet<int> allowedRiverBasins,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height,
+        int maxLength)
+    {
+        var current = start;
+        var basinId = basinIds[start];
+        var length = 0;
+        var seen = new HashSet<int>();
+        while (current >= 0 && current < flowDirections.Length && seen.Add(current) && length < maxLength)
+        {
+            var point = new GridPoint(current % width, current / width);
+            if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
+                break;
+
+            length++;
+            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            if (downstream < 0)
+                break;
+
+            var downstreamPoint = new GridPoint(downstream % width, downstream / width);
+            if (!IsRenderableRiverLand(downstreamPoint, mask, topology, lakeIds))
+                break;
+            if (riverCells[downstream] != 0)
+                break;
+            if (basinIds[downstream] != basinId && !allowedRiverBasins.Contains(basinId))
+                break;
+
+            current = downstream;
+        }
+
+        return length;
+    }
+
+    private static void EnsureInlandSeaInflowRiverCells(
+        MapMask mask,
+        WaterBodyTopology topology,
+        WaterSurfaceMap waterSurfaces,
+        int[] flowDirections,
+        double[] accumulation,
+        int[] basinIds,
+        HashSet<int> allowedRiverBasins,
+        int[] lakeIds,
+        byte[] riverCells)
+    {
+        var width = mask.Width;
+        var height = mask.Height;
+        var upstream = BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+
+        foreach (var body in waterSurfaces.Bodies
+                     .Where(b => b.Kind == WaterBodyKind.InlandSea)
+                     .OrderByDescending(b => b.CellCount))
+        {
+            var lakeId = body.Id.Value;
+            if (HasVisibleLakeInflow(lakeId, riverCells, flowDirections, upstream, lakeIds, width, height, minimumLength: 8))
+                continue;
+
+            var bestPath = Enumerable.Range(0, flowDirections.Length)
+                .Where(i => IsLakeInflowMouthCandidate(i, lakeId, flowDirections, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height))
+                .Select(i => BuildLongestUpstreamPath(i, upstream, upstreamDepths, accumulation, lakeIds, mask, topology, width))
+                .Where(path => path.Count >= 8)
+                .OrderByDescending(path => path.Count)
+                .ThenByDescending(path => accumulation[path[0]])
+                .FirstOrDefault();
+
+            if (bestPath is null)
+                continue;
+
+            foreach (var index in bestPath)
+                riverCells[index] = 1;
+        }
+    }
+
+    private static bool HasVisibleLakeInflow(
+        int lakeId,
+        byte[] riverCells,
+        int[] flowDirections,
+        List<int>[] upstream,
+        int[] lakeIds,
+        int width,
+        int height,
+        int minimumLength)
+    {
+        for (var index = 0; index < riverCells.Length; index++)
+        {
+            if (riverCells[index] == 0)
+                continue;
+
+            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            if (downstream < 0 || lakeIds[downstream] != lakeId)
+                continue;
+
+            var stack = new Stack<(int Index, int Length)>();
+            var seen = new HashSet<int>();
+            stack.Push((index, 1));
+            while (stack.Count > 0)
+            {
+                var (current, length) = stack.Pop();
+                if (!seen.Add(current) || riverCells[current] == 0)
+                    continue;
+                if (length >= minimumLength)
+                    return true;
+
+                foreach (var nextUpstream in upstream[current].Where(i => riverCells[i] != 0))
+                    stack.Push((nextUpstream, length + 1));
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsLakeInflowMouthCandidate(
+        int index,
+        int lakeId,
+        int[] flowDirections,
+        int[] basinIds,
+        HashSet<int> allowedRiverBasins,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height)
+    {
+        var point = new GridPoint(index % width, index / width);
+        if (!IsRenderableRiverLand(point, mask, topology, lakeIds) || !allowedRiverBasins.Contains(basinIds[index]))
+            return false;
+
+        var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+        return downstream >= 0 && lakeIds[downstream] == lakeId;
+    }
+
+    private static void AddMajorRiverTributaryCells(
+        MapMask mask,
+        WaterBodyTopology topology,
+        int[] flowDirections,
+        double[] accumulation,
+        int[] basinIds,
+        HashSet<int> allowedRiverBasins,
+        int[] lakeIds,
+        byte[] riverCells,
+        IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths,
+        HydrologyGenerationOptions options)
+    {
+        if (options.MajorRiverTributaryMultiplier <= 0 || forcedLongPaths.Count == 0)
+            return;
+
+        var width = mask.Width;
+        var height = mask.Height;
+        var upstream = BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+
+        foreach (var path in forcedLongPaths.Values.OrderByDescending(p => p.Count))
+        {
+            if (path.Count < 18)
+                continue;
+
+            var mainstem = path.ToHashSet();
+            var reservedMouths = new HashSet<int>();
+            var targetCount = Math.Clamp((int)Math.Round(path.Count / 18.0 * options.MajorRiverTributaryMultiplier), 1, 14);
+            var minAnchorGap = Math.Max(5, path.Count / Math.Max(2, targetCount + 1));
+            var added = 0;
+
+            foreach (var anchor in path
+                         .Skip(Math.Max(4, path.Count / 10))
+                         .Take(Math.Max(0, path.Count - Math.Max(8, path.Count / 5)))
+                         .OrderByDescending(i => upstreamDepths[i])
+                         .ThenByDescending(i => accumulation[i]))
+            {
+                if (added >= targetCount)
+                    break;
+                if (reservedMouths.Any(m => Math.Abs(PathIndexOf(path, m) - PathIndexOf(path, anchor)) < minAnchorGap))
+                    continue;
+
+                var tributaryCandidates = upstream[anchor]
+                    .Where(i => !mainstem.Contains(i))
+                    .Where(i => riverCells[i] == 0 && lakeIds[i] <= 0)
+                    .Where(i => IsRenderableRiverLand(new GridPoint(i % width, i / width), mask, topology, lakeIds))
+                    .Select(i => BuildLongestTributaryPath(i, upstream, upstreamDepths, accumulation, mainstem, riverCells, lakeIds, mask, topology, width))
+                    .Where(p => p.Count >= 4)
+                    .ToList();
+                var tributary = SelectMajorRiverTributaryPath(tributaryCandidates, accumulation, anchor, width);
+
+                if (tributary is null)
+                    continue;
+                if (tributary.Any(index => !allowedRiverBasins.Contains(basinIds[index])))
+                    continue;
+
+                foreach (var index in tributary)
+                    riverCells[index] = 1;
+
+                reservedMouths.Add(anchor);
+                added++;
+            }
+        }
+    }
+
+    private static int PathIndexOf(IReadOnlyList<int> path, int value)
+    {
+        for (var i = 0; i < path.Count; i++)
+        {
+            if (path[i] == value)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static List<int>? SelectMajorRiverTributaryPath(
+        IReadOnlyList<List<int>> candidates,
+        double[] accumulation,
+        int anchor,
+        int width)
+    {
+        if (candidates.Count == 0)
+            return null;
+
+        var maxLength = candidates.Max(p => p.Count);
+        var lengthPreference = HashUnit(anchor % width, anchor / width, 7883);
+        var desiredLength = 4.0 + Math.Pow(lengthPreference, 1.65) * Math.Max(0, maxLength - 4);
+        return candidates
+            .OrderBy(p => Math.Abs(p.Count - desiredLength))
+            .ThenByDescending(p => p.Count >= 8)
+            .ThenByDescending(p => accumulation[p[0]])
+            .First();
+    }
+
+    private static List<int> BuildLongestTributaryPath(
+        int mouthIndex,
+        List<int>[] upstream,
+        int[] upstreamDepths,
+        double[] accumulation,
+        HashSet<int> blockedMainstem,
+        byte[] riverCells,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width)
+    {
+        var path = new List<int>();
+        var current = mouthIndex;
+        var seen = new HashSet<int>();
+        while (current >= 0 && current < upstream.Length && seen.Add(current))
+        {
+            if (blockedMainstem.Contains(current) || lakeIds[current] > 0)
+                break;
+
+            var point = new GridPoint(current % width, current / width);
+            if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
+                break;
+
+            path.Add(current);
+            var next = upstream[current]
+                .Where(i => !blockedMainstem.Contains(i))
+                .Where(i => riverCells[i] == 0 && lakeIds[i] <= 0)
+                .Where(i =>
+                {
+                    var upstreamPoint = new GridPoint(i % width, i / width);
+                    return IsRenderableRiverLand(upstreamPoint, mask, topology, lakeIds);
+                })
+                .OrderByDescending(i => upstreamDepths[i])
+                .ThenByDescending(i => accumulation[i])
+                .FirstOrDefault(-1);
+
+            if (next < 0)
+                break;
+            current = next;
+        }
+
+        return path;
+    }
+
+    private static IReadOnlyDictionary<int, IReadOnlyList<int>> BuildForcedLongRiverPaths(
+        MapMask mask,
+        WaterBodyTopology topology,
+        int[] flowDirections,
+        double[] accumulation,
+        int[] basinIds,
+        IReadOnlyList<DrainageBasin> basins,
+        HashSet<int> allowedRiverBasins,
+        int[] lakeIds,
+        byte[] riverCells,
+        HydrologyGenerationOptions options)
+    {
+        var result = new Dictionary<int, IReadOnlyList<int>>();
+        if (options.LongRiverCountMultiplier <= 0 || options.RiverDensity <= 0)
+            return result;
+
+        var width = mask.Width;
+        var height = mask.Height;
+        var areaRoot = Math.Sqrt(width * height);
+        var targetCount = Math.Clamp((int)Math.Round(areaRoot * 0.018 * options.LongRiverCountMultiplier), 2, 28);
+        var minLength = Math.Clamp((int)Math.Round(areaRoot * 0.032), 24, 82);
+        var upstream = BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        var basinById = basins.ToDictionary(b => b.Id);
+
+        var candidates = Enumerable.Range(0, flowDirections.Length)
+            .Where(i => IsLongRiverMouthCandidate(i, flowDirections, riverCells, basinIds, basinById, allowedRiverBasins, lakeIds, mask, topology, width, height))
+            .Select(i => BuildLongestUpstreamPath(i, upstream, upstreamDepths, accumulation, lakeIds, mask, topology, width))
+            .Where(path => path.Count >= minLength)
+            .Select(path => new LongRiverPath(path, accumulation[path[0]], basinIds[path[0]]))
+            .OrderByDescending(p => p.Path.Count)
+            .ThenByDescending(p => p.Discharge)
+            .ToList();
+
+        var chosenBasinCounts = new Dictionary<int, int>();
+        var chosenMouths = new List<int>();
+        foreach (var candidate in candidates)
+        {
+            var basinCount = chosenBasinCounts.GetValueOrDefault(candidate.BasinId);
+            var perBasinCap = Math.Max(3, targetCount / 3);
+            if (basinCount >= perBasinCap)
+                continue;
+
+            var mouthIndex = candidate.Path[0];
+            var mouthPoint = new GridPoint(mouthIndex % width, mouthIndex / width);
+            if (chosenMouths.Any(i =>
+                {
+                    var point = new GridPoint(i % width, i / width);
+                    return Math.Abs(WrappedDeltaX(point.X - mouthPoint.X, width)) < minLength / 3 &&
+                           Math.Abs(point.Y - mouthPoint.Y) < minLength / 3;
+                }))
+            {
+                continue;
+            }
+
+            result[mouthIndex] = candidate.Path;
+            chosenBasinCounts[candidate.BasinId] = basinCount + 1;
+            chosenMouths.Add(mouthIndex);
+            if (chosenMouths.Count >= targetCount)
+                break;
+        }
+
+        return result;
+    }
+
+    private static int[] BuildLongestUpstreamDepths(
+        int[] flowDirections,
+        List<int>[] upstream,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height)
+    {
+        var depth = new int[flowDirections.Length];
+        var remaining = new int[flowDirections.Length];
+        var queue = new Queue<int>();
+        for (var index = 0; index < flowDirections.Length; index++)
+        {
+            var point = new GridPoint(index % width, index / width);
+            if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
+                continue;
+
+            var validUpstream = 0;
+            foreach (var upstreamIndex in upstream[index])
+            {
+                var upstreamPoint = new GridPoint(upstreamIndex % width, upstreamIndex / width);
+                if (IsRenderableRiverLand(upstreamPoint, mask, topology, lakeIds))
+                    validUpstream++;
+            }
+
+            remaining[index] = validUpstream;
+            if (validUpstream == 0)
+                queue.Enqueue(index);
+            depth[index] = 1;
+        }
+
+        while (queue.Count > 0)
+        {
+            var index = queue.Dequeue();
+            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            if (downstream < 0)
+                continue;
+
+            var downstreamPoint = new GridPoint(downstream % width, downstream / width);
+            if (!IsRenderableRiverLand(downstreamPoint, mask, topology, lakeIds))
+                continue;
+
+            depth[downstream] = Math.Max(depth[downstream], depth[index] + 1);
+            remaining[downstream]--;
+            if (remaining[downstream] == 0)
+                queue.Enqueue(downstream);
+        }
+
+        return depth;
+    }
+
+    private static bool IsLongRiverMouthCandidate(
+        int index,
+        int[] flowDirections,
+        byte[] riverCells,
+        int[] basinIds,
+        Dictionary<int, DrainageBasin> basinById,
+        HashSet<int> allowedRiverBasins,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height)
+    {
+        var point = new GridPoint(index % width, index / width);
+        if (!IsRenderableRiverLand(point, mask, topology, lakeIds) || !allowedRiverBasins.Contains(basinIds[index]))
+            return false;
+        if (!basinById.TryGetValue(basinIds[index], out var basin) ||
+            basin.TargetKind is DrainageTargetKind.EndorheicDryBasin)
+            return false;
+
+        var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+        if (downstream < 0)
+            return false;
+
+        var downstreamPoint = new GridPoint(downstream % width, downstream / width);
+        if (IsWaterTarget(downstreamPoint, mask, topology, lakeIds))
+            return true;
+
+        return riverCells[index] != 0 && riverCells[downstream] == 0;
+    }
+
+    private static List<int> BuildLongestUpstreamPath(
+        int mouthIndex,
+        List<int>[] upstream,
+        int[] upstreamDepths,
+        double[] accumulation,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width)
+    {
+        var path = new List<int>();
+        var current = mouthIndex;
+        var seen = new HashSet<int>();
+        while (current >= 0 && current < upstream.Length && seen.Add(current))
+        {
+            path.Add(current);
+            var next = upstream[current]
+                .Where(i => lakeIds[i] <= 0)
+                .Where(i =>
+                {
+                    var point = new GridPoint(i % width, i / width);
+                    return IsRenderableRiverLand(point, mask, topology, lakeIds);
+                })
+                .OrderByDescending(i => upstreamDepths[i])
+                .ThenByDescending(i => ScoreLongRiverUpstreamStep(i, current, accumulation, width))
+                .FirstOrDefault(-1);
+
+            if (next < 0)
+                break;
+
+            current = next;
+        }
+
+        return path;
+    }
+
+    private static double ScoreLongRiverUpstreamStep(int upstreamIndex, int currentIndex, double[] accumulation, int width)
+    {
+        var sameColumnPenalty = Math.Abs((upstreamIndex % width) - (currentIndex % width)) == 0 ? 0.06 : 0.0;
+        return accumulation[upstreamIndex] + HashUnit(upstreamIndex % width, upstreamIndex / width, 7717) * 0.05 - sameColumnPenalty;
+    }
+
     private List<RiverSegment> ExtractRivers(
         MapMask mask,
         ElevationMap elevation,
@@ -995,11 +1725,13 @@ internal sealed class HydrologyGenerator
         LandComponentMap landComponents,
         HashSet<int> validEndorheicBasins,
         HydrologyGenerationOptions options,
-        List<RiverMouth> mouths)
+        List<RiverMouth> mouths,
+        IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths)
     {
         var width = mask.Width;
         var height = mask.Height;
         var upstream = BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
         var mouthsByTerminal = Enumerable.Range(0, riverCells.Length)
             .Where(i => riverCells[i] != 0)
             .Where(i =>
@@ -1007,14 +1739,20 @@ internal sealed class HydrologyGenerator
                 var downstream = DownstreamIndex(i, flowDirections[i], width, height);
                 return downstream < 0 || riverCells[downstream] == 0;
             })
-            .OrderByDescending(i => accumulation[i])
+            .OrderByDescending(i => upstreamDepths[i])
+            .ThenByDescending(i => accumulation[i])
             .ToList();
         var visited = new bool[riverCells.Length];
         var rivers = new List<RiverSegment>();
-        var maxRivers = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) * 1.35 * Math.Max(0.25, options.MajorRiverCountMultiplier)), 24, 900);
+        var maxRivers = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) * 1.35 *
+                                                    Math.Max(0.25, options.MajorRiverCountMultiplier) *
+                                                    (1.0 + Math.Max(0.0, options.MajorRiverTributaryMultiplier) * 0.35)), 24, 1200);
         var componentCounts = new Dictionary<int, int>();
         var componentById = landComponents.Components.ToDictionary(c => c.Id);
         var nextRiverId = 1;
+
+        foreach (var (mouthIndex, forcedPath) in forcedLongPaths.OrderByDescending(p => p.Value.Count))
+            TryAddRiverFromMouth(mouthIndex, isTributary: false, forcedPath, forceLong: true);
 
         foreach (var mouthIndex in mouthsByTerminal)
             TryAddRiverFromMouth(mouthIndex, isTributary: false);
@@ -1030,7 +1768,8 @@ internal sealed class HydrologyGenerator
                     var downstream = DownstreamIndex(i, flowDirections[i], width, height);
                     return downstream >= 0 && visited[downstream];
                 })
-                .OrderByDescending(i => accumulation[i])
+                .OrderByDescending(i => upstreamDepths[i])
+                .ThenByDescending(i => accumulation[i])
                 .ToList();
 
             foreach (var mouthIndex in tributaryMouths)
@@ -1039,7 +1778,10 @@ internal sealed class HydrologyGenerator
 
         var remainingBranches = Enumerable.Range(0, riverCells.Length)
             .Where(i => riverCells[i] != 0 && !visited[i])
-            .OrderByDescending(i => accumulation[i])
+            .Where(i => HasImmediateRenderableOutlet(i, flowDirections, lakeIds, mask, topology, visited, width, height) ||
+                        upstreamDepths[i] >= 6)
+            .OrderByDescending(i => upstreamDepths[i])
+            .ThenByDescending(i => accumulation[i])
             .ToList();
         foreach (var mouthIndex in remainingBranches)
         {
@@ -1053,20 +1795,26 @@ internal sealed class HydrologyGenerator
             .ThenBy(r => r.Id)
             .ToList();
 
-        bool TryAddRiverFromMouth(int mouthIndex, bool isTributary)
+        bool TryAddRiverFromMouth(int mouthIndex, bool isTributary, IReadOnlyList<int>? forcedPath = null, bool forceLong = false)
         {
             if (rivers.Count >= maxRivers || visited[mouthIndex] && !isTributary)
                 return false;
 
-            var minSourceAccumulation = Math.Max(5.0, accumulation[mouthIndex] * (isTributary ? 0.05 : 0.012));
-            var path = BuildMainstemPath(mouthIndex, upstream, accumulation, visited, riverCells, lakeIds, minSourceAccumulation, width);
+            var minSourceAccumulation = Math.Max(3.0, accumulation[mouthIndex] * (isTributary ? 0.022 : 0.008));
+            var path = forcedPath is null
+                ? BuildMainstemPath(mouthIndex, upstream, upstreamDepths, accumulation, visited, riverCells, lakeIds, minSourceAccumulation, width, preferDepth: true)
+                : forcedPath.Where(i => !visited[i] || i == mouthIndex).ToList();
             if (path.Count == 0)
                 return false;
 
             path.Reverse();
             var cells = path.Select(i => new GridPoint(i % width, i / width)).ToList();
             var source = cells[0];
-            var mouthCell = cells[^1];
+            var dryMouthCell = cells[^1];
+            var segmentOutletIndex = FindSegmentOutletIndex(mouthIndex, flowDirections, lakeIds, mask, topology, visited, width, height);
+            var segmentOutlet = new GridPoint(segmentOutletIndex % width, segmentOutletIndex / width);
+            var segmentEndsInWater = segmentOutletIndex != mouthIndex && IsWaterTarget(segmentOutlet, mask, topology, lakeIds);
+            var segmentEndsInConfluence = segmentOutletIndex != mouthIndex && !segmentEndsInWater;
             var terminalIndex = FindMouthTargetIndex(mouthIndex, flowDirections, riverCells, lakeIds, mask, topology, width, height);
             var terminal = new GridPoint(terminalIndex % width, terminalIndex / width);
             var target = ResolveTarget(terminal, mask, topology, waterSurfaces, lakeIds);
@@ -1074,23 +1822,34 @@ internal sealed class HydrologyGenerator
                 return false;
 
             var minLength = target.Kind == DrainageTargetKind.EndorheicDryBasin ? 18 : 12;
-            if (cells.Count < minLength && !EndsInWater(mouthCell, mask, topology, lakeIds))
+            if (cells.Count < minLength && target.Kind == DrainageTargetKind.EndorheicDryBasin && !EndsInWater(dryMouthCell, mask, topology, lakeIds))
+                return false;
+            if (!forceLong && isTributary && cells.Count < 4 && !segmentEndsInWater)
+                return false;
+            if (!forceLong && cells.Count < 3 && segmentEndsInWater && accumulation[mouthIndex] < 70.0)
+                return false;
+            if (!forceLong && cells.Count < 3 && !segmentEndsInWater && !segmentEndsInConfluence)
+                return false;
+            if (!forceLong && cells.Count <= 2 && Distance(source, segmentOutlet, width) > 2.25)
                 return false;
 
             var componentId = landComponents.ComponentIds[source.Y * width + source.X];
-            if (!CanAddRiverForComponent(componentId, componentById, componentCounts))
+            if (!CanAddRiverForComponent(componentId, componentById, componentCounts, options))
                 return false;
 
             var discharge = accumulation[mouthIndex];
-            var meanSlope = ComputeMeanSlope(elevation, cells);
+            var meanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
             var kind = ClassifyRiver(elevation, cells, target.Kind, discharge, meanSlope);
             var mouthKind = ClassifyMouth(elevation, terminal, target.Kind, discharge, meanSlope, options);
+            var riverMouth = segmentOutlet;
+            GridPoint? renderOutlet = segmentOutletIndex == mouthIndex ? null : segmentOutlet;
             var river = new RiverSegment(
                 nextRiverId++,
                 cells,
-                BuildPolyline(elevation, cells, discharge, meanSlope, options),
+                BuildPolyline(elevation, cells, renderOutlet, discharge, meanSlope, options),
                 source,
-                mouthCell,
+                riverMouth,
+                terminal,
                 componentId <= 0 ? null : componentId,
                 target.Kind,
                 target.TargetId,
@@ -1130,12 +1889,14 @@ internal sealed class HydrologyGenerator
     private static List<int> BuildMainstemPath(
         int mouthIndex,
         List<int>[] upstream,
+        int[] upstreamDepths,
         double[] accumulation,
         bool[] visited,
         byte[] riverCells,
         int[] lakeIds,
         double minSourceAccumulation,
-        int width)
+        int width,
+        bool preferDepth)
     {
         var path = new List<int>();
         var current = mouthIndex;
@@ -1150,7 +1911,8 @@ internal sealed class HydrologyGenerator
                 .Where(i => !visited[i])
                 .Where(i => riverCells[i] != 0 && lakeIds[i] <= 0)
                 .Where(i => accumulation[i] >= minSourceAccumulation)
-                .OrderByDescending(i => accumulation[i])
+                .OrderByDescending(i => preferDepth ? upstreamDepths[i] : accumulation[i])
+                .ThenByDescending(i => preferDepth ? accumulation[i] : upstreamDepths[i])
                 .ThenBy(i => Math.Abs((i % width) - (current % width)))
                 .FirstOrDefault(-1);
             if (next < 0)
@@ -1162,10 +1924,50 @@ internal sealed class HydrologyGenerator
         return path;
     }
 
+    private static bool HasImmediateRenderableOutlet(
+        int mouthIndex,
+        int[] flowDirections,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        bool[] visited,
+        int width,
+        int height)
+    {
+        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], width, height);
+        if (downstream < 0)
+            return true;
+
+        var downstreamPoint = new GridPoint(downstream % width, downstream / width);
+        return IsWaterTarget(downstreamPoint, mask, topology, lakeIds) || visited[downstream];
+    }
+
+    private static int FindSegmentOutletIndex(
+        int mouthIndex,
+        int[] flowDirections,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        bool[] visited,
+        int width,
+        int height)
+    {
+        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], width, height);
+        if (downstream < 0)
+            return mouthIndex;
+
+        var downstreamPoint = new GridPoint(downstream % width, downstream / width);
+        if (IsWaterTarget(downstreamPoint, mask, topology, lakeIds) || visited[downstream])
+            return downstream;
+
+        return mouthIndex;
+    }
+
     private static bool CanAddRiverForComponent(
         int componentId,
         Dictionary<int, LandComponent> componentById,
-        Dictionary<int, int> componentCounts)
+        Dictionary<int, int> componentCounts,
+        HydrologyGenerationOptions options)
     {
         if (componentId <= 0 || !componentById.TryGetValue(componentId, out var component))
             return true;
@@ -1173,11 +1975,12 @@ internal sealed class HydrologyGenerator
         var cap = component.CellCount switch
         {
             < 160 => 0,
-            < 750 => 2,
-            < 2400 => 5,
-            < 9000 => 10,
-            _ => Math.Clamp(12 + component.CellCount / 3000, 14, 24)
+            < 750 => 3,
+            < 2400 => 7,
+            < 9000 => 16,
+            _ => Math.Clamp(18 + component.CellCount / 2200, 22, 42)
         };
+        cap = (int)Math.Round(cap * (1.0 + Math.Max(0.0, options.MajorRiverTributaryMultiplier) * 0.35));
 
         return componentCounts.GetValueOrDefault(componentId) < cap;
     }
@@ -1213,20 +2016,61 @@ internal sealed class HydrologyGenerator
         return meanSlope > 8.0 ? RiverMouthKind.Estuary : RiverMouthKind.SimpleMouth;
     }
 
-    private List<MapPoint> BuildPolyline(ElevationMap elevation, IReadOnlyList<GridPoint> cells, double discharge, double meanSlope, HydrologyGenerationOptions options)
+    private List<MapPoint> BuildPolyline(ElevationMap elevation, IReadOnlyList<GridPoint> cells, GridPoint? terminal, double discharge, double meanSlope, HydrologyGenerationOptions options)
     {
         if (cells.Count == 0)
             return [];
 
-        var step = cells.Count > 80 ? 2 : 1;
         var points = new List<MapPoint>();
-        for (var i = 0; i < cells.Count; i += step)
+        for (var i = 0; i < cells.Count; i++)
+        {
             points.Add(ToMapPoint(elevation, cells, i, discharge, meanSlope, options));
+            if (i < cells.Count - 1)
+            {
+                var bend = ToSegmentBendPoint(elevation, cells, i, discharge, meanSlope, options);
+                if (bend.HasValue)
+                    points.Add(bend.Value);
+            }
+        }
 
-        if (points.Count == 0 || points[^1] != ToMapPoint(elevation, cells, cells.Count - 1, discharge, meanSlope, options))
-            points.Add(ToMapPoint(elevation, cells, cells.Count - 1, discharge, meanSlope, options));
+        if (terminal.HasValue && terminal.Value != cells[^1])
+            points.Add(new MapPoint(terminal.Value.X + 0.5, terminal.Value.Y + 0.5));
 
         return points;
+    }
+
+    private MapPoint? ToSegmentBendPoint(ElevationMap elevation, IReadOnlyList<GridPoint> cells, int index, double discharge, double meanSlope, HydrologyGenerationOptions options)
+    {
+        var current = cells[index];
+        var next = cells[index + 1];
+        var rawDx = next.X - current.X;
+        if (Math.Abs(rawDx) > elevation.Width / 2.0)
+            return null;
+
+        var dx = rawDx;
+        var dy = next.Y - current.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        if (len <= 0.001)
+            return null;
+
+        var terrain = elevation.GetTerrainClass(current);
+        var plain = terrain is TerrainClassKind.AlluvialPlain or TerrainClassKind.InteriorLowland or TerrainClassKind.CoastalPlain or TerrainClassKind.SedimentaryBasin or TerrainClassKind.DeltaCandidate ? 1.0 :
+            terrain is TerrainClassKind.Highland ? 0.45 : 0.28;
+        var slopeFactor = Math.Clamp(1.0 - meanSlope / 30.0, 0.18, 1.0);
+        var dischargeFactor = Math.Clamp(discharge / 260.0, 0.25, 1.0);
+        var cartographicFloor = cells.Count > 24 ? 0.72 : 0.56;
+        var strength = Math.Clamp(cartographicFloor + options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.18, 0.0, 0.86);
+        if (strength <= 0.01)
+            return null;
+
+        var sideX = -dy / len;
+        var sideY = dx / len;
+        var wave = index % 2 == 0 ? 1.0 : -1.0;
+        var noise = wave * (0.82 + HashUnit(current.X, current.Y, _seed + 7487) * 0.18);
+        var t = 0.38;
+        return new MapPoint(
+            current.X + 0.5 + dx * t + sideX * noise * strength,
+            current.Y + 0.5 + dy * t + sideY * noise * strength);
     }
 
     private MapPoint ToMapPoint(ElevationMap elevation, IReadOnlyList<GridPoint> cells, int index, double discharge, double meanSlope, HydrologyGenerationOptions options)
@@ -1241,7 +2085,7 @@ internal sealed class HydrologyGenerator
         var plain = terrain is TerrainClassKind.AlluvialPlain or TerrainClassKind.InteriorLowland or TerrainClassKind.CoastalPlain or TerrainClassKind.SedimentaryBasin or TerrainClassKind.DeltaCandidate ? 1.0 : 0.25;
         var slopeFactor = Math.Clamp(1.0 - meanSlope / 18.0, 0, 1);
         var dischargeFactor = Math.Clamp(discharge / 260.0, 0, 1);
-        var strength = options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.32;
+        var strength = options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.58;
         if (strength <= 0.01)
             return new MapPoint(x, y);
 
@@ -1255,17 +2099,21 @@ internal sealed class HydrologyGenerator
 
         var sideX = -dy / len;
         var sideY = dx / len;
-        var noise = Hash01(cell.X, cell.Y, _seed + 7433);
+        var phase = HashUnit(cells[0].X, cells[0].Y, _seed + 7439) * Math.PI * 2.0;
+        var wave = Math.Sin(index * 0.58 + phase) * 0.72 + Math.Sin(index * 0.23 + phase * 1.7) * 0.28;
+        var noise = Math.Clamp(wave + Hash01(cell.X, cell.Y, _seed + 7433) * 0.22, -1.0, 1.0);
         return new MapPoint(x + sideX * noise * strength, y + sideY * noise * strength);
     }
 
-    private static double ComputeMeanSlope(ElevationMap elevation, IReadOnlyList<GridPoint> cells)
+    private static double ComputeMeanSlope(ElevationMap elevation, IReadOnlyList<GridPoint> cells, GridPoint terminal, DrainageTargetKind targetKind)
     {
         if (cells.Count < 2)
             return 0;
 
         var source = elevation.GetHydrologyHeight(cells[0]);
-        var mouth = elevation.GetHydrologyHeight(cells[^1]);
+        var mouth = targetKind == DrainageTargetKind.Ocean
+            ? 0.0
+            : elevation.GetHydrologyHeight(terminal);
         return Math.Max(0.0, source - mouth) / Math.Max(1, cells.Count - 1);
     }
 
@@ -1419,6 +2267,13 @@ internal sealed class HydrologyGenerator
     private static int ChebyshevDistance(GridPoint a, GridPoint b) =>
         Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
 
+    private static double Distance(GridPoint a, GridPoint b, int width)
+    {
+        var dx = WrappedDeltaX(a.X - b.X, width);
+        var dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
     private static int DownstreamIndex(int index, int direction, int width, int height)
     {
         if (direction < 0 || direction >= Directions.Length || width <= 0)
@@ -1496,6 +2351,19 @@ internal sealed class HydrologyGenerator
     private sealed record LandComponentMap(int[] ComponentIds, IReadOnlyList<LandComponent> Components);
 
     private sealed record LandComponent(int Id, int CellCount);
+
+    private sealed record RiverSourceCandidate(int Index, int ComponentId, int BasinId, int BucketX, int BucketY, int DownstreamDryLength, double Score);
+
+    private sealed record RiverSourceGroupKey(int ComponentId, int BasinId, int BucketX, int BucketY);
+
+    private sealed class ComponentRiverSourceQueue(int id, IReadOnlyList<RiverSourceCandidate> candidates)
+    {
+        public int Id { get; } = id;
+        public IReadOnlyList<RiverSourceCandidate> Candidates { get; } = candidates;
+        public int NextIndex { get; set; }
+    }
+
+    private sealed record LongRiverPath(IReadOnlyList<int> Path, double Discharge, int BasinId);
 
     private sealed class MutableBasin(int id, DrainageTargetKind targetKind, int? targetId, GridPoint terminalCell)
     {

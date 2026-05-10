@@ -230,7 +230,7 @@ The erosion pass blends each cell toward nearby cells on the same land/water sur
 
 `ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes bed elevation, water-surface elevation, base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows. `LakeJsonWriter` writes `lakes.json`, a readable per-lake metadata export with classification, profile, surface, spill, margin, and maximum depth. `RiverJsonWriter` writes `rivers.json`, and `MapImageRenderer.RenderElevationRivers` writes `elevation-rivers.png`.
 
-`MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Inland lake depth now adds a subtle per-lake depth tint normalized against that lake's own maximum depth, so deep lake basins are visible on `elevation-final.png` without making oceans noisy. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
+`MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Inland lake depth now adds a subtle per-lake depth tint normalized against that lake's own maximum depth, so deep lake basins are visible on `elevation-final.png` without making oceans noisy. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes. `elevation-rivers.png` is a presentation overlay: it draws generated dry-cell river paths as anti-aliased smoothed curves and extends visible segments only to their receiving water or confluence. Hydrology uses terrain class, basin influence, roughness, pass potential, and ridge continuity to route denser, less-linear river networks, but it still does not edit `ElevationMap`.
 
 ### `elevation.png`
 
@@ -285,7 +285,7 @@ Debug maps:
 - `elevation-terrain-zones.png`: discrete `TerrainClassKind` colors.
 - `elevation-mountain.png`: ridge continuity, foothills, and pass potential.
 - `elevation-basin.png`: broad basin influence.
-- `elevation-rivers.png`: final elevation with generated rivers. Outlet and mouth markers are debug-only and are not drawn on the default presentation render.
+- `elevation-rivers.png`: final elevation with generated rivers drawn as smoothed presentation curves. Outlet and mouth markers are debug-only and are not drawn on the default presentation render.
 
 ## Known Constraints
 

@@ -326,6 +326,7 @@ public sealed record RiverSegment(
     IReadOnlyList<MapPoint> Polyline,
     GridPoint Source,
     GridPoint Mouth,
+    GridPoint DrainageTerminal,
     int? LandComponentId,
     DrainageTargetKind TargetKind,
     int? TargetId,

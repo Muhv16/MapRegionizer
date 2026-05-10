@@ -100,9 +100,12 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --small-lake-count-multiplier <number>
 --small-lake-scatter-multiplier <number>
 --small-lake-size-multiplier <number>
---river-density <number>
+--river-density <number>                 # default 10
 --major-river-count-multiplier <number>
---tributary-density <number>
+--long-river-count-multiplier <number>
+--tributary-density <number>             # default 3.5
+--major-river-tributary-multiplier <number>
+--lake-outlet-inflow-force-multiplier <number>
 --endorheic-basin-chance <0..1>
 --delta-frequency <number>
 --meander-strength <0..1>
@@ -115,4 +118,4 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 
 The Avalonia client uses the same `MapGenerationRunner`, so CLI checks exercise the same generation and export path as the UI button.
 
-Hydrology adds a post-elevation pass and can make full generation noticeably slower. For smoke tests, verify at minimum that `elevation-rivers.png`, `rivers.json`, and `summary.json` exist and that `summary.json` includes non-null `RiverCount`, `MajorRiverCount`, `EndorheicBasinCount`, and `DeltaCount`.
+Hydrology adds a post-elevation pass and can make full generation noticeably slower. For smoke tests, verify at minimum that `elevation-rivers.png`, `rivers.json`, and `summary.json` exist and that `summary.json` includes non-null `RiverCount`, `MajorRiverCount`, `EndorheicBasinCount`, and `DeltaCount`. For river-routing changes, also inspect `rivers.json`: river polylines should end at `Mouth`, short segments should not jump to a distant final outlet, `DrainageTerminal` should be present for each river, and at least a few rivers should exceed the long-river threshold on normal world-sized masks when `--long-river-count-multiplier` is above `0`. On the `s1.png` seed `42` smoke case, default hydrology should produce a broad network rather than a handful of outlet stubs; a useful check is roughly `60..100` rivers with most lengths at or above `6` cells.
