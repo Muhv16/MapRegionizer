@@ -40,13 +40,14 @@ public sealed class MapGenerationContext
     public GeneratedLakeMap? GeneratedLakes { get; set; }
     public ElevationMap? Elevation { get; set; }
     public WaterSurfaceMap? WaterSurfaces { get; set; }
+    public HydrologyMap? Hydrology { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
     public IReadOnlySet<MapDataKey> AvailableData => _availableData;
     public IReadOnlySet<MapDataKey> DirtyData => _dirtyData;
 
     public RegionId CreateRegionId() => new(_nextRegionId++);
 
-    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces);
+    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology);
 
     public bool Has(MapDataKey key) => _availableData.Contains(key) && !_dirtyData.Contains(key);
 
@@ -108,6 +109,8 @@ public sealed class MapGenerationContext
             Elevation = null;
         else if (key == MapDataKeys.WaterSurfaces)
             WaterSurfaces = null;
+        else if (key == MapDataKeys.Hydrology)
+            Hydrology = null;
         else if (key == MapDataKeys.TectonicPlates)
             TectonicPlates = null;
     }

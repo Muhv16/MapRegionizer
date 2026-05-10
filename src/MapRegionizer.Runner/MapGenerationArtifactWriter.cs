@@ -44,6 +44,7 @@ public static class MapGenerationArtifactWriter
         var hasTectonics = map.TectonicPlates is not null;
         var hasElevation = map.Elevation is not null;
         var hasLakes = map.WaterSurfaces is not null || map.Elevation?.WaterSurfaces is not null;
+        var hasHydrology = map.Hydrology is not null;
 
         return new MapGenerationArtifactPaths(
             ResultImage: Path.Combine(outputDirectory, "result.png"),
@@ -59,12 +60,14 @@ public static class MapGenerationArtifactWriter
             ElevationTerrainZonesImage: hasElevation ? Path.Combine(outputDirectory, "elevation-terrain-zones.png") : null,
             ElevationMountainImage: hasElevation ? Path.Combine(outputDirectory, "elevation-mountain.png") : null,
             ElevationBasinImage: hasElevation ? Path.Combine(outputDirectory, "elevation-basin.png") : null,
+            ElevationRiversImage: hasHydrology ? Path.Combine(outputDirectory, "elevation-rivers.png") : null,
             RegionsGeoJson: Path.Combine(outputDirectory, "regions.geojson"),
             LandmassesGeoJson: Path.Combine(outputDirectory, "landmasses.geojson"),
             WaterBodiesGeoJson: Path.Combine(outputDirectory, "water-bodies.geojson"),
             TectonicPlatesJson: hasTectonics ? Path.Combine(outputDirectory, "tectonic-plates.json") : null,
             ElevationJson: hasElevation ? Path.Combine(outputDirectory, "elevation.json") : null,
             LakesJson: hasLakes ? Path.Combine(outputDirectory, "lakes.json") : null,
+            RiversJson: hasHydrology ? Path.Combine(outputDirectory, "rivers.json") : null,
             SummaryJson: Path.Combine(outputDirectory, "summary.json"));
     }
 
@@ -101,6 +104,12 @@ public static class MapGenerationArtifactWriter
         if (artifacts.LakesJson is not null)
             LakeJsonWriter.WriteToFile(map, artifacts.LakesJson);
 
+        if (artifacts.RiversJson is not null)
+        {
+            MapImageRenderer.RenderElevationRiversToFile(map, artifacts.ElevationRiversImage!);
+            RiverJsonWriter.WriteToFile(map, artifacts.RiversJson);
+        }
+
         GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson);
         GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson);
         GeoJsonMapWriter.WriteWaterBodiesToFile(map, artifacts.WaterBodiesGeoJson);
@@ -116,6 +125,7 @@ public static class MapGenerationArtifactWriter
         ElevationJsonExportMode elevationJsonMode)
     {
         var (minElevation, maxElevation) = GetElevationRange(map.Elevation);
+        var hydrology = map.Hydrology;
 
         return new MapGenerationRunSummary(
             DateTimeOffset.UtcNow,
@@ -139,6 +149,15 @@ public static class MapGenerationArtifactWriter
                 options.Elevation.SmallLakeCountMultiplier,
                 options.Elevation.SmallLakeScatterMultiplier,
                 options.Elevation.SmallLakeSizeMultiplier,
+                options.Hydrology.RiverDensity,
+                options.Hydrology.MajorRiverCountMultiplier,
+                options.Hydrology.TributaryDensity,
+                options.Hydrology.EndorheicBasinChance,
+                options.Hydrology.DeltaFrequency,
+                options.Hydrology.MeanderStrength,
+                options.Hydrology.LakeOutletStrictness,
+                options.Hydrology.PreserveCoastline,
+                options.Hydrology.AllowRiverCarving,
                 tectonicJsonMode.ToString(),
                 elevationJsonMode.ToString()),
             new MapGenerationMapSummary(
@@ -154,7 +173,11 @@ public static class MapGenerationArtifactWriter
                 map.Elevation?.Width,
                 map.Elevation?.Height,
                 minElevation,
-                maxElevation),
+                maxElevation,
+                hydrology?.Rivers.Count,
+                hydrology?.Rivers.Count(r => r.Discharge >= 220.0),
+                hydrology?.Basins.Count(b => b.TargetKind == DrainageTargetKind.EndorheicDryBasin),
+                hydrology?.Mouths.Count(m => m.Kind is RiverMouthKind.Delta or RiverMouthKind.MarshDelta or RiverMouthKind.InlandDelta)),
             artifacts);
     }
 

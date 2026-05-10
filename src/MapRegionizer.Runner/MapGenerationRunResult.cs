@@ -21,12 +21,14 @@ public sealed record MapGenerationArtifactPaths(
     string? ElevationTerrainZonesImage,
     string? ElevationMountainImage,
     string? ElevationBasinImage,
+    string? ElevationRiversImage,
     string RegionsGeoJson,
     string LandmassesGeoJson,
     string WaterBodiesGeoJson,
     string? TectonicPlatesJson,
     string? ElevationJson,
     string? LakesJson,
+    string? RiversJson,
     string SummaryJson);
 
 public sealed record MapGenerationRunSummary(
@@ -55,6 +57,15 @@ public sealed record MapGenerationRunOptionSummary(
     double SmallLakeCountMultiplier,
     double SmallLakeScatterMultiplier,
     double SmallLakeSizeMultiplier,
+    double RiverDensity,
+    double MajorRiverCountMultiplier,
+    double TributaryDensity,
+    double EndorheicBasinChance,
+    double DeltaFrequency,
+    double MeanderStrength,
+    double LakeOutletStrictness,
+    bool PreserveRiverCoastline,
+    bool AllowRiverCarving,
     string TectonicJsonMode,
     string ElevationJsonMode);
 
@@ -71,4 +82,8 @@ public sealed record MapGenerationMapSummary(
     int? ElevationWidth,
     int? ElevationHeight,
     double? MinElevationMeters,
-    double? MaxElevationMeters);
+    double? MaxElevationMeters,
+    int? RiverCount,
+    int? MajorRiverCount,
+    int? EndorheicBasinCount,
+    int? DeltaCount);

@@ -25,6 +25,15 @@ public sealed class MapGenerationRunOptions
     public double SmallLakeCountMultiplier { get; set; } = 0.5;
     public double SmallLakeScatterMultiplier { get; set; } = 0.5;
     public double SmallLakeSizeMultiplier { get; set; } = 0.2;
+    public double RiverDensity { get; set; } = 1.0;
+    public double MajorRiverCountMultiplier { get; set; } = 1.0;
+    public double TributaryDensity { get; set; } = 1.0;
+    public double EndorheicBasinChance { get; set; } = 0.22;
+    public double DeltaFrequency { get; set; } = 0.8;
+    public double MeanderStrength { get; set; } = 0.65;
+    public double LakeOutletStrictness { get; set; } = 0.55;
+    public bool PreserveRiverCoastline { get; set; } = true;
+    public bool AllowRiverCarving { get; set; } = false;
     public TectonicPlateJsonExportMode TectonicJsonMode { get; set; } = TectonicPlateJsonExportMode.Summary;
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
 
@@ -64,6 +73,18 @@ public sealed class MapGenerationRunOptions
                 SmallLakeCountMultiplier = SmallLakeCountMultiplier,
                 SmallLakeScatterMultiplier = SmallLakeScatterMultiplier,
                 SmallLakeSizeMultiplier = SmallLakeSizeMultiplier
+            },
+            Hydrology = new HydrologyGenerationOptions
+            {
+                RiverDensity = RiverDensity,
+                MajorRiverCountMultiplier = MajorRiverCountMultiplier,
+                TributaryDensity = TributaryDensity,
+                EndorheicBasinChance = EndorheicBasinChance,
+                DeltaFrequency = DeltaFrequency,
+                MeanderStrength = MeanderStrength,
+                LakeOutletStrictness = LakeOutletStrictness,
+                PreserveCoastline = PreserveRiverCoastline,
+                AllowRiverCarving = AllowRiverCarving
             }
         };
     }

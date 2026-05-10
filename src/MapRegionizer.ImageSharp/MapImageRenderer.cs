@@ -204,6 +204,30 @@ public static class MapImageRenderer
         return image;
     }
 
+    public static void RenderElevationRiversToFile(GeneratedMap map, string filePath, RiverRenderOptions? options = null)
+    {
+        using var image = RenderElevationRivers(map, options);
+        image.SaveAsPng(filePath);
+    }
+
+    public static Image<Rgba32> RenderElevationRivers(GeneratedMap map, RiverRenderOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        if (map.Hydrology is null)
+            throw new InvalidOperationException("The map does not contain hydrology data.");
+
+        options ??= new RiverRenderOptions();
+        var image = RenderElevation(map, new ElevationRenderOptions
+        {
+            Scale = options.Scale,
+            Mode = ElevationRenderMode.FinalElevation,
+            DrawHillshade = true
+        });
+
+        DrawRivers(image, map.Hydrology, map.Bounds.PixelSize, options);
+        return image;
+    }
+
     public static void RenderElevationDebugToFiles(GeneratedMap map, string outputDirectory, string prefix = "elevation")
     {
         ArgumentNullException.ThrowIfNull(map);
@@ -223,6 +247,110 @@ public static class MapImageRenderer
 
         foreach (var (mode, suffix) in modes)
             RenderElevationToFile(map, System.IO.Path.Combine(outputDirectory, $"{prefix}-{suffix}.png"), new ElevationRenderOptions { Mode = mode });
+
+        if (map.Hydrology is not null)
+            RenderElevationRiversToFile(map, System.IO.Path.Combine(outputDirectory, $"{prefix}-rivers.png"));
+    }
+
+    private static void DrawRivers(Image<Rgba32> image, HydrologyMap hydrology, double pixelSize, RiverRenderOptions options)
+    {
+        var widthScale = BuildRiverWidthScale(hydrology.Rivers, options);
+        foreach (var river in hydrology.Rivers.OrderBy(r => r.Discharge))
+        {
+            if (river.Polyline.Count < 2)
+                continue;
+
+            var color = GetRiverColor(river, options);
+            var width = GetRiverWidth(river, options, widthScale);
+            image.Mutate(ctx =>
+            {
+                for (var index = 1; index < river.Polyline.Count; index++)
+                {
+                    var previous = river.Polyline[index - 1];
+                    var current = river.Polyline[index];
+                    if (Math.Abs(previous.X - current.X) > hydrology.Width / 2.0)
+                        continue;
+
+                    ctx.DrawLine(
+                        color,
+                        width,
+                        ToPixelPoint(previous, pixelSize, options.Scale),
+                        ToPixelPoint(current, pixelSize, options.Scale));
+                }
+            });
+
+            if (options.DrawDebugMarkers && river.MouthKind is RiverMouthKind.Delta or RiverMouthKind.MarshDelta or RiverMouthKind.InlandDelta)
+                DrawMouthMarker(image, river, pixelSize, options);
+        }
+
+        if (options.DrawDebugMarkers)
+        {
+            foreach (var outlet in hydrology.LakeOutlets.Where(o => o.HasOutlet && o.OutletCell.HasValue))
+                DrawPointMarker(image, outlet.OutletCell!.Value, pixelSize, Math.Max(1, (int)Math.Round(options.OutletMarkerRadius)), options.OutletColor, options.Scale);
+        }
+    }
+
+    private static void DrawMouthMarker(Image<Rgba32> image, RiverSegment river, double pixelSize, RiverRenderOptions options)
+    {
+        var radius = Math.Clamp((int)Math.Round(options.MaxRiverWidth + 1.0), 2, 6);
+        var color = river.MouthKind switch
+        {
+            RiverMouthKind.MarshDelta => options.MarshDeltaColor,
+            RiverMouthKind.InlandDelta => options.InlandDeltaColor,
+            _ => options.DeltaColor
+        };
+        DrawPointMarker(image, river.Mouth, pixelSize, radius, color, options.Scale);
+    }
+
+    private static Color GetRiverColor(RiverSegment river, RiverRenderOptions options) => river.Kind switch
+    {
+        RiverKind.Mountain => options.MountainRiverColor,
+        RiverKind.Rift => options.RiftRiverColor,
+        RiverKind.Deltaic => options.DeltaRiverColor,
+        RiverKind.Endorheic => options.EndorheicRiverColor,
+        _ => options.PlainRiverColor
+    };
+
+    private static RiverWidthScale BuildRiverWidthScale(IReadOnlyList<RiverSegment> rivers, RiverRenderOptions options)
+    {
+        if (rivers.Count == 0)
+            return new RiverWidthScale(0, 1);
+
+        var sorted = rivers.Select(r => r.Discharge).Order().ToList();
+        var low = PercentileSorted(sorted, options.WidthLowPercentile);
+        var high = PercentileSorted(sorted, options.WidthHighPercentile);
+        if (high <= low + 0.0001)
+            high = sorted[^1] + 1.0;
+
+        return new RiverWidthScale(low, high);
+    }
+
+    private static float GetRiverWidth(RiverSegment river, RiverRenderOptions options, RiverWidthScale scale)
+    {
+        var normalized = Math.Clamp((river.Discharge - scale.Low) / Math.Max(0.0001, scale.High - scale.Low), 0, 1);
+        normalized = Math.Pow(normalized, options.WidthGamma);
+        return (float)(options.MinRiverWidth + (options.MaxRiverWidth - options.MinRiverWidth) * normalized);
+    }
+
+    private static double PercentileSorted(IReadOnlyList<double> sortedValues, double percentile)
+    {
+        if (sortedValues.Count == 0)
+            return 0;
+        if (sortedValues.Count == 1)
+            return sortedValues[0];
+
+        var position = Math.Clamp(percentile, 0, 1) * (sortedValues.Count - 1);
+        var lower = (int)Math.Floor(position);
+        var upper = (int)Math.Ceiling(position);
+        if (lower == upper)
+            return sortedValues[lower];
+
+        return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * (position - lower);
+    }
+
+    private static PointF ToPixelPoint(MapPoint point, double pixelSize, float scale)
+    {
+        return new PointF((float)(point.X * pixelSize * scale), (float)(point.Y * pixelSize * scale));
     }
 
     private static void FillPolygon(Image<Rgba32> image, NtsPolygon polygon, Color color, float scale)
@@ -1025,6 +1153,29 @@ public sealed class ElevationRenderOptions : TectonicPlateRenderOptions
     public Color MountainColor { get; init; } = Color.FromRgb(126, 118, 111);
     public Color SnowColor { get; init; } = Color.FromRgb(238, 241, 235);
 }
+
+public sealed class RiverRenderOptions
+{
+    public float Scale { get; init; } = 1;
+    public bool DrawDebugMarkers { get; init; }
+    public double MinRiverWidth { get; init; } = 0.35;
+    public double MaxRiverWidth { get; init; } = 3.2;
+    public double WidthLowPercentile { get; init; } = 0.10;
+    public double WidthHighPercentile { get; init; } = 0.98;
+    public double WidthGamma { get; init; } = 1.7;
+    public double OutletMarkerRadius { get; init; } = 1.6;
+    public Color PlainRiverColor { get; init; } = Color.FromRgb(35, 113, 188);
+    public Color MountainRiverColor { get; init; } = Color.FromRgb(90, 183, 220);
+    public Color RiftRiverColor { get; init; } = Color.FromRgb(43, 104, 174);
+    public Color DeltaRiverColor { get; init; } = Color.FromRgb(42, 151, 177);
+    public Color EndorheicRiverColor { get; init; } = Color.FromRgb(58, 137, 163);
+    public Color DeltaColor { get; init; } = Color.FromRgb(61, 180, 166);
+    public Color MarshDeltaColor { get; init; } = Color.FromRgb(72, 170, 126);
+    public Color InlandDeltaColor { get; init; } = Color.FromRgb(85, 150, 142);
+    public Color OutletColor { get; init; } = Color.FromRgba(230, 247, 255, 220);
+}
+
+public readonly record struct RiverWidthScale(double Low, double High);
 
 public enum ElevationRenderMode
 {

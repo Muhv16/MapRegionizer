@@ -46,6 +46,7 @@ public sealed class MapGenerationSession
     public GeneratedLakeMap? GeneratedLakes => _context.GeneratedLakes;
     public ElevationMap? Elevation => _context.Elevation;
     public WaterSurfaceMap? WaterSurfaces => _context.WaterSurfaces;
+    public HydrologyMap? Hydrology => _context.Hydrology;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;
 
     public bool IsAvailable(MapDataKey key) => _context.IsAvailable(key);

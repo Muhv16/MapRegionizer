@@ -836,11 +836,11 @@ public sealed class MainViewModel : ReactiveObject
         Stages.Add(CreateStage(MapStageIds.GenerateElevation, "StageBaseTerrain", MapDataKeys.BaseTerrain));
         Stages.Add(CreateStage(MapStageIds.GenerateSmallLakes, "StageGeneratedLakes", MapDataKeys.GeneratedLakes));
         Stages.Add(CreateStage(MapStageIds.GenerateLakeLevels, "StageLakeLevels", MapDataKeys.WaterSurfaces));
+        Stages.Add(CreateStage(MapStageIds.GenerateHydrology, "StageHydrology", MapDataKeys.Hydrology));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicPlates, "StageTectonicPlates", MapDataKeys.TectonicPlates));
         Stages.Add(CreateStage(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RawRegions));
         Stages.Add(CreateStage(MapStageIds.DistortRegionBoundaries, "StageRegions", MapDataKeys.Regions));
 
-        FutureStages.Add(CreateStage("rivers", "Rivers", null));
         FutureStages.Add(CreateStage("climate", "Climate", null));
         FutureStages.Add(CreateStage("resources", "Resources", null));
         foreach (var stage in FutureStages)
@@ -867,6 +867,7 @@ public sealed class MainViewModel : ReactiveObject
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationZones, "LayerElevationZones", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationMountain, "LayerElevationMountain", MapDataKeys.Elevation, Localize));
         PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationBasin, "LayerElevationBasin", MapDataKeys.Elevation, Localize));
+        PreviewLayers.Add(new PreviewLayerViewModel(PreviewLayerKind.ElevationRivers, "LayerElevationRivers", MapDataKeys.Hydrology, Localize));
         SelectedPreviewLayer = PreviewLayers[0];
     }
 
@@ -1013,6 +1014,8 @@ public sealed class MainViewModel : ReactiveObject
                 ? PreviewLayerKind.TectonicFeatures
             : key == MapDataKeys.BaseTerrain
                 ? PreviewLayerKind.ElevationBase
+            : key == MapDataKeys.Hydrology
+                ? PreviewLayerKind.ElevationRivers
             : key == MapDataKeys.Elevation || key == MapDataKeys.WaterSurfaces || key == MapDataKeys.GeneratedLakes
                 ? PreviewLayerKind.Elevation
                 : PreviewLayerKind.Overview;

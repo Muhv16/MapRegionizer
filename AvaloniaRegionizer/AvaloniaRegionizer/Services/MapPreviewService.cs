@@ -40,7 +40,7 @@ public sealed class MapPreviewService
             PreviewLayerKind.TectonicPlates or PreviewLayerKind.Crust or PreviewLayerKind.TectonicFeatures => localization["LegendTectonics"],
             PreviewLayerKind.Elevation or PreviewLayerKind.ElevationBase or PreviewLayerKind.ElevationTectonic or
                 PreviewLayerKind.ElevationRoughness or PreviewLayerKind.ElevationErosion or PreviewLayerKind.ElevationZones or
-                PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin => localization["LegendElevation"],
+                PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin or PreviewLayerKind.ElevationRivers => localization["LegendElevation"],
             _ => localization["LegendOverview"]
         };
     }
@@ -63,6 +63,7 @@ public sealed class MapPreviewService
                 PreviewLayerKind.ElevationRoughness or PreviewLayerKind.ElevationErosion or PreviewLayerKind.ElevationZones or
                 PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin =>
                 MapImageRenderer.RenderElevation(map, new ElevationRenderOptions { Mode = layer.ElevationMode!.Value }),
+            PreviewLayerKind.ElevationRivers => MapImageRenderer.RenderElevationRivers(map),
             _ => MapImageRenderer.Render(map)
         };
     }

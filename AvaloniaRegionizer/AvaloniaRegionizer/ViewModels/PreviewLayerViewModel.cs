@@ -19,7 +19,8 @@ public enum PreviewLayerKind
     ElevationErosion,
     ElevationZones,
     ElevationMountain,
-    ElevationBasin
+    ElevationBasin,
+    ElevationRivers
 }
 
 public sealed class PreviewLayerViewModel : ReactiveObject

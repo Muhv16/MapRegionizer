@@ -1,6 +1,6 @@
 # Hydrology
 
-This document records hydrology-facing terrain semantics. The current implementation covers water-body classification, generated small lakes, lake levels, lake origin/profile metadata, and lake-bed shaping; river routing and full hydro-surface generation remain future stages.
+This document records hydrology-facing terrain semantics. The current implementation covers water-body classification, generated small lakes, lake levels, lake origin/profile metadata, lake-bed shaping, hydro-surface generation, river routing, drainage basins, river mouths, and river exports.
 
 ## Elevation Concepts
 
@@ -8,9 +8,9 @@ Terrain generation separates three related concepts:
 
 - `BedElevationMeters`: ground elevation. On land this is the exposed land surface; under water this is the lake or sea floor.
 - `WaterSurfaceMeters`: water level. Ocean water uses `0`, ocean-sea water uses a value below `0`, and inland lakes/seas use a value above `0`.
-- `HydroSurfaceMeters`: future routing surface for moving water. It should be `BedElevationMeters` on land, `0` on ocean cells, and `WaterSurfaceMeters` on lake cells.
+- `HydroSurfaceMeters`: generated routing surface for moving water. It is `BedElevationMeters` on land, `0` on ocean/ocean-sea cells, and `WaterSurfaceMeters` on inland lake/sea cells.
 
-`HydroSurfaceMeters` is not generated yet. Future river stages should route over this hydro surface instead of inferring flow from rendered relief colors.
+`HydroSurfaceMeters` is stored in `HydrologyMap`, not in `ElevationMap`, so river routing can use lake surfaces without changing the terrain/bed model.
 
 ## Water Body Classes
 
@@ -78,8 +78,62 @@ AllowLakeExpansion = false
 AllowLakeDrainage = false
 ```
 
-`AllowLakeExpansion` and `AllowLakeDrainage` are options for later hydrology work. The current implementation keeps the mask stable and fixes small shoreline inconsistencies by lifting the rim.
+`AllowLakeExpansion` and `AllowLakeDrainage` remain reserved for later lake-mask edits. The current implementation keeps the mask stable and fixes small shoreline inconsistencies by lifting the rim.
+
+## Rivers
+
+`GenerateHydrologyStage` runs after `GenerateLakeLevelsStage` and produces `HydrologyMap`. It depends on final `Elevation`, `WaterSurfaces`, `WaterBodyTopology`, and generated lake footprints.
+
+The stage first builds `HydroSurfaceMeters`:
+
+```text
+land: BedElevationMeters
+ocean / ocean sea: 0
+inland lake / inland sea / generated lake: WaterSurfaceMeters
+```
+
+It then selects lake outlets. Each inland lake or inland sea gets a shoreline candidate list, scored by shoreline height, local outward route cost, ridge/roughness penalties, basin/pass biases, lake origin, lake size, and deterministic noise. Tectonic, glacial, and erosional lakes are more likely to drain; volcanic/karst lakes and dry-basin plain lakes are more likely to remain endorheic. Large lakes may receive many incoming rivers but still expose one main outlet.
+
+Flow routing uses D8 with a cost model rather than pure steepest descent:
+
+```text
+cost = hydro height
+     + uphill / roughness / ridge penalties
+     - mountain-pass / basin / valley biases
+     - lake/ocean target bias
+     + deterministic noise
+```
+
+Small dry depressions can be crossed by a limited logical breach when the uphill cost is low, especially near passes or basin outlets. Large closed basins are preserved as `EndorheicDryBasin` targets instead of being forced to the ocean. Lakes without outlets are terminal drainage targets.
+
+Local runoff is an heuristic potential field. It is higher at elevation, foothills, passes, moderate roughness, alluvial plains, and basin edges. It is lower on extreme ridges, dry basins, desert plateau candidates, and ocean water. Accumulation is then propagated downstream through the flow graph after cycle breaking.
+
+Visible river cells are selected from accumulation with terrain-dependent thresholds:
+
+- mountains and delta candidates use lower thresholds;
+- ordinary plains use medium thresholds;
+- dry basins and desert plateau candidates use higher thresholds.
+
+Extracted `RiverSegment` records include raw raster cells, a smoothed render polyline, source, mouth, discharge, length, mean slope, target basin, river kind, and mouth kind. River kinds are `Mountain`, `Plain`, `Rift`, `Deltaic`, and `Endorheic`. Mouth kinds are `SimpleMouth`, `Estuary`, `Delta`, `MarshDelta`, and `InlandDelta`.
+
+Current river options live in `HydrologyGenerationOptions`:
+
+- `RiverDensity`
+- `MajorRiverCountMultiplier`
+- `TributaryDensity`
+- `EndorheicBasinChance`
+- `DeltaFrequency`
+- `MeanderStrength`
+- `LakeOutletStrictness`
+- `PreserveCoastline`
+- `AllowRiverCarving`
+
+`AllowRiverCarving` defaults to `false`; the current stage may route through a low-cost breach logically, but it does not edit `ElevationMap`, `MapMask`, landmasses, regions, or coastlines.
 
 ## Lake Export
 
-Generated artifacts include `lakes.json` when lake-surface data is available. It exports one record per inland lake or inland sea with surface elevation, spill elevation, margin, maximum depth, shoreline metrics, classification, and profile metadata. Raster water levels remain in `ElevationMap.WaterSurfaceMeters`; future routing should still use the eventual `HydroSurfaceMeters` field rather than `lakes.json`.
+Generated artifacts include `lakes.json` when lake-surface data is available. It exports one record per inland lake or inland sea with surface elevation, spill elevation, margin, maximum depth, shoreline metrics, classification, and profile metadata.
+
+Generated artifacts include `rivers.json` when hydrology data is available. It exports summary river statistics, river segments, render polylines, mouths, lake outlets, and drainage basins. The default export keeps JSON compact by omitting full raster cell paths; diagnostic rasters can be added through `RiverJsonExportOptions`.
+
+`elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled.

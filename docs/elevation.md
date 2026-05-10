@@ -22,9 +22,10 @@ Mask
  -> GeneratedLakes
  -> Elevation
  -> WaterSurfaces
+ -> Hydrology
 ```
 
-`BaseTerrain` is the pre-hydrology terrain raster. `GenerateSmallLakesStage` can add small terrain-derived lake cells on top of this raster without changing the source mask, landmasses, or regions. `GenerateLakeLevelsStage` then turns base terrain plus user and generated lakes into final `Elevation` by applying local water surfaces, shoreline rim fixes, and lake-bed shaping. Final `Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. Future river and climate stages should depend on final terrain and water-surface data, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level semantics and future `HydroSurfaceMeters`.
+`BaseTerrain` is the pre-hydrology terrain raster. `GenerateSmallLakesStage` can add small terrain-derived lake cells on top of this raster without changing the source mask, landmasses, or regions. `GenerateLakeLevelsStage` then turns base terrain plus user and generated lakes into final `Elevation` by applying local water surfaces, shoreline rim fixes, and lake-bed shaping. Final `Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. `GenerateHydrologyStage` then builds a separate `HydrologyMap` with `HydroSurfaceMeters`, flow routing, drainage basins, and visible rivers. River and climate stages should depend on final terrain, water-surface data, and hydrology rasters, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level and river-routing semantics.
 
 ## Domain Model
 
@@ -36,6 +37,7 @@ Main field:
 - `BedElevationMeters`: explicit ground elevation. This currently matches `ElevationMeters` and exists so future hydrology does not have to infer whether a water cell stores bed or surface.
 - `WaterSurfaceMeters`: water level for water cells. Ocean is `0`, `OceanSea` is below `0`, and inland lakes/seas are above `0`. Land cells have no water surface.
 - `WaterSurfaces`: per-water-body surface records. Inland lake/sea records include lake location, origin, profile, depth, centroid, shoreline relief, and tectonic/volcanic influence metadata.
+- `HydrologyMap.HydroSurfaceMeters`: post-lake routing surface. It uses bed elevation on land, `0` for oceanic water, and water surface elevation for inland lakes and seas. It is intentionally outside `ElevationMap`.
 
 Diagnostic fields:
 
@@ -226,7 +228,7 @@ The erosion pass blends each cell toward nearby cells on the same land/water sur
 
 ## Exports and Rendering
 
-`ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes bed elevation, water-surface elevation, base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows. `LakeJsonWriter` writes `lakes.json`, a readable per-lake metadata export with classification, profile, surface, spill, margin, and maximum depth.
+`ElevationJsonWriter` writes compact run-length encoded rows. Summary export includes final elevation rows, derived zone rows, and terrain-class rows. Diagnostic export also includes bed elevation, water-surface elevation, base elevation, tectonic elevation, roughness, erosion mask, mountain-pass potential, ridge continuity, foothill influence, and basin influence rows. `LakeJsonWriter` writes `lakes.json`, a readable per-lake metadata export with classification, profile, surface, spill, margin, and maximum depth. `RiverJsonWriter` writes `rivers.json`, and `MapImageRenderer.RenderElevationRivers` writes `elevation-rivers.png`.
 
 `MapImageRenderer.RenderElevation` renders a hypsometric PNG with optional hillshade. Ocean hillshade is intentionally weaker than land hillshade so underwater tectonic structure stays readable but does not dominate the map. Inland lake depth now adds a subtle per-lake depth tint normalized against that lake's own maximum depth, so deep lake basins are visible on `elevation-final.png` without making oceans noisy. Final land color blends the derived terrain class with a continuous elevation gradient; this preserves terrain identity while preventing hard class borders from drawing artificial uplift stripes. `ElevationRenderOptions.Mode` can switch the renderer to diagnostic modes.
 
@@ -265,8 +267,10 @@ elevation-erosion.png
 elevation-terrain-zones.png
 elevation-mountain.png
 elevation-basin.png
+elevation-rivers.png
 elevation.json
 lakes.json
+rivers.json
 ```
 
 next to the existing region, tectonic, crust, and feature outputs.
@@ -281,10 +285,11 @@ Debug maps:
 - `elevation-terrain-zones.png`: discrete `TerrainClassKind` colors.
 - `elevation-mountain.png`: ridge continuity, foothills, and pass potential.
 - `elevation-basin.png`: broad basin influence.
+- `elevation-rivers.png`: final elevation with generated rivers. Outlet and mouth markers are debug-only and are not drawn on the default presentation render.
 
 ## Known Constraints
 
-- This is not hydraulic erosion. River carving should be added in a future `Rivers` stage.
+- This is not hydraulic erosion. River carving remains disabled by default in the current `Hydrology` stage.
 - Elevation preserves the mask by default, so generated terrain will not create new seas or land bridges.
 - Below-zero water is no longer synonymous with all water. Only oceanic water is globally constrained below sea level; inland lakes and seas use local positive water surfaces.
 - Diagnostic fields are generation aids. Climate and river stages should primarily use final elevation plus selected tectonic fields where needed.

@@ -27,16 +27,18 @@ elevation-erosion.png
 elevation-terrain-zones.png
 elevation-mountain.png
 elevation-basin.png
+elevation-rivers.png
 regions.geojson
 landmasses.geojson
 water-bodies.geojson
 tectonic-plates.json
 elevation.json
 lakes.json
+rivers.json
 summary.json
 ```
 
-`lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `summary.json` records the input mask, generation options, output paths, entity counts, and elevation range. Prefer setting `--seed` for agent checks so repeated runs are comparable.
+`lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `rivers.json` records river summaries, visible river segments, lake outlets, mouths, and drainage basins. `summary.json` records the input mask, generation options, output paths, entity counts, elevation range, and river statistics. Prefer setting `--seed` for agent checks so repeated runs are comparable.
 
 ## Build Notes For Agents
 
@@ -98,8 +100,19 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --small-lake-count-multiplier <number>
 --small-lake-scatter-multiplier <number>
 --small-lake-size-multiplier <number>
+--river-density <number>
+--major-river-count-multiplier <number>
+--tributary-density <number>
+--endorheic-basin-chance <0..1>
+--delta-frequency <number>
+--meander-strength <0..1>
+--lake-outlet-strictness <0..1>
+--preserve-river-coastline <bool>
+--allow-river-carving <bool>
 --tectonic-json-mode Summary|CompactDiagnostic|Diagnostic
 --elevation-json-mode Summary|Diagnostic
 ```
 
 The Avalonia client uses the same `MapGenerationRunner`, so CLI checks exercise the same generation and export path as the UI button.
+
+Hydrology adds a post-elevation pass and can make full generation noticeably slower. For smoke tests, verify at minimum that `elevation-rivers.png`, `rivers.json`, and `summary.json` exist and that `summary.json` includes non-null `RiverCount`, `MajorRiverCount`, `EndorheicBasinCount`, and `DeltaCount`.

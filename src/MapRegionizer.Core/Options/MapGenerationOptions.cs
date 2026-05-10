@@ -11,6 +11,7 @@ public sealed class MapGenerationOptions
     public MapProjectionMode ProjectionMode { get; init; } = MapProjectionMode.EquirectangularWorld;
     public TectonicPlateGenerationOptions TectonicPlates { get; init; } = new();
     public ElevationGenerationOptions Elevation { get; init; } = new();
+    public HydrologyGenerationOptions Hydrology { get; init; } = new();
 
     public void Validate()
     {
@@ -21,6 +22,7 @@ public sealed class MapGenerationOptions
         Boundaries.Validate();
         TectonicPlates.Validate();
         Elevation.Validate();
+        Hydrology.Validate();
     }
 }
 
@@ -212,5 +214,29 @@ public sealed class ElevationGenerationOptions
         if (MaxSeaElevationMeters > 0) throw new ArgumentOutOfRangeException(nameof(MaxSeaElevationMeters), "Maximum sea elevation cannot be above zero.");
         if (MinLandElevationMeters > MaxElevationMeters) throw new ArgumentOutOfRangeException(nameof(MinLandElevationMeters), "Minimum land elevation cannot exceed maximum elevation.");
         if (MaxSeaElevationMeters < MinOceanDepthMeters) throw new ArgumentOutOfRangeException(nameof(MaxSeaElevationMeters), "Maximum sea elevation cannot be below minimum ocean depth.");
+    }
+}
+
+public sealed class HydrologyGenerationOptions
+{
+    public double RiverDensity { get; init; } = 1.0;
+    public double MajorRiverCountMultiplier { get; init; } = 1.0;
+    public double TributaryDensity { get; init; } = 1.0;
+    public double EndorheicBasinChance { get; init; } = 0.22;
+    public double DeltaFrequency { get; init; } = 0.8;
+    public double MeanderStrength { get; init; } = 0.65;
+    public double LakeOutletStrictness { get; init; } = 0.55;
+    public bool PreserveCoastline { get; init; } = true;
+    public bool AllowRiverCarving { get; init; } = false;
+
+    public void Validate()
+    {
+        if (RiverDensity < 0) throw new ArgumentOutOfRangeException(nameof(RiverDensity), "River density cannot be negative.");
+        if (MajorRiverCountMultiplier < 0) throw new ArgumentOutOfRangeException(nameof(MajorRiverCountMultiplier), "Major river count multiplier cannot be negative.");
+        if (TributaryDensity < 0) throw new ArgumentOutOfRangeException(nameof(TributaryDensity), "Tributary density cannot be negative.");
+        if (EndorheicBasinChance < 0 || EndorheicBasinChance > 1) throw new ArgumentOutOfRangeException(nameof(EndorheicBasinChance), "Endorheic basin chance must be in [0, 1].");
+        if (DeltaFrequency < 0) throw new ArgumentOutOfRangeException(nameof(DeltaFrequency), "Delta frequency cannot be negative.");
+        if (MeanderStrength < 0 || MeanderStrength > 1) throw new ArgumentOutOfRangeException(nameof(MeanderStrength), "Meander strength must be in [0, 1].");
+        if (LakeOutletStrictness < 0 || LakeOutletStrictness > 1) throw new ArgumentOutOfRangeException(nameof(LakeOutletStrictness), "Lake outlet strictness must be in [0, 1].");
     }
 }

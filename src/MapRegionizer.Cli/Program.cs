@@ -131,6 +131,33 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "small-lake-size-multiplier":
                 options.SmallLakeSizeMultiplier = ParseDouble(value, name);
                 break;
+            case "river-density":
+                options.RiverDensity = ParseDouble(value, name);
+                break;
+            case "major-river-count-multiplier":
+                options.MajorRiverCountMultiplier = ParseDouble(value, name);
+                break;
+            case "tributary-density":
+                options.TributaryDensity = ParseDouble(value, name);
+                break;
+            case "endorheic-basin-chance":
+                options.EndorheicBasinChance = ParseDouble(value, name);
+                break;
+            case "delta-frequency":
+                options.DeltaFrequency = ParseDouble(value, name);
+                break;
+            case "meander-strength":
+                options.MeanderStrength = ParseDouble(value, name);
+                break;
+            case "lake-outlet-strictness":
+                options.LakeOutletStrictness = ParseDouble(value, name);
+                break;
+            case "preserve-river-coastline":
+                options.PreserveRiverCoastline = ParseBool(value, name);
+                break;
+            case "allow-river-carving":
+                options.AllowRiverCarving = ParseBool(value, name);
+                break;
             case "tectonic-json-mode":
                 options.TectonicJsonMode = ParseEnum<TectonicPlateJsonExportMode>(value, name);
                 break;
@@ -289,6 +316,15 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --small-lake-count-multiplier <number>  Scales generated small-lake count. Default: 1.");
     Console.WriteLine("  --small-lake-scatter-multiplier <number>  Scales scattered standalone lakes. Default: 1.");
     Console.WriteLine("  --small-lake-size-multiplier <number>   Scales generated small-lake footprint size. Default: 0.1.");
+    Console.WriteLine("  --river-density <number>        Scales visible river density. Default: 1.");
+    Console.WriteLine("  --major-river-count-multiplier <number>  Scales max major river budget. Default: 1.");
+    Console.WriteLine("  --tributary-density <number>    Scales visible tributary density. Default: 1.");
+    Console.WriteLine("  --endorheic-basin-chance <0..1> Preserves closed basins/lakes. Default: 0.22.");
+    Console.WriteLine("  --delta-frequency <number>      Scales delta mouth classification. Default: 0.8.");
+    Console.WriteLine("  --meander-strength <0..1>       Scales rendered river meanders. Default: 0.65.");
+    Console.WriteLine("  --lake-outlet-strictness <0..1> Controls how many lakes remain closed. Default: 0.55.");
+    Console.WriteLine("  --preserve-river-coastline <bool> Keep hydrology from changing coastline. Default: true.");
+    Console.WriteLine("  --allow-river-carving <bool>    Allow future terrain carving. Current default: false.");
     Console.WriteLine("  --tectonic-json-mode <mode>      Summary, CompactDiagnostic, Diagnostic.");
     Console.WriteLine("  --elevation-json-mode <mode>     Summary, Diagnostic.");
 }

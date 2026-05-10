@@ -22,6 +22,7 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new GenerateElevationStage())
             .AddStage(new GenerateSmallLakesStage())
             .AddStage(new GenerateLakeLevelsStage())
+            .AddStage(new GenerateHydrologyStage())
             .AddStage(new AssembleTectonicPlateMapStage())
             .AddStage(new GenerateRegionsStage())
             .AddStage(new DistortRegionBoundariesStage());
