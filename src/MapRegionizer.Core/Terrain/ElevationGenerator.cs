@@ -157,6 +157,8 @@ internal sealed class ElevationGenerator
         SmoothElevation(mask, elevation, ridgeMask, collisionMask, options, erosionMask);
         LiftInteriorLowlands(mask, elevation, distanceToWater, shelfWidth);
         EnforceConstraints(mask, waterBodyTopology, elevation, options);
+        var drainage = new double[length];
+        Array.Fill(drainage, double.NaN);
         return new ElevationMap(
             mask.Width,
             mask.Height,
@@ -171,7 +173,7 @@ internal sealed class ElevationGenerator
             foothillInfluence,
             basinInfluence,
             elevation.ToArray(),
-            Enumerable.Repeat(double.NaN, length).ToArray());
+            drainage);
     }
 
     private static double ComputeLandBase(double distanceToWater, double inlandScale, CrustKind crust, CoastalZoneKind coastal)
@@ -1598,49 +1600,92 @@ internal sealed class ElevationGenerator
         return Math.Clamp(roughness * 0.45 + target * 0.55, 0.03, 1.0);
     }
 
-    private static void SmoothElevation(MapMask mask, double[] elevation, double[] ridgeMask, double[] collisionMask, ElevationGenerationOptions options, double[] erosionMask)
+    private static void SmoothElevation(
+    MapMask mask,
+    double[] elevation,
+    double[] ridgeMask,
+    double[] collisionMask,
+    ElevationGenerationOptions options,
+    double[] erosionMask)
     {
         if (options.Erosion <= 0)
             return;
 
         var width = mask.Width;
         var height = mask.Height;
+        var length = width * height;
         var passes = 5;
+
+        var source = elevation.ToArray();
+        var target = new double[length];
+
         for (var pass = 0; pass < passes; pass++)
         {
-            var source = elevation.ToArray();
-
             for (var y = 0; y < height; y++)
             {
+                var row = y * width;
+
                 for (var x = 0; x < width; x++)
                 {
                     var point = new GridPoint(x, y);
-                    var index = y * width + x;
-                    var sameSurfaceSum = 0.0;
-                    var sameSurfaceWeight = 0.0;
+                    var index = row + x;
                     var isLand = mask.IsLand(point);
 
-                    foreach (var neighbor in Neighbors8(point, width, height))
+                    var sameSurfaceSum = 0.0;
+                    var sameSurfaceWeight = 0.0;
+
+                    for (var dy = -1; dy <= 1; dy++)
                     {
-                        if (mask.IsLand(neighbor) != isLand)
+                        var ny = y + dy;
+                        if (ny < 0 || ny >= height)
                             continue;
 
-                        sameSurfaceSum += source[neighbor.Y * width + neighbor.X];
-                        sameSurfaceWeight += 1.0;
+                        var nrow = ny * width;
+
+                        for (var dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dy == 0)
+                                continue;
+
+                            var nx = x + dx;
+                            if (nx < 0)
+                                nx = width - 1;
+                            else if (nx >= width)
+                                nx = 0;
+
+                            var neighbor = new GridPoint(nx, ny);
+                            if (mask.IsLand(neighbor) != isLand)
+                                continue;
+
+                            sameSurfaceSum += source[nrow + nx];
+                            sameSurfaceWeight += 1.0;
+                        }
                     }
 
                     if (sameSurfaceWeight <= 0)
+                    {
+                        target[index] = source[index];
                         continue;
+                    }
 
                     var average = sameSurfaceSum / sameSurfaceWeight;
-                    var protectedRelief = Math.Clamp(collisionMask[index] * 0.7 + ridgeMask[index] * (isLand ? 0.08 : 0.2), 0, 0.75);
+                    var protectedRelief = Math.Clamp(
+                        collisionMask[index] * 0.7 + ridgeMask[index] * (isLand ? 0.08 : 0.2),
+                        0,
+                        0.75);
+
                     var waterBoost = isLand ? 0.58 : 1.65;
                     var erosion = options.Erosion * waterBoost * (1.0 - protectedRelief);
+
                     erosionMask[index] = Math.Max(erosionMask[index], erosion);
-                    elevation[index] = source[index] * (1.0 - erosion) + average * erosion;
+                    target[index] = source[index] * (1.0 - erosion) + average * erosion;
                 }
             }
+
+            (source, target) = (target, source);
         }
+
+        Array.Copy(source, elevation, length);
     }
 
     internal static double[] BuildTerrainSignal(TectonicFeatureMap features, Func<int, int, double> readValue, int passes, double threshold, double gamma)
@@ -1713,27 +1758,49 @@ internal sealed class ElevationGenerator
     internal static double[] SmoothField(double[] values, int width, int height, int passes)
     {
         var current = values.ToArray();
+        var next = new double[current.Length];
+
         for (var pass = 0; pass < passes; pass++)
         {
-            var next = new double[current.Length];
             for (var y = 0; y < height; y++)
             {
+                var row = y * width;
+
                 for (var x = 0; x < width; x++)
                 {
-                    var sum = current[y * width + x] * 4.0;
+                    var index = row + x;
+                    var sum = current[index] * 4.0;
                     var weight = 4.0;
 
-                    foreach (var neighbor in Neighbors8(new GridPoint(x, y), width, height))
+                    for (var dy = -1; dy <= 1; dy++)
                     {
-                        sum += current[neighbor.Y * width + neighbor.X];
-                        weight += 1.0;
+                        var ny = y + dy;
+                        if (ny < 0 || ny >= height)
+                            continue;
+
+                        var nrow = ny * width;
+
+                        for (var dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dy == 0)
+                                continue;
+
+                            var nx = x + dx;
+                            if (nx < 0)
+                                nx = width - 1;
+                            else if (nx >= width)
+                                nx = 0;
+
+                            sum += current[nrow + nx];
+                            weight += 1.0;
+                        }
                     }
 
-                    next[y * width + x] = sum / weight;
+                    next[index] = sum / weight;
                 }
             }
 
-            current = next;
+            (current, next) = (next, current);
         }
 
         return current;
@@ -1795,39 +1862,73 @@ internal sealed class ElevationGenerator
 
     internal static double[] ComputeDistance(MapMask mask, bool sourceIsLand)
     {
-        var length = mask.Width * mask.Height;
-        var distances = Enumerable.Repeat(double.PositiveInfinity, length).ToArray();
+        var width = mask.Width;
+        var height = mask.Height;
+        var length = width * height;
+
+        var distances = new double[length];
+        Array.Fill(distances, double.PositiveInfinity);
+
         var queue = new PriorityQueue<GridPoint, double>();
 
-        for (var y = 0; y < mask.Height; y++)
+        for (var y = 0; y < height; y++)
         {
-            for (var x = 0; x < mask.Width; x++)
+            var row = y * width;
+
+            for (var x = 0; x < width; x++)
             {
                 var point = new GridPoint(x, y);
                 if (mask.IsLand(point) != sourceIsLand)
                     continue;
 
-                distances[y * mask.Width + x] = 0;
-                queue.Enqueue(point, 0);
+                var index = row + x;
+                distances[index] = 0.0;
+                queue.Enqueue(point, 0.0);
             }
         }
 
         if (queue.Count == 0)
-            return Enumerable.Repeat((double)Math.Max(mask.Width, mask.Height), length).ToArray();
-
-        while (queue.Count > 0)
         {
-            var current = queue.Dequeue();
-            var currentDistance = distances[current.Y * mask.Width + current.X];
-            foreach (var (neighbor, cost) in Neighbors8WithCost(current, mask.Width, mask.Height))
+            Array.Fill(distances, Math.Max(width, height));
+            return distances;
+        }
+
+        while (queue.TryDequeue(out var current, out var queuedDistance))
+        {
+            var currentIndex = current.Y * width + current.X;
+
+            if (queuedDistance > distances[currentIndex])
+                continue;
+
+            for (var dy = -1; dy <= 1; dy++)
             {
-                var index = neighbor.Y * mask.Width + neighbor.X;
-                var nextDistance = currentDistance + cost;
-                if (nextDistance >= distances[index])
+                var ny = current.Y + dy;
+                if (ny < 0 || ny >= height)
                     continue;
 
-                distances[index] = nextDistance;
-                queue.Enqueue(neighbor, nextDistance);
+                var nrow = ny * width;
+
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0)
+                        continue;
+
+                    var nx = current.X + dx;
+                    if (nx < 0)
+                        nx = width - 1;
+                    else if (nx >= width)
+                        nx = 0;
+
+                    var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+                    var nextDistance = queuedDistance + cost;
+                    var neighborIndex = nrow + nx;
+
+                    if (nextDistance >= distances[neighborIndex])
+                        continue;
+
+                    distances[neighborIndex] = nextDistance;
+                    queue.Enqueue(new GridPoint(nx, ny), nextDistance);
+                }
             }
         }
 

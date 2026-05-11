@@ -137,8 +137,20 @@ internal sealed class OrogenProvinceGenerator
         if (Hash01(first.X, first.Y, candidate.Seed + 739) < gapChance)
             yield break;
 
-        var meanScore = run.Average(p => p.Score);
-        var meanBoundaryDistance = run.Average(p => p.BoundaryDistance);
+        var scoreSum = 0.0;
+        var distanceSum = 0.0;
+        var points = new GridPoint[run.Count];
+
+        for (var i = 0; i < run.Count; i++)
+        {
+            scoreSum += run[i].Score;
+            distanceSum += run[i].BoundaryDistance;
+            points[i] = run[i].Point;
+        }
+
+        var meanScore = scoreSum / run.Count;
+        var meanBoundaryDistance = distanceSum / run.Count;
+
         var supported = meanBoundaryDistance <= supportRadius * 0.62;
         if (candidate.IsHistorical && !supported)
         {
@@ -582,7 +594,7 @@ internal sealed class OrogenProvinceGenerator
         public int Seed => SourceBoundarySegmentId ?? SourceLineamentId ?? 0;
     }
 
-    private sealed record ScoredPoint(GridPoint Point, double Score, double BoundaryDistance, int LandmassId);
+    private readonly record struct ScoredPoint(GridPoint Point, double Score, double BoundaryDistance, int LandmassId);
 
     private sealed record ValidatedSegment(IReadOnlyList<GridPoint> Points, double MeanScore, double Activity, double BaseWidth);
 

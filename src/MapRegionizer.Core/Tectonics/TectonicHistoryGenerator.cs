@@ -100,42 +100,60 @@ internal sealed class TectonicHistoryGenerator
 
     private List<GridPoint> BuildCurvedMeridian(MapMask mask, int xStart, double wiggle, bool preferWater)
     {
-        var points = new List<GridPoint>();
+        var points = new List<GridPoint>(mask.Height);
+        var seen = new HashSet<GridPoint>();
+
         var phase = _random.NextDouble() * Math.PI * 2;
         var amplitude = Math.Max(2, (int)(mask.Width * wiggle));
+        var radius = Math.Max(2, mask.Width / 24);
+        var heightFactor = Math.PI * 3 / Math.Max(1, mask.Height);
 
         for (var y = 0; y < mask.Height; y++)
         {
-            var x = WrapX(xStart + (int)Math.Round(Math.Sin(y / (double)Math.Max(1, mask.Height) * Math.PI * 3 + phase) * amplitude), mask.Width);
+            var x = WrapX(xStart + (int)Math.Round(Math.Sin(y * heightFactor + phase) * amplitude), mask.Width);
             var point = new GridPoint(x, y);
-            if (preferWater && mask.IsLand(point))
-                point = NearestMatching(mask, point, wantsLand: false, Math.Max(2, mask.Width / 24));
-            else if (!preferWater && !mask.IsLand(point))
-                point = NearestMatching(mask, point, wantsLand: true, Math.Max(2, mask.Width / 24));
 
-            points.Add(point);
+            var isLand = mask.IsLand(point);
+
+            if (preferWater && isLand)
+                point = NearestMatching(mask, point, wantsLand: false, radius);
+            else if (!preferWater && !isLand)
+                point = NearestMatching(mask, point, wantsLand: true, radius);
+
+            if (seen.Add(point))
+                points.Add(point);
         }
 
-        return points.Distinct().ToList();
+        return points;
     }
 
     private List<GridPoint> BuildCurvedLatitude(MapMask mask, int yStart, double wiggle, bool preferLand)
     {
-        var points = new List<GridPoint>();
+        var points = new List<GridPoint>(mask.Width);
+        var seen = new HashSet<GridPoint>();
+
         var phase = _random.NextDouble() * Math.PI * 2;
         var amplitude = Math.Max(2, (int)(mask.Height * wiggle));
+        var radius = Math.Max(2, mask.Height / 18);
+        var widthFactor = Math.PI * 3 / Math.Max(1, mask.Width);
 
         for (var x = 0; x < mask.Width; x++)
         {
-            var y = Math.Clamp(yStart + (int)Math.Round(Math.Sin(x / (double)Math.Max(1, mask.Width) * Math.PI * 3 + phase) * amplitude), 0, mask.Height - 1);
-            var point = new GridPoint(x, y);
-            if (preferLand && !mask.IsLand(point))
-                point = NearestMatching(mask, point, wantsLand: true, Math.Max(2, mask.Height / 18));
+            var y = Math.Clamp(
+                yStart + (int)Math.Round(Math.Sin(x * widthFactor + phase) * amplitude),
+                0,
+                mask.Height - 1);
 
-            points.Add(point);
+            var point = new GridPoint(x, y);
+
+            if (preferLand && !mask.IsLand(point))
+                point = NearestMatching(mask, point, wantsLand: true, radius);
+
+            if (seen.Add(point))
+                points.Add(point);
         }
 
-        return points.Distinct().ToList();
+        return points;
     }
 
     private List<GridPoint> BuildHotspotTrack(MapMask mask, GridPoint hotspot)
@@ -156,61 +174,153 @@ internal sealed class TectonicHistoryGenerator
     private static List<GridPoint> FindCoastPoints(MapMask mask)
     {
         var result = new List<GridPoint>();
-        foreach (var point in EnumeratePoints(mask.Width, mask.Height))
+
+        for (var y = 0; y < mask.Height; y++)
         {
-            if (mask.IsLand(point))
+            for (var x = 0; x < mask.Width; x++)
+            {
+                var point = new GridPoint(x, y);
+
+                if (mask.IsLand(point))
+                    continue;
+
+                if (HasLandNeighbor4(mask, point))
+                    result.Add(point);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool HasLandNeighbor4(MapMask mask, GridPoint point)
+    {
+        var width = mask.Width;
+        var height = mask.Height;
+
+        if (mask.IsLand(new GridPoint(WrapX(point.X - 1, width), point.Y))) return true;
+        if (mask.IsLand(new GridPoint(WrapX(point.X + 1, width), point.Y))) return true;
+        if (point.Y > 0 && mask.IsLand(new GridPoint(point.X, point.Y - 1))) return true;
+        if (point.Y < height - 1 && mask.IsLand(new GridPoint(point.X, point.Y + 1))) return true;
+
+        return false;
+    }
+
+    private List<GridPoint> TraceCoast(MapMask mask, GridPoint start, int length)
+    {
+        var points = new List<GridPoint>(length + 1) { start };
+        var visited = new HashSet<GridPoint> { start };
+
+        var current = start;
+        Span<GridPoint> candidates = stackalloc GridPoint[8];
+
+        for (var i = 0; i < length; i++)
+        {
+            var count = CollectCoastNeighbors8(mask, current, visited, candidates);
+
+            if (count == 0)
+                break;
+
+            current = candidates[_random.Next(count)];
+            points.Add(current);
+            visited.Add(current);
+        }
+
+        return points;
+    }
+
+    private static int CollectCoastNeighbors8(
+    MapMask mask,
+    GridPoint point,
+    HashSet<GridPoint> visited,
+    Span<GridPoint> result)
+    {
+        var count = 0;
+
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            var y = point.Y + dy;
+            if (y < 0 || y >= mask.Height)
                 continue;
 
-            if (Neighbors4(point, mask.Width, mask.Height).Any(mask.IsLand))
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dy == 0)
+                    continue;
+
+                var candidate = new GridPoint(WrapX(point.X + dx, mask.Width), y);
+
+                if (visited.Contains(candidate))
+                    continue;
+
+                if (mask.IsLand(candidate))
+                    continue;
+
+                if (!HasLandNeighbor4(mask, candidate))
+                    continue;
+
+                result[count++] = candidate;
+            }
+        }
+
+        return count;
+    }
+
+    private List<GridPoint> OffsetPoints(MapMask mask, IReadOnlyList<GridPoint> points, int offset)
+    {
+        var result = new List<GridPoint>(points.Count);
+        var seen = new HashSet<GridPoint>();
+
+        foreach (var p in points)
+        {
+            var xOffset = _random.Next(2) == 0 ? offset : -offset;
+            var yOffset = _random.Next(-offset, offset + 1);
+
+            var point = new GridPoint(
+                WrapX(p.X + xOffset, mask.Width),
+                Math.Clamp(p.Y + yOffset, 0, mask.Height - 1));
+
+            if (seen.Add(point))
                 result.Add(point);
         }
 
         return result;
     }
 
-    private List<GridPoint> TraceCoast(MapMask mask, GridPoint start, int length)
-    {
-        var points = new List<GridPoint> { start };
-        var current = start;
-        for (var i = 0; i < length; i++)
-        {
-            var candidates = Neighbors8(current, mask.Width, mask.Height)
-                .Where(p => !mask.IsLand(p) && Neighbors4(p, mask.Width, mask.Height).Any(mask.IsLand))
-                .Where(p => !points.Contains(p))
-                .ToArray();
-            if (candidates.Length == 0)
-                break;
-
-            current = candidates[_random.Next(candidates.Length)];
-            points.Add(current);
-        }
-
-        return points;
-    }
-
-    private List<GridPoint> OffsetPoints(MapMask mask, IReadOnlyList<GridPoint> points, int offset)
-    {
-        return points
-            .Select(p => new GridPoint(WrapX(p.X + (_random.Next(2) == 0 ? offset : -offset), mask.Width), Math.Clamp(p.Y + _random.Next(-offset, offset + 1), 0, mask.Height - 1)))
-            .Distinct()
-            .ToList();
-    }
-
     private static GridPoint NearestMatching(MapMask mask, GridPoint origin, bool wantsLand, int radius)
     {
         for (var r = 1; r <= radius; r++)
         {
-            for (var dy = -r; dy <= r; dy++)
+            // Верхняя сторона: dy == -r
+            var yTop = Math.Clamp(origin.Y - r, 0, mask.Height - 1);
+            for (var dx = -r; dx <= r; dx++)
             {
-                for (var dx = -r; dx <= r; dx++)
-                {
-                    if (Math.Abs(dx) != r && Math.Abs(dy) != r)
-                        continue;
+                var point = new GridPoint(WrapX(origin.X + dx, mask.Width), yTop);
+                if (mask.IsLand(point) == wantsLand)
+                    return point;
+            }
 
-                    var point = new GridPoint(WrapX(origin.X + dx, mask.Width), Math.Clamp(origin.Y + dy, 0, mask.Height - 1));
-                    if (mask.IsLand(point) == wantsLand)
-                        return point;
-                }
+            // Боковые стороны в том же порядке, что и старый цикл:
+            // dy от -r + 1 до r - 1, внутри сначала dx == -r, потом dx == r.
+            for (var dy = -r + 1; dy <= r - 1; dy++)
+            {
+                var y = Math.Clamp(origin.Y + dy, 0, mask.Height - 1);
+
+                var left = new GridPoint(WrapX(origin.X - r, mask.Width), y);
+                if (mask.IsLand(left) == wantsLand)
+                    return left;
+
+                var right = new GridPoint(WrapX(origin.X + r, mask.Width), y);
+                if (mask.IsLand(right) == wantsLand)
+                    return right;
+            }
+
+            // Нижняя сторона: dy == r
+            var yBottom = Math.Clamp(origin.Y + r, 0, mask.Height - 1);
+            for (var dx = -r; dx <= r; dx++)
+            {
+                var point = new GridPoint(WrapX(origin.X + dx, mask.Width), yBottom);
+                if (mask.IsLand(point) == wantsLand)
+                    return point;
             }
         }
 
