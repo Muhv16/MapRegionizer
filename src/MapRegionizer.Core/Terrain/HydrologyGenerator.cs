@@ -11,6 +11,13 @@ internal sealed class HydrologyGenerator
         (-1, 0), (-1, -1), (0, -1), (1, -1)
     ];
 
+    private enum EndorheicRiverPolicy
+    {
+        Suppress,
+        EphemeralSmall,
+        ForceOverflow
+    }
+
     private readonly int _seed;
 
     public HydrologyGenerator(int seed)
@@ -53,7 +60,35 @@ internal sealed class HydrologyGenerator
             accumulation = AccumulateFlow(flowDirections, localRunoff, width, height);
         }
         var (basinIds, basins) = BuildBasins(mask, elevation, waterBodyTopology, waterSurfaces, flowDirections, accumulation, lakeIds);
-        var validEndorheicBasins = BuildValidEndorheicBasinSet(basins, elevation);
+        var endorheicPolicies = BuildEndorheicRiverPolicies(basins, elevation);
+
+        for (var overflowPass = 0; overflowPass < 8; overflowPass++)
+        {
+            var changed = ForceEndorheicOverflow(
+                mask,
+                elevation,
+                waterBodyTopology,
+                hydroSurface,
+                lakeIds,
+                flowDirections,
+                accumulation,
+                basinIds,
+                basins,
+                endorheicPolicies,
+                outlets);
+
+            if (!changed)
+                break;
+
+            BreakCycles(flowDirections, width, height);
+            ResolveInvalidDryTerminals(mask, elevation, waterBodyTopology, generatedLakes, hydroSurface, lakeIds, flowDirections, options);
+            BreakCycles(flowDirections, width, height);
+
+            accumulation = AccumulateFlow(flowDirections, localRunoff, width, height);
+            (basinIds, basins) = BuildBasins(mask, elevation, waterBodyTopology, waterSurfaces, flowDirections, accumulation, lakeIds);
+            endorheicPolicies = BuildEndorheicRiverPolicies(basins, elevation);
+        }
+        var validEndorheicBasins = BuildValidEndorheicBasinSet(basins, endorheicPolicies);
         var allowedRiverBasins = BuildAllowedRiverBasinSet(basins, validEndorheicBasins);
         var riverCells = SelectRiverCells(mask, elevation, waterBodyTopology, generatedLakes, accumulation, flowDirections, basinIds, allowedRiverBasins, lakeIds, landComponents, options);
         EnsureInlandSeaInflowRiverCells(mask, waterBodyTopology, waterSurfaces, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells);
@@ -286,7 +321,7 @@ internal sealed class HydrologyGenerator
         var outletByLake = outlets
             .Select((outlet, index) => (outlet, index))
             .ToDictionary(x => x.outlet.LakeId.Value, x => x.index);
-        var minimumInflow = Math.Clamp(Math.Sqrt(width * mask.Height) * 0.16, 8.0, 42.0) /
+        var minimumInflow = Math.Clamp(Math.Sqrt(width * mask.Height) * 0.08, 4.0, 28.0) /
                             Math.Max(0.2, options.RiverDensity * options.TributaryDensity);
 
         foreach (var body in waterSurfaces.Bodies
@@ -772,9 +807,9 @@ internal sealed class HydrologyGenerator
     {
         var terrain = elevation.GetTerrainClass(point);
         var basin = elevation.GetBasinInfluence(point);
-        if (terrain == TerrainClassKind.DryBasin && basin >= 0.46)
+        if (terrain == TerrainClassKind.DryBasin && basin >= 0.36)
             return true;
-        if (terrain == TerrainClassKind.SedimentaryBasin && basin >= 0.68 && options.EndorheicBasinChance >= 0.18)
+        if (terrain == TerrainClassKind.SedimentaryBasin && basin >= 0.56 && options.EndorheicBasinChance >= 0.14)
             return true;
 
         return false;
@@ -871,28 +906,415 @@ internal sealed class HydrologyGenerator
             .ToList());
     }
 
-    private static HashSet<int> BuildValidEndorheicBasinSet(IReadOnlyList<DrainageBasin> basins, ElevationMap elevation)
+    private static Dictionary<int, EndorheicRiverPolicy> BuildEndorheicRiverPolicies(IReadOnlyList<DrainageBasin> basins, ElevationMap elevation)
+    {
+        var endorheic = basins
+            .Where(b => b.TargetKind == DrainageTargetKind.EndorheicDryBasin)
+            .ToList();
+        var policies = new Dictionary<int, EndorheicRiverPolicy>();
+        if (endorheic.Count == 0)
+            return policies;
+
+        var cellCounts = endorheic.Select(b => (double)b.CellCount).OrderBy(v => v).ToList();
+        var runoffValues = endorheic.Select(b => b.TotalRunoff).OrderBy(v => v).ToList();
+        var forceCellFloor = Math.Max(140.0, PercentileSorted(cellCounts, 0.72));
+        var forceRunoffFloor = Math.Max(220.0, PercentileSorted(runoffValues, 0.72));
+
+        foreach (var basin in endorheic)
+        {
+            var terrain = elevation.GetTerrainClass(basin.TerminalCell);
+            var basinInfluence = elevation.GetBasinInfluence(basin.TerminalCell);
+            var plausibleDryTerminal =
+                terrain == TerrainClassKind.DryBasin && basinInfluence >= 0.32 ||
+                terrain == TerrainClassKind.SedimentaryBasin && basinInfluence >= 0.52 ||
+                terrain == TerrainClassKind.InteriorLowland && basinInfluence >= 0.58;
+
+            var strongDryTerminal =
+                terrain == TerrainClassKind.DryBasin && basinInfluence >= 0.40 ||
+                terrain == TerrainClassKind.SedimentaryBasin && basinInfluence >= 0.60 ||
+                terrain == TerrainClassKind.InteriorLowland && basinInfluence >= 0.66;
+            var largeEnough = basin.CellCount >= forceCellFloor || basin.TotalRunoff >= forceRunoffFloor;
+            var veryLarge = basin.CellCount >= 200 || basin.TotalRunoff >= 900;
+            var visibleRiver = basin.CellCount >= 80 || basin.TotalRunoff >= 180.0;
+
+            if (!plausibleDryTerminal && !visibleRiver)
+            {
+                policies[basin.Id] = EndorheicRiverPolicy.Suppress;
+                continue;
+            }
+
+            if (veryLarge || largeEnough && !strongDryTerminal)
+            {
+                policies[basin.Id] = EndorheicRiverPolicy.ForceOverflow;
+                continue;
+            }
+
+            if (strongDryTerminal && visibleRiver)
+            {
+                policies[basin.Id] = EndorheicRiverPolicy.ForceOverflow;
+                continue;
+            }
+
+            policies[basin.Id] = basin.CellCount >= 16 || basin.TotalRunoff >= 32.0
+                ? EndorheicRiverPolicy.EphemeralSmall
+                : EndorheicRiverPolicy.Suppress;
+        }
+
+        return policies;
+    }
+
+    private static HashSet<int> BuildValidEndorheicBasinSet(
+        IReadOnlyList<DrainageBasin> basins,
+        IReadOnlyDictionary<int, EndorheicRiverPolicy> endorheicPolicies)
     {
         return basins
             .Where(b => b.TargetKind == DrainageTargetKind.EndorheicDryBasin)
-            .Where(b => b.CellCount >= 80)
-            .Where(b =>
-            {
-                var terrain = elevation.GetTerrainClass(b.TerminalCell);
-                var basin = elevation.GetBasinInfluence(b.TerminalCell);
-                return terrain == TerrainClassKind.DryBasin && basin >= 0.46 ||
-                       terrain == TerrainClassKind.SedimentaryBasin && basin >= 0.68;
-            })
+            .Where(b => endorheicPolicies.TryGetValue(b.Id, out var policy) &&
+                        policy != EndorheicRiverPolicy.Suppress)
             .Select(b => b.Id)
             .ToHashSet();
+    }
+
+    private bool ForceEndorheicOverflow(
+        MapMask mask,
+        ElevationMap elevation,
+        WaterBodyTopology topology,
+        double[] hydro,
+        int[] lakeIds,
+        int[] flowDirections,
+        double[] accumulation,
+        int[] basinIds,
+        IReadOnlyList<DrainageBasin> basins,
+        IReadOnlyDictionary<int, EndorheicRiverPolicy> endorheicPolicies,
+        IReadOnlyList<LakeOutlet> outlets)
+    {
+        var width = mask.Width;
+        var outletLakeIds = outlets
+            .Where(o => o.HasOutlet)
+            .Select(o => o.LakeId.Value)
+            .ToHashSet();
+        var basinById = basins.ToDictionary(b => b.Id);
+        var changed = false;
+
+        foreach (var basin in basins
+                     .Where(b => endorheicPolicies.TryGetValue(b.Id, out var policy) && policy == EndorheicRiverPolicy.ForceOverflow)
+                     .OrderByDescending(b => b.TotalRunoff)
+                     .ThenByDescending(b => b.CellCount))
+        {
+            var terminalIndex = basin.TerminalCell.Y * width + basin.TerminalCell.X;
+            if (terminalIndex < 0 || terminalIndex >= flowDirections.Length)
+                continue;
+            if (flowDirections[terminalIndex] >= 0)
+                continue;
+
+            var path = FindEndorheicOverflowPath(
+                basin,
+                mask,
+                elevation,
+                topology,
+                hydro,
+                lakeIds,
+                accumulation,
+                basinIds,
+                basinById,
+                outletLakeIds);
+            if (path.Count < 2)
+                continue;
+
+            for (var i = 0; i < path.Count - 1; i++)
+            {
+                var from = new GridPoint(path[i] % width, path[i] / width);
+                var to = new GridPoint(path[i + 1] % width, path[i + 1] / width);
+                var direction = DirectionIndex(from, to, width);
+                if (direction >= 0)
+                    flowDirections[path[i]] = direction;
+            }
+
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private List<int> FindEndorheicOverflowPath(
+    DrainageBasin sourceBasin,
+    MapMask mask,
+    ElevationMap elevation,
+    WaterBodyTopology topology,
+    double[] hydro,
+    int[] lakeIds,
+    double[] accumulation,
+    int[] basinIds,
+    IReadOnlyDictionary<int, DrainageBasin> basinById,
+    HashSet<int> outletLakeIds)
+    {
+        var width = mask.Width;
+        var height = mask.Height;
+        var start = sourceBasin.TerminalCell.Y * width + sourceBasin.TerminalCell.X;
+        var startHeight = hydro[start];
+
+        var startRunoff = Math.Max(
+            accumulation[start],
+            Math.Sqrt(Math.Max(0.0, sourceBasin.TotalRunoff)));
+
+        var maxSteps = Math.Clamp(
+            (int)Math.Round(48.0 + Math.Sqrt(sourceBasin.CellCount) * 3.2 + Math.Sqrt(width * height) * 0.08),
+            420,
+            2400);
+
+        var maxBarrier = Math.Clamp(
+            90.0 + Math.Sqrt(startRunoff) * 14.0 + elevation.GetBasinInfluence(sourceBasin.TerminalCell) * 120.0,
+            260.0,
+            1200.0);
+
+        var maxCost = Math.Clamp(
+            600.0 + Math.Sqrt(startRunoff) * 90.0 + Math.Sqrt(sourceBasin.CellCount) * 55.0,
+            1800.0,
+            30000.0);
+
+        var costs = Enumerable.Repeat(double.PositiveInfinity, width * height).ToArray();
+        var steps = Enumerable.Repeat(int.MaxValue, width * height).ToArray();
+        var previous = Enumerable.Repeat(-1, width * height).ToArray();
+
+        // Новое: максимальная высота “перелива” на пути до клетки.
+        var spillHeights = Enumerable.Repeat(double.PositiveInfinity, width * height).ToArray();
+
+        var queue = new PriorityQueue<int, double>();
+        costs[start] = 0.0;
+        steps[start] = 0;
+        spillHeights[start] = startHeight;
+        queue.Enqueue(start, 0.0);
+
+        while (queue.Count > 0)
+        {
+            queue.TryDequeue(out var current, out var currentPriority);
+            if (currentPriority > costs[current] + 0.0001)
+                continue;
+
+            if (current != start &&
+                IsOverflowTarget(current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
+            {
+                return ReconstructPath(current, previous);
+            }
+
+            if (steps[current] >= maxSteps || costs[current] > maxCost)
+                continue;
+
+            var currentPoint = new GridPoint(current % width, current / width);
+            foreach (var neighbor in Neighbors8(currentPoint, width, height))
+            {
+                var next = neighbor.Y * width + neighbor.X;
+                if (!CanTraverseOverflowCell(next, current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
+                    continue;
+
+                var newSpillHeight = Math.Max(spillHeights[current], hydro[next]);
+                var totalBarrier = Math.Max(0.0, newSpillHeight - startHeight);
+                if (totalBarrier > maxBarrier)
+                    continue;
+
+                var edgeCost = ScoreOverflowStepBySpill(
+                    current,
+                    next,
+                    spillHeights[current],
+                    newSpillHeight,
+                    startHeight,
+                    mask,
+                    elevation,
+                    topology,
+                    hydro,
+                    lakeIds,
+                    outletLakeIds,
+                    width);
+
+                var newCost = costs[current] + edgeCost;
+                var newSteps = steps[current] + 1;
+
+                if (newSteps > maxSteps || newCost > maxCost)
+                    continue;
+
+                var better =
+                    newCost < costs[next] - 0.0001 ||
+                    Math.Abs(newCost - costs[next]) < 0.0001 && newSpillHeight < spillHeights[next];
+
+                if (!better)
+                    continue;
+
+                costs[next] = newCost;
+                steps[next] = newSteps;
+                spillHeights[next] = newSpillHeight;
+                previous[next] = current;
+
+                queue.Enqueue(next, newCost);
+            }
+        }
+
+        return [];
+    }
+
+    private double ScoreOverflowStepBySpill(
+    int current,
+    int next,
+    double currentSpillHeight,
+    double nextSpillHeight,
+    double startHeight,
+    MapMask mask,
+    ElevationMap elevation,
+    WaterBodyTopology topology,
+    double[] hydro,
+    int[] lakeIds,
+    HashSet<int> outletLakeIds,
+    int width)
+    {
+        var currentPoint = new GridPoint(current % width, current / width);
+        var nextPoint = new GridPoint(next % width, next / width);
+
+        var diagonal = Math.Abs(WrappedDeltaX(nextPoint.X - currentPoint.X, width)) != 0 &&
+                       nextPoint.Y != currentPoint.Y;
+
+        var terrain = elevation.GetTerrainClass(nextPoint);
+        var isOcean = !mask.IsLand(nextPoint) && topology.IsOceanicWater(nextPoint);
+        var isOutletLake = lakeIds[next] > 0 && outletLakeIds.Contains(lakeIds[next]);
+
+        var uphill = Math.Max(0.0, hydro[next] - hydro[current]);
+
+        // Главное отличие: платим только за новый подъём spill-height.
+        var spillRise = Math.Max(0.0, nextSpillHeight - currentSpillHeight);
+        var totalBarrier = Math.Max(0.0, nextSpillHeight - startHeight);
+
+        var ridgeCrossing = Math.Max(
+            0.0,
+            elevation.GetRidgeContinuity(nextPoint) -
+            elevation.GetMountainPassPotential(nextPoint) * 0.65);
+
+        var valleyBias =
+            TerrainValleyBias(terrain) * 0.32 +
+            elevation.GetBasinInfluence(nextPoint) * 11.0;
+
+        var targetBonus = isOcean ? 70.0 : isOutletLake ? 58.0 : 0.0;
+
+        var cost =
+            (diagonal ? 1.414 : 1.0) * 4.0
+            + uphill * 0.35
+            + spillRise * 9.0
+            + totalBarrier * 0.05
+            + ridgeCrossing * 36.0
+            + elevation.GetRoughness(nextPoint) * 10.0
+            - elevation.GetMountainPassPotential(nextPoint) * 34.0
+            - valleyBias
+            - targetBonus
+            + HashUnit(nextPoint.X, nextPoint.Y, _seed + 7691) * 1.5;
+
+        return Math.Max(0.25, cost);
+    }
+
+    private static bool IsOverflowTarget(
+        int index,
+        int sourceBasinId,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int[] lakeIds,
+        int[] basinIds,
+        IReadOnlyDictionary<int, DrainageBasin> basinById,
+        HashSet<int> outletLakeIds)
+    {
+        var width = mask.Width;
+        var point = new GridPoint(index % width, index / width);
+        var lakeId = lakeIds[index];
+        if (lakeId > 0)
+            return outletLakeIds.Contains(lakeId);
+        if (!mask.IsLand(point) && topology.IsOceanicWater(point))
+            return true;
+        if (basinIds[index] == sourceBasinId)
+            return false;
+
+        return basinById.TryGetValue(basinIds[index], out var basin) &&
+               basin.TargetKind != DrainageTargetKind.EndorheicDryBasin;
+    }
+
+    private static bool CanTraverseOverflowCell(
+        int index,
+        int current,
+        int sourceBasinId,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int[] lakeIds,
+        int[] basinIds,
+        IReadOnlyDictionary<int, DrainageBasin> basinById,
+        HashSet<int> outletLakeIds)
+    {
+        if (index == current)
+            return false;
+        if (IsOverflowTarget(index, sourceBasinId, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
+            return true;
+
+        var point = new GridPoint(index % mask.Width, index / mask.Width);
+        if (!mask.IsLand(point) || lakeIds[index] > 0)
+            return false;
+
+        return !topology.IsInlandWater(point);
+    }
+
+    private double ScoreOverflowStep(
+        int current,
+        int next,
+        double startHeight,
+        MapMask mask,
+        ElevationMap elevation,
+        WaterBodyTopology topology,
+        double[] hydro,
+        int[] lakeIds,
+        HashSet<int> outletLakeIds,
+        int width)
+    {
+        var currentPoint = new GridPoint(current % width, current / width);
+        var nextPoint = new GridPoint(next % width, next / width);
+        var diagonal = Math.Abs(WrappedDeltaX(nextPoint.X - currentPoint.X, width)) != 0 &&
+                       nextPoint.Y != currentPoint.Y;
+        var terrain = elevation.GetTerrainClass(nextPoint);
+        var isOcean = !mask.IsLand(nextPoint) && topology.IsOceanicWater(nextPoint);
+        var isOutletLake = lakeIds[next] > 0 && outletLakeIds.Contains(lakeIds[next]);
+        var uphill = Math.Max(0.0, hydro[next] - hydro[current]);
+        var barrier = Math.Max(0.0, hydro[next] - startHeight);
+        var ridgeCrossing = Math.Max(0.0, elevation.GetRidgeContinuity(nextPoint) - elevation.GetMountainPassPotential(nextPoint) * 0.55);
+        var valleyBias = TerrainValleyBias(terrain) * 0.24 + elevation.GetBasinInfluence(nextPoint) * 9.0;
+        var targetBonus = isOcean ? 54.0 : isOutletLake ? 44.0 : 0.0;
+
+        var cost = (diagonal ? 1.414 : 1.0) * 5.0
+                   + uphill * 1.55
+                   + barrier * 0.72
+                   + ridgeCrossing * 42.0
+                   + elevation.GetRoughness(nextPoint) * 12.0
+                   - elevation.GetMountainPassPotential(nextPoint) * 28.0
+                   - valleyBias
+                   - targetBonus
+                   + HashUnit(nextPoint.X, nextPoint.Y, _seed + 7691) * 2.0;
+        return Math.Max(0.5, cost);
+    }
+
+    private static List<int> ReconstructPath(int terminal, int[] previous)
+    {
+        var path = new List<int>();
+        var current = terminal;
+        while (current >= 0)
+        {
+            path.Add(current);
+            current = previous[current];
+        }
+
+        path.Reverse();
+        return path;
     }
 
     private static HashSet<int> BuildAllowedRiverBasinSet(IReadOnlyList<DrainageBasin> basins, HashSet<int> validEndorheicBasins)
     {
         return basins
-            .Where(b => b.TargetKind != DrainageTargetKind.EndorheicDryBasin || validEndorheicBasins.Contains(b.Id))
-            .Select(b => b.Id)
-            .ToHashSet();
+            .Where(b =>
+            b.TargetKind != DrainageTargetKind.EndorheicDryBasin ||
+            validEndorheicBasins.Contains(b.Id) ||
+            b.CellCount >= 80 ||
+            b.TotalRunoff >= 250.0)
+        .Select(b => b.Id)
+        .ToHashSet();
     }
 
     private byte[] SelectRiverCells(
@@ -1001,7 +1423,7 @@ internal sealed class HydrologyGenerator
         HydrologyGenerationOptions options)
     {
         var areaRoot = Math.Sqrt(width * height);
-        var maxSources = Math.Clamp((int)Math.Round(areaRoot * 0.44 * Math.Max(0.2, options.RiverDensity) * Math.Max(0.35, options.TributaryDensity)), 24, 960);
+        var maxSources = Math.Clamp((int)Math.Round(areaRoot * 0.44 * Math.Max(0.2, options.RiverDensity) * Math.Max(0.35, options.TributaryDensity)), 48, 1600);
         var minSpacing = Math.Clamp((int)Math.Round(areaRoot / 72.0 / Math.Max(0.72, Math.Sqrt(Math.Max(0.1, options.RiverDensity)))), 6, 22);
         var selected = new List<RiverSourceCandidate>();
         var reservedCorridors = new bool[width * height];
@@ -1026,7 +1448,7 @@ internal sealed class HydrologyGenerator
             ? maxSources
             : Math.Clamp(maxSources / Math.Max(2, groupsByComponent.Count / 4), 14, 48);
         var basinCap = Math.Clamp(maxSources / 4, 14, 52);
-        const int bucketCap = 4;
+        const int bucketCap = 3;
 
         var progress = true;
         while (selected.Count < maxSources && progress)
@@ -1068,9 +1490,100 @@ internal sealed class HydrologyGenerator
             foreach (var candidate in candidates.OrderByDescending(c => c.Score).Take(maxSources))
                 selected.Add(candidate);
         }
+        else
+        {
+            AddSparseBucketRiverSources(
+                candidates,
+                selected,
+                reservedCorridors,
+                selectedByComponent,
+                selectedByBasin,
+                selectedByBucket,
+                maxSources,
+                componentCap,
+                basinCap,
+                minSpacing,
+                flowDirections,
+                lakeIds,
+                mask,
+                topology,
+                width,
+                height);
+        }
 
         return selected;
     }
+
+    private static void AddSparseBucketRiverSources(
+        IReadOnlyList<RiverSourceCandidate> candidates,
+        List<RiverSourceCandidate> selected,
+        bool[] reservedCorridors,
+        Dictionary<int, int> selectedByComponent,
+        Dictionary<int, int> selectedByBasin,
+        Dictionary<RiverSourceGroupKey, int> selectedByBucket,
+        int maxSources,
+        int componentCap,
+        int basinCap,
+        int minSpacing,
+        int[] flowDirections,
+        int[] lakeIds,
+        MapMask mask,
+        WaterBodyTopology topology,
+        int width,
+        int height)
+    {
+        var supplementalBudget = Math.Clamp((int)Math.Round(maxSources * 0.18), 8, 220);
+        var supplementalLimit = Math.Min(candidates.Count, maxSources + supplementalBudget);
+        var softMinSpacing = Math.Clamp((int)Math.Round(minSpacing * 0.55), 3, minSpacing);
+        var softComponentCap = componentCap + Math.Clamp((int)Math.Round(componentCap * 0.45), 4, 28);
+        var softBasinCap = basinCap + Math.Clamp((int)Math.Round(basinCap * 0.35), 4, 36);
+        var coveredBuckets = selected
+            .Select(c => new RiverSourceCoverageKey(CoverageComponentId(c), c.BucketX, c.BucketY))
+            .ToHashSet();
+
+        var sparseBucketCandidates = candidates
+            .GroupBy(c => new RiverSourceCoverageKey(CoverageComponentId(c), c.BucketX, c.BucketY))
+            .Where(g => !coveredBuckets.Contains(g.Key))
+            .Select(g => g
+                .OrderByDescending(c => c.DownstreamDryLength >= 3)
+                .ThenByDescending(c => c.Score)
+                .First())
+            .OrderBy(c => selectedByComponent.GetValueOrDefault(c.ComponentId))
+            .ThenBy(c => selectedByBasin.GetValueOrDefault(c.BasinId))
+            .ThenByDescending(c => c.DownstreamDryLength)
+            .ThenByDescending(c => c.Score)
+            .ToList();
+
+        foreach (var candidate in sparseBucketCandidates)
+        {
+            if (selected.Count >= supplementalLimit)
+                break;
+
+            var bucketKey = new RiverSourceGroupKey(candidate.ComponentId, candidate.BasinId, candidate.BucketX, candidate.BucketY);
+            if (selectedByComponent.GetValueOrDefault(candidate.ComponentId) >= softComponentCap ||
+                selectedByBasin.GetValueOrDefault(candidate.BasinId) >= softBasinCap ||
+                selectedByBucket.GetValueOrDefault(bucketKey) > 0)
+            {
+                continue;
+            }
+
+            if (!IsFarEnoughFromSelected(candidate, selected, width, softMinSpacing) ||
+                !HasEnoughIndependentDownstreamRun(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, desiredLength: 2))
+            {
+                continue;
+            }
+
+            selected.Add(candidate);
+            ReserveDownstreamCorridor(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height);
+            selectedByComponent[candidate.ComponentId] = selectedByComponent.GetValueOrDefault(candidate.ComponentId) + 1;
+            selectedByBasin[candidate.BasinId] = selectedByBasin.GetValueOrDefault(candidate.BasinId) + 1;
+            selectedByBucket[bucketKey] = selectedByBucket.GetValueOrDefault(bucketKey) + 1;
+            coveredBuckets.Add(new RiverSourceCoverageKey(CoverageComponentId(candidate), candidate.BucketX, candidate.BucketY));
+        }
+    }
+
+    private static int CoverageComponentId(RiverSourceCandidate candidate) =>
+        candidate.ComponentId > 0 ? candidate.ComponentId : -candidate.BasinId;
 
     private static bool IsFarEnoughFromSelected(RiverSourceCandidate candidate, IReadOnlyList<RiverSourceCandidate> selected, int width, int minSpacing)
     {
@@ -1409,7 +1922,7 @@ internal sealed class HydrologyGenerator
 
             var mainstem = path.ToHashSet();
             var reservedMouths = new HashSet<int>();
-            var targetCount = Math.Clamp((int)Math.Round(path.Count / 18.0 * options.MajorRiverTributaryMultiplier), 1, 14);
+            var targetCount = Math.Clamp((int)Math.Round(path.Count / 14.0 * options.MajorRiverTributaryMultiplier), 2, 22);
             var minAnchorGap = Math.Max(5, path.Count / Math.Max(2, targetCount + 1));
             var added = 0;
 
@@ -1541,8 +2054,8 @@ internal sealed class HydrologyGenerator
         var width = mask.Width;
         var height = mask.Height;
         var areaRoot = Math.Sqrt(width * height);
-        var targetCount = Math.Clamp((int)Math.Round(areaRoot * 0.018 * options.LongRiverCountMultiplier), 2, 28);
-        var minLength = Math.Clamp((int)Math.Round(areaRoot * 0.032), 24, 82);
+        var targetCount = Math.Clamp((int)Math.Round(areaRoot * 0.026 * options.LongRiverCountMultiplier), 4, 48);
+        var minLength = Math.Clamp((int)Math.Round(areaRoot * 0.032), 20, 82);
         var upstream = BuildUpstreamLists(flowDirections, width, height);
         var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
         var basinById = basins.ToDictionary(b => b.Id);
@@ -1818,10 +2331,12 @@ internal sealed class HydrologyGenerator
             var terminalIndex = FindMouthTargetIndex(mouthIndex, flowDirections, riverCells, lakeIds, mask, topology, width, height);
             var terminal = new GridPoint(terminalIndex % width, terminalIndex / width);
             var target = ResolveTarget(terminal, mask, topology, waterSurfaces, lakeIds);
-            if (target.Kind == DrainageTargetKind.EndorheicDryBasin && !validEndorheicBasins.Contains(basinIds[mouthIndex]))
+            if (target.Kind == DrainageTargetKind.EndorheicDryBasin &&
+                !validEndorheicBasins.Contains(basinIds[mouthIndex]) &&
+                accumulation[mouthIndex] < 70.0)
                 return false;
 
-            var minLength = target.Kind == DrainageTargetKind.EndorheicDryBasin ? 18 : 12;
+            var minLength = target.Kind == DrainageTargetKind.EndorheicDryBasin ? 8 : 12;
             if (cells.Count < minLength && target.Kind == DrainageTargetKind.EndorheicDryBasin && !EndsInWater(dryMouthCell, mask, topology, lakeIds))
                 return false;
             if (!forceLong && isTributary && cells.Count < 4 && !segmentEndsInWater)
@@ -2177,8 +2692,8 @@ internal sealed class HydrologyGenerator
         TerrainClassKind.Highland => 0.75,
         TerrainClassKind.DeltaCandidate => 0.58,
         TerrainClassKind.AlluvialPlain => 0.82,
-        TerrainClassKind.DryBasin => 1.7,
-        TerrainClassKind.DesertPlateauCandidate => 1.45,
+        TerrainClassKind.DryBasin => 0.80,
+        TerrainClassKind.DesertPlateauCandidate => 0.95,
         _ => 1.0
     };
 
@@ -2355,6 +2870,8 @@ internal sealed class HydrologyGenerator
     private sealed record RiverSourceCandidate(int Index, int ComponentId, int BasinId, int BucketX, int BucketY, int DownstreamDryLength, double Score);
 
     private sealed record RiverSourceGroupKey(int ComponentId, int BasinId, int BucketX, int BucketY);
+
+    private sealed record RiverSourceCoverageKey(int ComponentId, int BucketX, int BucketY);
 
     private sealed class ComponentRiverSourceQueue(int id, IReadOnlyList<RiverSourceCandidate> candidates)
     {

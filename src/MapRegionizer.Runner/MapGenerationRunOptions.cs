@@ -21,20 +21,20 @@ public sealed class MapGenerationRunOptions
     public int? PlateCount { get; set; }
     public int? HotspotCount { get; set; }
     public double SmallIslandReliefFactor { get; set; } = 0.55;
-    public bool GenerateSmallLakes { get; set; } = true;
+    public bool GenerateSmallLakes { get; set; } = false;
     public double SmallLakeCountMultiplier { get; set; } = 0.3;
     public double SmallLakeScatterMultiplier { get; set; } = 1.0;
-    public double SmallLakeSizeMultiplier { get; set; } = 0.4;
-    public double RiverDensity { get; set; } = 10;
+    public double SmallLakeSizeMultiplier { get; set; } = 0.5;
+    public double RiverDensity { get; set; } = 1;
     public double MajorRiverCountMultiplier { get; set; } = 1.5;
     public double LongRiverCountMultiplier { get; set; } = 1.3;
-    public double TributaryDensity { get; set; } = 3.5;
-    public double MajorRiverTributaryMultiplier { get; set; } = 10.0;
-    public double LakeOutletInflowForceMultiplier { get; set; } = 10.0;
+    public double TributaryDensity { get; set; } = 1.0;
+    public double MajorRiverTributaryMultiplier { get; set; } = 1.0;
+    public double LakeOutletInflowForceMultiplier { get; set; } = 0.45;
     public double EndorheicBasinChance { get; set; } = 0.22;
     public double DeltaFrequency { get; set; } = 0.8;
     public double MeanderStrength { get; set; } = 0.65;
-    public double LakeOutletStrictness { get; set; } = 0.55;
+    public double LakeOutletStrictness { get; set; } = 0.35;
     public bool PreserveRiverCoastline { get; set; } = true;
     public bool AllowRiverCarving { get; set; } = false;
     public double ClimatePolarLatitudeMargin { get; set; } = 0.05;

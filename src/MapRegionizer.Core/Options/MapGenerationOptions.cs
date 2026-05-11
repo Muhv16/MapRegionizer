@@ -150,10 +150,10 @@ public sealed class ElevationGenerationOptions
     public double VolcanismInfluence { get; init; } = 0.6;
     public double SmallIslandReliefFactor { get; init; } = 0.55;
     public double RiftInfluence { get; init; } = 0.5;
-    public bool GenerateSmallLakes { get; init; } = true;
+    public bool GenerateSmallLakes { get; init; } = false;
     public double SmallLakeCountMultiplier { get; init; } = 0.3;
     public double SmallLakeScatterMultiplier { get; init; } = 1.0;
-    public double SmallLakeSizeMultiplier { get; init; } = 0.4;
+    public double SmallLakeSizeMultiplier { get; init; } = 0.5;
     public bool PreserveMaskCoastline { get; init; } = true;
     public bool PreserveOceanCoastline { get; init; } = true;
     public bool PreserveInlandWaterMask { get; init; } = true;
@@ -221,16 +221,16 @@ public sealed class ElevationGenerationOptions
 
 public sealed class HydrologyGenerationOptions
 {
-    public double RiverDensity { get; init; } = 10;
+    public double RiverDensity { get; init; } = 1;
     public double MajorRiverCountMultiplier { get; init; } = 1.5;
     public double LongRiverCountMultiplier { get; init; } = 1.3;
-    public double TributaryDensity { get; init; } = 3.5;
+    public double TributaryDensity { get; init; } = 1.0;
     public double MajorRiverTributaryMultiplier { get; init; } = 1.0;
-    public double LakeOutletInflowForceMultiplier { get; init; } = 1.0;
+    public double LakeOutletInflowForceMultiplier { get; init; } = 0.45;
     public double EndorheicBasinChance { get; init; } = 0.22;
     public double DeltaFrequency { get; init; } = 0.8;
     public double MeanderStrength { get; init; } = 0.65;
-    public double LakeOutletStrictness { get; init; } = 0.55;
+    public double LakeOutletStrictness { get; init; } = 0.35;
     public bool PreserveCoastline { get; init; } = true;
     public bool AllowRiverCarving { get; init; } = false;
 
