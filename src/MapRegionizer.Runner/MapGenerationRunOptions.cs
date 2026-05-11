@@ -22,9 +22,9 @@ public sealed class MapGenerationRunOptions
     public int? HotspotCount { get; set; }
     public double SmallIslandReliefFactor { get; set; } = 0.55;
     public bool GenerateSmallLakes { get; set; } = true;
-    public double SmallLakeCountMultiplier { get; set; } = 0.5;
-    public double SmallLakeScatterMultiplier { get; set; } = 0.5;
-    public double SmallLakeSizeMultiplier { get; set; } = 0.2;
+    public double SmallLakeCountMultiplier { get; set; } = 0.3;
+    public double SmallLakeScatterMultiplier { get; set; } = 1.0;
+    public double SmallLakeSizeMultiplier { get; set; } = 0.4;
     public double RiverDensity { get; set; } = 10;
     public double MajorRiverCountMultiplier { get; set; } = 1.5;
     public double LongRiverCountMultiplier { get; set; } = 1.3;

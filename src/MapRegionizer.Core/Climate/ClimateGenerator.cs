@@ -365,7 +365,8 @@ public sealed class ClimateGenerator
             {
                 var index = y * width + x;
                 var terrainClass = elevation.GetTerrainClass(x, y);
-                var continentality = NormalizeDistance(distanceToLargeWater[index], options.ContinentalityDistanceCells);
+                var continentalityRaw = NormalizeDistance(distanceToLargeWater[index], options.ContinentalityDistanceCells);
+                var continentality = Math.Pow(continentalityRaw, 1.35);
                 var temp = options.EquatorTemperatureCelsius - latitudeCooling;
                 var exposedElevation = water[index] ? 0.0 : Math.Max(0.0, elevation.GetElevation(x, y));
                 temp -= exposedElevation * options.LapseRateCelsiusPerMeter;
@@ -445,8 +446,8 @@ public sealed class ClimateGenerator
                 var temperatureFactor = Math.Clamp((meanAnnualTemperature[index] + 12.0) / 42.0, 0.12, 1.15);
                 var baseRain = incoming * options.BaseRainfallEfficiency * temperatureFactor;
                 var orographicRain = Math.Max(0.0, slope) / 1000.0 * options.OrographicStrength * (1.0 + mountainFactor);
-                var rain = Math.Min(incoming * 0.88, baseRain + orographicRain);
-                var descentDrying = Math.Max(0.0, -slope) / 1200.0 * options.DescentDrying * (1.0 + mountainFactor);
+                var rain = Math.Min(incoming * 0.52, baseRain + orographicRain);
+                var descentDrying = Math.Max(0.0, -slope) / 1100.0 * options.DescentDrying * (1.0 + mountainFactor);
                 var shadow = Math.Clamp(rainShadow[upwindIndex] * 0.72 + descentDrying + GetTerrainDryness(terrainClass) * 0.12, 0, 1);
 
                 rain *= 1.0 - shadow * 0.38;
@@ -476,7 +477,7 @@ public sealed class ClimateGenerator
         if (water[index])
             return options.LakeEvaporation * warmth;
 
-        var coastalEvaporation = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / 5.0) * 0.12;
+        var coastalEvaporation = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / 12.0) * 0.12;
         return (options.LandEvapotranspiration + riverInfluence[index] * 0.08 + coastalEvaporation) * warmth;
     }
 
@@ -530,7 +531,12 @@ public sealed class ClimateGenerator
                 summerTemperature[index] += monsoon * 0.9;
                 winterTemperature[index] -= monsoon * options.DrySeasonStrength * 2.0;
 
-                var coastalHumidity = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / Math.Max(1.0, options.ContinentalityDistanceCells * 0.55));
+                var coastalHumidityRaw = Math.Max(
+                    0.0,
+                    1.0 - distanceToLargeWater[index] / Math.Max(1.0, options.ContinentalityDistanceCells * 1.0));
+
+                var coastalHumidity = Math.Sqrt(coastalHumidityRaw);
+
                 var localMoisture = precipitation[index] * 0.66 +
                     Math.Clamp(atmosphericMoisture[index], 0, 1) * 0.24 +
                     coastalHumidity * 0.22 -
@@ -606,7 +612,7 @@ public sealed class ClimateGenerator
                 if (water[index])
                     continue;
 
-                var coastalWetness = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / Math.Max(1.0, options.ContinentalityDistanceCells * 0.42));
+                var coastalWetness = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / Math.Max(1.0, options.ContinentalityDistanceCells * 0.82));
                 var windwardWetness = Math.Clamp(precipitation[index] * 0.28 - rainShadow[index] * 0.12, -0.08, 0.24);
                 var physicalWetnessGate = Math.Clamp((moisture[index] - 0.12) / 0.32, 0, 1);
                 var riverBiomeBonus = riverInfluence[index] * (0.06 + physicalWetnessGate * 0.10);
@@ -615,7 +621,7 @@ public sealed class ClimateGenerator
                 biomeMoisture[index] = Math.Clamp(
                     biomeMoisture[index] * 0.74 +
                     moisture[index] * 0.18 +
-                    coastalWetness * 0.13 +
+                    coastalWetness * 0.16 +
                     windwardWetness +
                     riverBiomeBonus -
                     basinPenalty,
@@ -845,13 +851,13 @@ public sealed class ClimateGenerator
         if (elevationMeters > 2600 && summerTemp < 10.0)
             return (ClimateClassKind.Alpine, BiomeKind.AlpineTundra);
 
-        if (moisture < 0.10)
+        if (moisture < 0.08)
             return meanTemp >= 17.0 ? (ClimateClassKind.HotArid, BiomeKind.RockyDesert) : (ClimateClassKind.SemiArid, BiomeKind.ColdDesert);
-        if (moisture < 0.16)
+        if (moisture < 0.14)
             return meanTemp >= 17.0 ? (ClimateClassKind.HotArid, BiomeKind.HotDesert) : (ClimateClassKind.SemiArid, BiomeKind.ColdDesert);
-        if (moisture < 0.22)
+        if (moisture < 0.20)
             return (ClimateClassKind.SemiArid, meanTemp >= 14.0 ? BiomeKind.SemiDesert : BiomeKind.Steppe);
-        if (moisture < 0.30)
+        if (moisture < 0.27)
             return (ClimateClassKind.SemiArid, meanTemp >= 14.0 ? BiomeKind.XericShrubland : BiomeKind.Steppe);
 
         if (meanTemp >= 22.0)
@@ -871,9 +877,9 @@ public sealed class ClimateGenerator
         {
             if (moisture > 0.72)
                 return (ClimateClassKind.TemperateWet, BiomeKind.TemperateRainforest);
-            if (moisture > 0.44)
+            if (moisture > 0.38)
                 return mountainOverlay > 0.48 ? (ClimateClassKind.WarmTemperate, BiomeKind.MontaneForest) : (ClimateClassKind.WarmTemperate, BiomeKind.TemperateForest);
-            if (moisture > 0.35)
+            if (moisture > 0.29)
                 return (ClimateClassKind.WarmTemperate, BiomeKind.OpenWoodland);
             if (seasonality > 18.0 || winterTemp < -3.0)
                 return (ClimateClassKind.Continental, BiomeKind.TemperateGrassland);

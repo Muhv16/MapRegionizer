@@ -983,7 +983,7 @@ internal sealed class HydrologyGenerator
             if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
                 continue;
 
-            if (accumulation[upstreamIndex] >= threshold * 0.72)
+            if (accumulation[upstreamIndex] >= threshold * 1.10)
                 return false;
         }
 
@@ -1024,9 +1024,9 @@ internal sealed class HydrologyGenerator
             .ToList();
         var componentCap = groupsByComponent.Count <= 1
             ? maxSources
-            : Math.Clamp(maxSources / Math.Max(2, groupsByComponent.Count / 4), 14, 36);
-        var basinCap = Math.Clamp(maxSources / 6, 12, 42);
-        const int bucketCap = 2;
+            : Math.Clamp(maxSources / Math.Max(2, groupsByComponent.Count / 4), 14, 48);
+        var basinCap = Math.Clamp(maxSources / 4, 14, 52);
+        const int bucketCap = 4;
 
         var progress = true;
         while (selected.Count < maxSources && progress)
@@ -1191,13 +1191,13 @@ internal sealed class HydrologyGenerator
             values.Sort();
             var percentile = component.CellCount switch
             {
-                < 180 => 0.992,
-                < 750 => 0.982,
-                < 2400 => 0.968,
-                _ => 0.942
+                < 180 => 0.962,
+                < 750 => 0.952,
+                < 2400 => 0.938,
+                _ => 0.842
             };
             var local = PercentileSorted(values, percentile);
-            thresholds[component.Id] = Math.Clamp(local, baseThreshold * 0.32, baseThreshold * 1.55);
+            thresholds[component.Id] = Math.Clamp(local, baseThreshold * 0.18, baseThreshold * 1.22);
         }
 
         return thresholds;
@@ -1744,9 +1744,9 @@ internal sealed class HydrologyGenerator
             .ToList();
         var visited = new bool[riverCells.Length];
         var rivers = new List<RiverSegment>();
-        var maxRivers = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) * 1.35 *
+        var maxRivers = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) * 2.35 *
                                                     Math.Max(0.25, options.MajorRiverCountMultiplier) *
-                                                    (1.0 + Math.Max(0.0, options.MajorRiverTributaryMultiplier) * 0.35)), 24, 1200);
+                                                    (1.0 + Math.Max(0.0, options.MajorRiverTributaryMultiplier) * 0.35)), 48, 2400);
         var componentCounts = new Dictionary<int, int>();
         var componentById = landComponents.Components.ToDictionary(c => c.Id);
         var nextRiverId = 1;
@@ -1974,11 +1974,11 @@ internal sealed class HydrologyGenerator
 
         var cap = component.CellCount switch
         {
-            < 160 => 0,
-            < 750 => 3,
-            < 2400 => 7,
-            < 9000 => 16,
-            _ => Math.Clamp(18 + component.CellCount / 2200, 22, 42)
+            < 160 => 1,
+            < 750 => 6,
+            < 2400 => 14,
+            < 9000 => 32,
+            _ => Math.Clamp(18 + component.CellCount / 1400, 48, 120)
         };
         cap = (int)Math.Round(cap * (1.0 + Math.Max(0.0, options.MajorRiverTributaryMultiplier) * 0.35));
 
