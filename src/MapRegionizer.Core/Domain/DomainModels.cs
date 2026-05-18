@@ -163,8 +163,8 @@ public sealed class WaterBodyTopology
 
     public bool IsInlandWater(GridPoint point) => IsInlandWater(point.X, point.Y);
 
-    internal ReadOnlySpan<int> WaterBodyIdsSpan => _waterBodyIds;
-    internal ReadOnlySpan<byte> WaterBodyKindsSpan => _waterBodyKinds;
+    public ReadOnlySpan<int> WaterBodyIdsSpan => _waterBodyIds;
+    public ReadOnlySpan<byte> WaterBodyKindsSpan => _waterBodyKinds;
 }
 
 public sealed record WaterBodySurface(
@@ -237,7 +237,7 @@ public sealed class WaterSurfaceMap
     public WaterBodySurface? GetBodySurface(WaterBodyId id) =>
         _byId.TryGetValue(id.Value, out var surface) ? surface : null;
 
-    internal ReadOnlySpan<double> WaterSurfaceMetersSpan => _waterSurfaceMeters;
+    public ReadOnlySpan<double> WaterSurfaceMetersSpan => _waterSurfaceMeters;
 }
 
 public sealed class HydrologyMap
@@ -308,11 +308,11 @@ public sealed class HydrologyMap
 
     public bool IsRiverCell(GridPoint point) => IsRiverCell(point.X, point.Y);
 
-    internal ReadOnlySpan<double> HydroSurfaceMetersSpan => _hydroSurfaceMeters;
-    internal ReadOnlySpan<int> FlowDirectionsSpan => _flowDirections;
-    internal ReadOnlySpan<double> FlowAccumulationSpan => _flowAccumulation;
-    internal ReadOnlySpan<int> DrainageBasinIdsSpan => _drainageBasinIds;
-    internal ReadOnlySpan<byte> RiverCellsSpan => _riverCells;
+    public ReadOnlySpan<double> HydroSurfaceMetersSpan => _hydroSurfaceMeters;
+    public ReadOnlySpan<int> FlowDirectionsSpan => _flowDirections;
+    public ReadOnlySpan<double> FlowAccumulationSpan => _flowAccumulation;
+    public ReadOnlySpan<int> DrainageBasinIdsSpan => _drainageBasinIds;
+    public ReadOnlySpan<byte> RiverCellsSpan => _riverCells;
 
     private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
@@ -498,26 +498,26 @@ public sealed class ClimateMap
 
     public BiomeKind GetBiome(int x, int y) => (BiomeKind)_biomes[y * Width + x];
 
-    internal ReadOnlySpan<double> LatitudeNormSpan => _latitudeNorm;
-    internal ReadOnlySpan<double> MeanAnnualTemperatureSpan => _meanAnnualTemperature;
-    internal ReadOnlySpan<double> SummerTemperatureSpan => _summerTemperature;
-    internal ReadOnlySpan<double> WinterTemperatureSpan => _winterTemperature;
-    internal ReadOnlySpan<double> SeasonalitySpan => _seasonality;
-    internal ReadOnlySpan<double> AtmosphericMoistureSpan => _atmosphericMoisture;
-    internal ReadOnlySpan<double> PrecipitationSpan => _precipitation;
-    internal ReadOnlySpan<double> MoistureSpan => _moisture;
-    internal ReadOnlySpan<double> BiomeMoistureSpan => _biomeMoisture;
-    internal ReadOnlySpan<double> RainShadowSpan => _rainShadow;
-    internal ReadOnlySpan<double> MonsoonInfluenceSpan => _monsoonInfluence;
-    internal ReadOnlySpan<double> RiverValleyInfluenceSpan => _riverValleyInfluence;
-    internal ReadOnlySpan<double> WetlandInfluenceSpan => _wetlandInfluence;
-    internal ReadOnlySpan<double> SnowOverlaySpan => _snowOverlay;
-    internal ReadOnlySpan<double> MountainOverlaySpan => _mountainOverlay;
-    internal ReadOnlySpan<double> IceScoreSpan => _iceScore;
-    internal ReadOnlySpan<double> HabitabilitySpan => _habitability;
-    internal ReadOnlySpan<double> AgriculturalPotentialSpan => _agriculturalPotential;
-    internal ReadOnlySpan<byte> ClimateClassSpan => _climateClasses;
-    internal ReadOnlySpan<byte> BiomeSpan => _biomes;
+    public ReadOnlySpan<double> LatitudeNormSpan => _latitudeNorm;
+    public ReadOnlySpan<double> MeanAnnualTemperatureSpan => _meanAnnualTemperature;
+    public ReadOnlySpan<double> SummerTemperatureSpan => _summerTemperature;
+    public ReadOnlySpan<double> WinterTemperatureSpan => _winterTemperature;
+    public ReadOnlySpan<double> SeasonalitySpan => _seasonality;
+    public ReadOnlySpan<double> AtmosphericMoistureSpan => _atmosphericMoisture;
+    public ReadOnlySpan<double> PrecipitationSpan => _precipitation;
+    public ReadOnlySpan<double> MoistureSpan => _moisture;
+    public ReadOnlySpan<double> BiomeMoistureSpan => _biomeMoisture;
+    public ReadOnlySpan<double> RainShadowSpan => _rainShadow;
+    public ReadOnlySpan<double> MonsoonInfluenceSpan => _monsoonInfluence;
+    public ReadOnlySpan<double> RiverValleyInfluenceSpan => _riverValleyInfluence;
+    public ReadOnlySpan<double> WetlandInfluenceSpan => _wetlandInfluence;
+    public ReadOnlySpan<double> SnowOverlaySpan => _snowOverlay;
+    public ReadOnlySpan<double> MountainOverlaySpan => _mountainOverlay;
+    public ReadOnlySpan<double> IceScoreSpan => _iceScore;
+    public ReadOnlySpan<double> HabitabilitySpan => _habitability;
+    public ReadOnlySpan<double> AgriculturalPotentialSpan => _agriculturalPotential;
+    public ReadOnlySpan<byte> ClimateClassSpan => _climateClasses;
+    public ReadOnlySpan<byte> BiomeSpan => _biomes;
 
     private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
@@ -651,8 +651,8 @@ public sealed class TectonicPlateRaster
 
     public CrustKind GetCrust(GridPoint point) => GetCrust(point.X, point.Y);
 
-    internal ReadOnlySpan<short> PlatesSpan => _plates;
-    internal ReadOnlySpan<byte> CrustSpan => _crust;
+    public ReadOnlySpan<short> PlatesSpan => _plates;
+    public ReadOnlySpan<byte> CrustSpan => _crust;
 }
 
 public sealed record TectonicPlateMap(
@@ -791,13 +791,13 @@ public sealed class CrustFieldMap
 
     public double GetLastVolcanismAge(GridPoint point) => GetLastVolcanismAge(point.X, point.Y);
 
-    internal ReadOnlySpan<byte> CrustSpan => _crust;
-    internal ReadOnlySpan<byte> CoastalZoneSpan => _coastalZones;
-    internal ReadOnlySpan<double> OceanicAgeSpan => _oceanicAge;
-    internal ReadOnlySpan<double> ContinentalAgeSpan => _continentalAge;
-    internal ReadOnlySpan<double> LastRiftingAgeSpan => _lastRiftingAge;
-    internal ReadOnlySpan<double> LastOrogenyAgeSpan => _lastOrogenyAge;
-    internal ReadOnlySpan<double> LastVolcanismAgeSpan => _lastVolcanismAge;
+    public ReadOnlySpan<byte> CrustSpan => _crust;
+    public ReadOnlySpan<byte> CoastalZoneSpan => _coastalZones;
+    public ReadOnlySpan<double> OceanicAgeSpan => _oceanicAge;
+    public ReadOnlySpan<double> ContinentalAgeSpan => _continentalAge;
+    public ReadOnlySpan<double> LastRiftingAgeSpan => _lastRiftingAge;
+    public ReadOnlySpan<double> LastOrogenyAgeSpan => _lastOrogenyAge;
+    public ReadOnlySpan<double> LastVolcanismAgeSpan => _lastVolcanismAge;
 
     private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
@@ -829,7 +829,7 @@ public sealed class PlateDomainMap
 
     public TectonicPlateId GetPlate(GridPoint point) => GetPlate(point.X, point.Y);
 
-    internal ReadOnlySpan<short> PlatesSpan => _plates;
+    public ReadOnlySpan<short> PlatesSpan => _plates;
 }
 
 public sealed record PlateDomain(
@@ -901,9 +901,9 @@ public sealed class OrogenProvinceMap
 
     public double GetAxis(int x, int y) => _axis[y * Width + x];
 
-    internal ReadOnlySpan<double> InfluenceSpan => _influence;
-    internal ReadOnlySpan<double> StrengthSpan => _strength;
-    internal ReadOnlySpan<double> AxisSpan => _axis;
+    public ReadOnlySpan<double> InfluenceSpan => _influence;
+    public ReadOnlySpan<double> StrengthSpan => _strength;
+    public ReadOnlySpan<double> AxisSpan => _axis;
 
     private static void CrustFieldMapValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
@@ -977,12 +977,12 @@ public sealed class RiftProvinceMap
 
     public double GetBreakupMask(int x, int y) => _breakupMask[y * Width + x];
 
-    internal ReadOnlySpan<double> RiftInfluenceSpan => _riftInfluence;
-    internal ReadOnlySpan<double> RiftAxisSpan => _riftAxis;
-    internal ReadOnlySpan<double> GrabenMaskSpan => _grabenMask;
-    internal ReadOnlySpan<double> ShoulderUpliftMaskSpan => _shoulderUpliftMask;
-    internal ReadOnlySpan<double> HeatFlowMaskSpan => _heatFlowMask;
-    internal ReadOnlySpan<double> BreakupMaskSpan => _breakupMask;
+    public ReadOnlySpan<double> RiftInfluenceSpan => _riftInfluence;
+    public ReadOnlySpan<double> RiftAxisSpan => _riftAxis;
+    public ReadOnlySpan<double> GrabenMaskSpan => _grabenMask;
+    public ReadOnlySpan<double> ShoulderUpliftMaskSpan => _shoulderUpliftMask;
+    public ReadOnlySpan<double> HeatFlowMaskSpan => _heatFlowMask;
+    public ReadOnlySpan<double> BreakupMaskSpan => _breakupMask;
 
     private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
@@ -1232,18 +1232,18 @@ public sealed class ElevationMap
 
     public ElevationZoneKind GetZone(GridPoint point) => GetZone(point.X, point.Y);
 
-    internal ReadOnlySpan<double> ElevationMetersSpan => _elevationMeters;
-    internal ReadOnlySpan<double> BedElevationMetersSpan => _bedElevationMeters;
-    internal ReadOnlySpan<double> WaterSurfaceMetersSpan => _waterSurfaceMeters;
-    internal ReadOnlySpan<double> BaseElevationMetersSpan => _baseElevationMeters;
-    internal ReadOnlySpan<double> TectonicElevationMetersSpan => _tectonicElevationMeters;
-    internal ReadOnlySpan<double> RoughnessSpan => _roughness;
-    internal ReadOnlySpan<double> ErosionMaskSpan => _erosionMask;
-    internal ReadOnlySpan<byte> TerrainClassSpan => _terrainClasses;
-    internal ReadOnlySpan<double> MountainPassPotentialSpan => _mountainPassPotential;
-    internal ReadOnlySpan<double> RidgeContinuitySpan => _ridgeContinuity;
-    internal ReadOnlySpan<double> FoothillInfluenceSpan => _foothillInfluence;
-    internal ReadOnlySpan<double> BasinInfluenceSpan => _basinInfluence;
+    public ReadOnlySpan<double> ElevationMetersSpan => _elevationMeters;
+    public ReadOnlySpan<double> BedElevationMetersSpan => _bedElevationMeters;
+    public ReadOnlySpan<double> WaterSurfaceMetersSpan => _waterSurfaceMeters;
+    public ReadOnlySpan<double> BaseElevationMetersSpan => _baseElevationMeters;
+    public ReadOnlySpan<double> TectonicElevationMetersSpan => _tectonicElevationMeters;
+    public ReadOnlySpan<double> RoughnessSpan => _roughness;
+    public ReadOnlySpan<double> ErosionMaskSpan => _erosionMask;
+    public ReadOnlySpan<byte> TerrainClassSpan => _terrainClasses;
+    public ReadOnlySpan<double> MountainPassPotentialSpan => _mountainPassPotential;
+    public ReadOnlySpan<double> RidgeContinuitySpan => _ridgeContinuity;
+    public ReadOnlySpan<double> FoothillInfluenceSpan => _foothillInfluence;
+    public ReadOnlySpan<double> BasinInfluenceSpan => _basinInfluence;
 
     private static void ValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
