@@ -94,7 +94,7 @@ inland lake / inland sea / generated lake: WaterSurfaceMeters
 
 It then selects lake outlets. Each inland lake or inland sea gets a shoreline candidate list, scored by shoreline height, local outward route cost, ridge/roughness penalties, basin/pass biases, lake origin, lake size, and deterministic noise. Tectonic, glacial, and erosional lakes are more likely to drain; volcanic/karst lakes and dry-basin plain lakes are more likely to remain endorheic. Large lakes may receive many incoming rivers but still expose one main outlet.
 
-Flow routing uses D8 with a cost model rather than pure steepest descent:
+Flow routing still builds a D8-style `flowDirections` raster for hydrology, but visible rivers are no longer rendered directly from that greedy chain. The hydrology raster remains the source of accumulation, basins, lake targets, and terminal drainage; after visible river sources and mouths are selected, each river receives a separate channel path for rendering.
 
 ```text
 cost = hydro height
@@ -104,7 +104,11 @@ cost = hydro height
      + deterministic noise
 ```
 
-In low-slope plains, the routing cost also applies a deterministic multi-scale lateral bias and a small straight-axis penalty. Lake and ocean target attraction remains, but is softened in flat terrain so rivers do not always snap into the nearest water cell along long straight runs. Small dry depressions can be crossed by a limited logical breach when the uphill cost is low, especially near passes or basin outlets. Lakes without outlets are terminal drainage targets unless a shallow non-inland-sea lake receives many significant inflows; in that case a forced outlet is placed on shoreline far from the inflow cluster. `LakeOutletInflowForceMultiplier` scales the inflow-count threshold for this forced outlet.
+In low-slope plains, the hydrology routing cost also applies a deterministic multi-scale lateral bias and a small straight-axis penalty. Lake and ocean target attraction remains, but is softened in flat terrain so rivers do not always snap into the nearest water cell along long straight runs. Small dry depressions can be crossed by a limited logical breach when the uphill cost is low, especially near passes or basin outlets. Lakes without outlets are terminal drainage targets unless a shallow non-inland-sea lake receives many significant inflows; in that case a forced outlet is placed on shoreline far from the inflow cluster. `LakeOutletInflowForceMultiplier` scales the inflow-count threshold for this forced outlet.
+
+The render channel pass traces a stateful channel path inside the hydrology corridor. Its cost considers terrain height, limited uphill breach, ridge continuity, basin/valley attraction, attraction to already used channels, curvature, long straight runs, repeated perfect diagonal runs, small meander noise, and a low-frequency curl field that is strongest in plains and foothills. This separates stable drainage accounting from cartographic river shape: `flowDirections` drives accumulation and basin logic, while `RiverSegment.Cells` and `RiverSegment.Polyline` carry the render channel.
+
+After channel tracing, a diagnostic straight-run pass looks for repeated direction vectors of six or more cells. When it finds one, it attempts a local least-cost reroute between neighboring anchors in a 3..8 cell corridor, forbidding continuation of the same diagonal vector beyond the local limit and softly preferring valley/basin cells while allowing only a small breach.
 
 Dry endorheic basins are classified before visible river selection:
 
@@ -124,7 +128,7 @@ Visible river cells are selected from accumulation with terrain-dependent thresh
 
 After the distributed pass, a forced-long-river pass chooses the best ocean/lake/inland-sea basins by upstream path length and passes those paths into normal river extraction as priority mainstems. Before extraction, large inland seas receive at least one visible inflow of eight or more cells when such a path exists. Major forced mainstems also seed additional side tributaries along their length; confluence points are spaced along the main river, and tributary lengths can range from short four-cell branches to the longest available upstream branch. `LongRiverCountMultiplier` scales the forced-mainstem budget; `MajorRiverTributaryMultiplier` scales the number of guaranteed side tributaries.
 
-Extracted `RiverSegment` records include raw dry-land raster cells, a smoothed render polyline, source, segment mouth, drainage terminal, discharge, length, mean slope, target basin, river kind, and mouth kind. `RiverSegment.Mouth` and `rivers.json.Rivers[].Mouth` are the end of the visible segment: receiving water, dry-basin endpoint, or confluence with an already extracted downstream segment. `DrainageTerminal` records the final ocean/lake/dry-basin target downstream. This keeps tributary polylines ending at confluences instead of drawing over the downstream river to the final ocean mouth. River kinds are `Mountain`, `Plain`, `Rift`, `Deltaic`, and `Endorheic`. Mouth kinds are `SimpleMouth`, `Estuary`, `Delta`, `MarshDelta`, and `InlandDelta`.
+Extracted `RiverSegment` records include render-channel dry-land cells, a smoothed render polyline, source, segment mouth, drainage terminal, discharge, length, mean slope, target basin, river kind, and mouth kind. `RiverSegment.Mouth` and `rivers.json.Rivers[].Mouth` are the end of the visible segment: receiving water, dry-basin endpoint, or confluence with an already extracted downstream segment. `DrainageTerminal` records the final ocean/lake/dry-basin target downstream. This keeps tributary polylines ending at confluences instead of drawing over the downstream river to the final ocean mouth. River kinds are `Mountain`, `Plain`, `Rift`, `Deltaic`, and `Endorheic`. A lake inflow is classified as endorheic only when the target lake or inland sea has no outlet; lakes with outlets receive normal river classification while still retaining a lake target in the drainage metadata. Mouth kinds are `SimpleMouth`, `Estuary`, `Delta`, `MarshDelta`, and `InlandDelta`.
 
 Current river options live in `HydrologyGenerationOptions`:
 
@@ -147,6 +151,8 @@ Current river options live in `HydrologyGenerationOptions`:
 
 Generated artifacts include `lakes.json` when lake-surface data is available. It exports one record per inland lake or inland sea with surface elevation, spill elevation, margin, maximum depth, shoreline metrics, classification, and profile metadata.
 
-Generated artifacts include `rivers.json` when hydrology data is available. It exports summary river statistics, river segments, render polylines, mouths, lake outlets, and drainage basins. The default export keeps JSON compact by omitting full raster cell paths; diagnostic rasters can be added through `RiverJsonExportOptions`.
+Generated artifacts include `rivers.json` when hydrology data is available. It exports summary river statistics, quality diagnostics, river segments, render polylines, mouths, lake outlets, and drainage basins. The default export keeps JSON compact by omitting full raster cell paths; diagnostic rasters can be added through `RiverJsonExportOptions`.
+
+The `Quality` block reports straight-run count and maximum run length, short-river count using a scale-dependent 5..8 cell limit, detached-river count, confluence count, mean tributaries per major river, and the expected endorheic river count after considering closed lakes. `Summary.MajorRiverCount` also ignores short segments and steep low-discharge streams so tiny creeks do not inflate the major-river total.
 
 `elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled. The renderer samples river polylines into anti-aliased Catmull-Rom-like curves, while preserving wrap breaks so world-edge rivers do not draw across the full image.

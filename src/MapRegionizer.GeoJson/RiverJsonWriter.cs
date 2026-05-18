@@ -76,12 +76,14 @@ public static class RiverJsonWriter
                 Math.Round(b.TotalRunoff, 3)))
             .ToList();
 
+        var quality = BuildQuality(hydrology, options);
+
         return new RiverMapDto(
             hydrology.Width,
             hydrology.Height,
             new RiverSummaryDto(
                 rivers.Count,
-                rivers.Count(r => r.Discharge >= options.MajorRiverDischargeThreshold),
+                hydrology.Rivers.Count(r => IsMajorRiver(r, options, DynamicShortRiverLimit(hydrology))),
                 basins.Count(b => b.TargetKind == DrainageTargetKind.EndorheicDryBasin),
                 rivers.Count(r => r.TargetKind == DrainageTargetKind.Ocean),
                 rivers.Count(r => r.TargetKind is DrainageTargetKind.Lake or DrainageTargetKind.InlandSea),
@@ -91,6 +93,7 @@ public static class RiverJsonWriter
                 Math.Round(rivers.Count == 0 ? 0 : rivers.Max(r => r.LengthCells), 2),
                 outlets.Count(o => o.HasOutlet),
                 outlets.Count(o => !o.HasOutlet)),
+            quality,
             rivers,
             mouths,
             outlets,
@@ -196,6 +199,7 @@ public static class RiverJsonWriter
         int Width,
         int Height,
         RiverSummaryDto Summary,
+        RiverQualityDto Quality,
         IReadOnlyList<RiverDto> Rivers,
         IReadOnlyList<RiverMouthDto> Mouths,
         IReadOnlyList<LakeOutletDto> LakeOutlets,
@@ -216,6 +220,99 @@ public static class RiverJsonWriter
         double MaxLengthCells,
         int LakeOutletCount,
         int EndorheicLakeCount);
+
+    private static RiverQualityDto BuildQuality(HydrologyMap hydrology, RiverJsonExportOptions options)
+    {
+        var shortLimit = DynamicShortRiverLimit(hydrology);
+        var outletLakeIds = hydrology.LakeOutlets.Where(o => o.HasOutlet).Select(o => o.LakeId.Value).ToHashSet();
+        var confluenceCount = hydrology.Rivers
+            .Count(r => hydrology.Rivers.Any(other => other.Id != r.Id && other.Cells.Any(c => c == r.Mouth)));
+        var majorCount = hydrology.Rivers.Count(r => IsMajorRiver(r, options, shortLimit));
+        var straightRuns = hydrology.Rivers.SelectMany(r => DetectStraightRuns(r.Cells, 6)).ToList();
+        var expectedEndorheic = hydrology.Rivers.Count(r =>
+            r.TargetKind == DrainageTargetKind.EndorheicDryBasin ||
+            r.TargetKind is DrainageTargetKind.Lake or DrainageTargetKind.InlandSea &&
+            (!r.TargetId.HasValue || !outletLakeIds.Contains(r.TargetId.Value)));
+        var detached = hydrology.Rivers.Count(r =>
+            r.TargetKind != DrainageTargetKind.Ocean &&
+            r.TargetKind != DrainageTargetKind.Lake &&
+            r.TargetKind != DrainageTargetKind.InlandSea &&
+            r.TargetKind != DrainageTargetKind.EndorheicDryBasin);
+
+        return new RiverQualityDto(
+            straightRuns.Count,
+            straightRuns.Count == 0 ? 0 : straightRuns.Max(),
+            hydrology.Rivers.Count(r => r.Cells.Count <= shortLimit),
+            detached,
+            confluenceCount,
+            Math.Round(majorCount == 0 ? 0.0 : confluenceCount / (double)majorCount, 3),
+            expectedEndorheic);
+    }
+
+    private static bool IsMajorRiver(RiverSegment river, RiverJsonExportOptions options, int shortLimit) =>
+        river.Discharge >= options.MajorRiverDischargeThreshold &&
+        river.Cells.Count > shortLimit &&
+        !(river.MeanSlope > 16.0 && river.Discharge < options.MajorRiverDischargeThreshold * 1.35);
+
+    private static int DynamicShortRiverLimit(HydrologyMap hydrology) =>
+        Math.Clamp((int)Math.Round(Math.Sqrt(hydrology.Width * hydrology.Height) / 34.0), 5, 8);
+
+    private static IEnumerable<int> DetectStraightRuns(IReadOnlyList<GridPoint> cells, int minRun)
+    {
+        if (cells.Count < minRun + 1)
+            yield break;
+
+        var direction = Direction(cells[0], cells[1], int.MaxValue / 4);
+        var length = 1;
+        for (var i = 1; i < cells.Count - 1; i++)
+        {
+            var nextDirection = Direction(cells[i], cells[i + 1], int.MaxValue / 4);
+            if (nextDirection == direction)
+            {
+                length++;
+                continue;
+            }
+
+            if (direction >= 0 && length >= minRun)
+                yield return length;
+            direction = nextDirection;
+            length = 1;
+        }
+
+        if (direction >= 0 && length >= minRun)
+            yield return length;
+    }
+
+    private static int Direction(GridPoint from, GridPoint to, int width)
+    {
+        var dx = to.X - from.X;
+        if (Math.Abs(dx) > width / 2.0)
+            dx = dx > 0 ? dx - width : dx + width;
+        var dy = to.Y - from.Y;
+        if (dx == 0 && dy == 0)
+            return -1;
+        return (Math.Sign(dx), Math.Sign(dy)) switch
+        {
+            (1, 0) => 0,
+            (1, 1) => 1,
+            (0, 1) => 2,
+            (-1, 1) => 3,
+            (-1, 0) => 4,
+            (-1, -1) => 5,
+            (0, -1) => 6,
+            (1, -1) => 7,
+            _ => -1
+        };
+    }
+
+    private sealed record RiverQualityDto(
+        int StraightRunCount,
+        int MaxStraightRunCells,
+        int ShortRiverCount,
+        int DetachedRiverCount,
+        int ConfluenceCount,
+        double MeanTributariesPerMajorRiver,
+        int EndorheicRiverCountExpected);
 
     private sealed record RiverDto(
         int Id,
