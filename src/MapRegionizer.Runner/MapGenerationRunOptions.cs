@@ -26,6 +26,9 @@ public sealed class MapGenerationRunOptions
     public double SmallLakeScatterMultiplier { get; set; } = 1.0;
     public double SmallLakeSizeMultiplier { get; set; } = 0.5;
     public double RiverDensity { get; set; } = 1;
+    public double MountainRiverDensity { get; set; } = 0.58;
+    public int MaxMountainSourcesPerCluster { get; set; }
+    public int MinMountainSourceSpacing { get; set; }
     public double MajorRiverCountMultiplier { get; set; } = 1.5;
     public double LongRiverCountMultiplier { get; set; } = 1.3;
     public double TributaryDensity { get; set; } = 1.0;
@@ -85,6 +88,9 @@ public sealed class MapGenerationRunOptions
             Hydrology = new HydrologyGenerationOptions
             {
                 RiverDensity = RiverDensity,
+                MountainRiverDensity = MountainRiverDensity,
+                MaxMountainSourcesPerCluster = MaxMountainSourcesPerCluster,
+                MinMountainSourceSpacing = MinMountainSourceSpacing,
                 MajorRiverCountMultiplier = MajorRiverCountMultiplier,
                 LongRiverCountMultiplier = LongRiverCountMultiplier,
                 TributaryDensity = TributaryDensity,

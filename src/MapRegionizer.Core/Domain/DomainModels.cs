@@ -335,7 +335,12 @@ public sealed record RiverSegment(
     double LengthCells,
     double MeanSlope,
     RiverKind Kind,
-    RiverMouthKind? MouthKind = null);
+    RiverMouthKind? MouthKind = null,
+    int Order = 1,
+    bool IsMajor = false,
+    double VisibleRank = 0.0,
+    int? ParentRiverId = null,
+    IReadOnlyList<int>? TributaryIds = null);
 
 public sealed record RiverMouth(
     int RiverId,

@@ -100,10 +100,13 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --small-lake-count-multiplier <number>
 --small-lake-scatter-multiplier <number>
 --small-lake-size-multiplier <number>
---river-density <number>                 # default 10
+--river-density <number>                 # default 1
+--mountain-river-density <number>        # default 0.58
+--max-mountain-sources-per-cluster <int> # default 0, automatic
+--min-mountain-source-spacing <int>      # default 0, automatic
 --major-river-count-multiplier <number>
 --long-river-count-multiplier <number>
---tributary-density <number>             # default 3.5
+--tributary-density <number>             # default 1
 --major-river-tributary-multiplier <number>
 --lake-outlet-inflow-force-multiplier <number>
 --endorheic-basin-chance <0..1>

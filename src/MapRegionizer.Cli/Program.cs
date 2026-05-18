@@ -137,6 +137,15 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "river-density":
                 options.RiverDensity = ParseDouble(value, name);
                 break;
+            case "mountain-river-density":
+                options.MountainRiverDensity = ParseDouble(value, name);
+                break;
+            case "max-mountain-sources-per-cluster":
+                options.MaxMountainSourcesPerCluster = ParseInt(value, name);
+                break;
+            case "min-mountain-source-spacing":
+                options.MinMountainSourceSpacing = ParseInt(value, name);
+                break;
             case "major-river-count-multiplier":
                 options.MajorRiverCountMultiplier = ParseDouble(value, name);
                 break;
@@ -343,16 +352,19 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --small-lake-count-multiplier <number>  Scales generated small-lake count. Default: 1.");
     Console.WriteLine("  --small-lake-scatter-multiplier <number>  Scales scattered standalone lakes. Default: 1.");
     Console.WriteLine("  --small-lake-size-multiplier <number>   Scales generated small-lake footprint size. Default: 0.1.");
-    Console.WriteLine("  --river-density <number>        Scales visible river density. Default: 10.");
+    Console.WriteLine("  --river-density <number>        Scales visible river density. Default: 1.");
+    Console.WriteLine("  --mountain-river-density <number>  Multiplies visible mountain source density. Default: 0.58.");
+    Console.WriteLine("  --max-mountain-sources-per-cluster <n>  Optional hard cap for visible sources in one mountain cluster.");
+    Console.WriteLine("  --min-mountain-source-spacing <n>  Optional minimum spacing for visible mountain sources.");
     Console.WriteLine("  --major-river-count-multiplier <number>  Scales max major river budget. Default: 1.5.");
     Console.WriteLine("  --long-river-count-multiplier <number>   Scales forced long river budget. Default: 1.3.");
-    Console.WriteLine("  --tributary-density <number>    Scales visible tributary density. Default: 3.5.");
+    Console.WriteLine("  --tributary-density <number>    Scales visible tributary density. Default: 1.");
     Console.WriteLine("  --major-river-tributary-multiplier <number>  Scales guaranteed tributaries along major rivers. Default: 1.");
-    Console.WriteLine("  --lake-outlet-inflow-force-multiplier <number>  Scales inflow count threshold for forced shallow-lake outlets. Default: 1.");
+    Console.WriteLine("  --lake-outlet-inflow-force-multiplier <number>  Scales inflow count threshold for forced shallow-lake outlets. Default: 0.45.");
     Console.WriteLine("  --endorheic-basin-chance <0..1> Preserves closed basins/lakes. Default: 0.22.");
     Console.WriteLine("  --delta-frequency <number>      Scales delta mouth classification. Default: 0.8.");
     Console.WriteLine("  --meander-strength <0..1>       Scales rendered river meanders. Default: 0.65.");
-    Console.WriteLine("  --lake-outlet-strictness <0..1> Controls how many lakes remain closed. Default: 0.55.");
+    Console.WriteLine("  --lake-outlet-strictness <0..1> Controls how many lakes remain closed. Default: 0.35.");
     Console.WriteLine("  --preserve-river-coastline <bool> Keep hydrology from changing coastline. Default: true.");
     Console.WriteLine("  --allow-river-carving <bool>    Allow future terrain carving. Current default: false.");
     Console.WriteLine("  --climate-polar-latitude-margin <0..1>  Keeps map edge below exact pole latitude. Default: 0.05.");

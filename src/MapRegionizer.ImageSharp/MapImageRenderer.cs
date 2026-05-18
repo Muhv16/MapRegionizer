@@ -275,16 +275,7 @@ public static class MapImageRenderer
             DrawRivers(image, map.Hydrology, map.Bounds.PixelSize, new RiverRenderOptions
             {
                 Scale = options.Scale,
-                MinRiverWidth = options.MinRiverWidth,
-                MaxRiverWidth = options.MaxRiverWidth,
-                WidthLowPercentile = options.RiverWidthLowPercentile,
-                WidthHighPercentile = options.RiverWidthHighPercentile,
-                WidthGamma = options.RiverWidthGamma,
-                PlainRiverColor = options.PresentationRiverColor,
-                MountainRiverColor = options.PresentationMountainRiverColor,
-                RiftRiverColor = options.PresentationRiverColor,
-                DeltaRiverColor = options.PresentationDeltaRiverColor,
-                EndorheicRiverColor = options.PresentationRiverColor
+                Opacity = options.PresentationRiverOpacity
             });
         }
 
@@ -323,7 +314,7 @@ public static class MapImageRenderer
             if (river.Polyline.Count < 2)
                 continue;
 
-            var color = GetRiverColor(river, options);
+            var color = ApplyRiverOpacity(GetRiverColor(river, options), options);
             var width = GetRiverWidth(river, options, widthScale);
             image.Mutate(ctx =>
             {
@@ -352,6 +343,7 @@ public static class MapImageRenderer
             RiverMouthKind.InlandDelta => options.InlandDeltaColor,
             _ => options.DeltaColor
         };
+        color = ApplyRiverOpacity(color, options);
         DrawPointMarker(image, river.Mouth, pixelSize, radius, color, options.Scale);
     }
 
@@ -363,6 +355,16 @@ public static class MapImageRenderer
         RiverKind.Endorheic => options.EndorheicRiverColor,
         _ => options.PlainRiverColor
     };
+
+    private static Color ApplyRiverOpacity(Color color, RiverRenderOptions options)
+    {
+        if (options.Opacity >= 0.999)
+            return color;
+
+        var rgba = color.ToPixel<Rgba32>();
+        var alpha = (byte)Math.Clamp((int)Math.Round(rgba.A * Math.Clamp(options.Opacity, 0.0, 1.0)), 0, 255);
+        return Color.FromRgba(rgba.R, rgba.G, rgba.B, alpha);
+    }
 
     private static RiverWidthScale BuildRiverWidthScale(IReadOnlyList<RiverSegment> rivers, RiverRenderOptions options)
     {
@@ -382,7 +384,16 @@ public static class MapImageRenderer
     {
         var normalized = Math.Clamp((river.Discharge - scale.Low) / Math.Max(0.0001, scale.High - scale.Low), 0, 1);
         normalized = Math.Pow(normalized, options.WidthGamma);
-        return (float)(options.MinRiverWidth + (options.MaxRiverWidth - options.MinRiverWidth) * normalized);
+        var rank = river.VisibleRank > 0 ? river.VisibleRank : normalized;
+        var orderFactor = river.Order switch
+        {
+            <= 1 => 0.58,
+            2 => 0.74,
+            _ => 1.0
+        };
+        var majorFactor = river.IsMajor ? 1.0 : 0.72;
+        var width = options.MinRiverWidth + (options.MaxRiverWidth - options.MinRiverWidth) * Math.Max(normalized, rank * 0.82);
+        return (float)Math.Clamp(width * orderFactor * majorFactor, options.MinRiverWidth * 0.55, options.MaxRiverWidth);
     }
 
     private static double PercentileSorted(IReadOnlyList<double> sortedValues, double percentile)
@@ -1539,21 +1550,22 @@ public sealed class RiverRenderOptions
 {
     public float Scale { get; init; } = 1;
     public bool DrawDebugMarkers { get; init; }
+    public double Opacity { get; init; } = 1.0;
     public double MinRiverWidth { get; init; } = 0.35;
     public double MaxRiverWidth { get; init; } = 3.2;
     public double WidthLowPercentile { get; init; } = 0.10;
     public double WidthHighPercentile { get; init; } = 0.98;
     public double WidthGamma { get; init; } = 1.7;
     public double OutletMarkerRadius { get; init; } = 1.6;
-    public Color PlainRiverColor { get; init; } = Color.FromRgb(35, 113, 188);
-    public Color MountainRiverColor { get; init; } = Color.FromRgb(90, 183, 220);
-    public Color RiftRiverColor { get; init; } = Color.FromRgb(43, 104, 174);
-    public Color DeltaRiverColor { get; init; } = Color.FromRgb(42, 151, 177);
-    public Color EndorheicRiverColor { get; init; } = Color.FromRgb(58, 137, 163);
-    public Color DeltaColor { get; init; } = Color.FromRgb(61, 180, 166);
-    public Color MarshDeltaColor { get; init; } = Color.FromRgb(72, 170, 126);
-    public Color InlandDeltaColor { get; init; } = Color.FromRgb(85, 150, 142);
-    public Color OutletColor { get; init; } = Color.FromRgba(230, 247, 255, 220);
+    public Color PlainRiverColor { get; init; } = Color.FromRgba(35, 113, 188, 180);
+    public Color MountainRiverColor { get; init; } = Color.FromRgba(90, 183, 220, 180);
+    public Color RiftRiverColor { get; init; } = Color.FromRgba(43, 104, 174, 180);
+    public Color DeltaRiverColor { get; init; } = Color.FromRgba(42, 151, 177, 180);
+    public Color EndorheicRiverColor { get; init; } = Color.FromRgba(58, 137, 163, 180);
+    public Color DeltaColor { get; init; } = Color.FromRgba(61, 180, 166, 180);
+    public Color MarshDeltaColor { get; init; } = Color.FromRgba(72, 170, 126, 180);
+    public Color InlandDeltaColor { get; init; } = Color.FromRgba(85, 150, 142, 180);
+    public Color OutletColor { get; init; } = Color.FromRgba(230, 247, 255, 160);
 }
 
 public sealed class ClimateRenderOptions
@@ -1591,6 +1603,7 @@ public sealed class ClimateRenderOptions
     public double RiverWidthLowPercentile { get; init; } = 0.06;
     public double RiverWidthHighPercentile { get; init; } = 0.98;
     public double RiverWidthGamma { get; init; } = 1.55;
+    public double PresentationRiverOpacity { get; init; } = 0.82;
     public ElevationRenderOptions Elevation { get; init; } = new()
     {
         DrawHillshade = true,

@@ -222,6 +222,9 @@ public sealed class ElevationGenerationOptions
 public sealed class HydrologyGenerationOptions
 {
     public double RiverDensity { get; init; } = 1;
+    public double MountainRiverDensity { get; init; } = 0.58;
+    public int MaxMountainSourcesPerCluster { get; init; } = 0;
+    public int MinMountainSourceSpacing { get; init; } = 0;
     public double MajorRiverCountMultiplier { get; init; } = 1.5;
     public double LongRiverCountMultiplier { get; init; } = 1.3;
     public double TributaryDensity { get; init; } = 1.0;
@@ -237,6 +240,9 @@ public sealed class HydrologyGenerationOptions
     public void Validate()
     {
         if (RiverDensity < 0) throw new ArgumentOutOfRangeException(nameof(RiverDensity), "River density cannot be negative.");
+        if (MountainRiverDensity < 0) throw new ArgumentOutOfRangeException(nameof(MountainRiverDensity), "Mountain river density cannot be negative.");
+        if (MaxMountainSourcesPerCluster < 0) throw new ArgumentOutOfRangeException(nameof(MaxMountainSourcesPerCluster), "Mountain source cluster cap cannot be negative.");
+        if (MinMountainSourceSpacing < 0) throw new ArgumentOutOfRangeException(nameof(MinMountainSourceSpacing), "Mountain source spacing cannot be negative.");
         if (MajorRiverCountMultiplier < 0) throw new ArgumentOutOfRangeException(nameof(MajorRiverCountMultiplier), "Major river count multiplier cannot be negative.");
         if (LongRiverCountMultiplier < 0) throw new ArgumentOutOfRangeException(nameof(LongRiverCountMultiplier), "Long river count multiplier cannot be negative.");
         if (TributaryDensity < 0) throw new ArgumentOutOfRangeException(nameof(TributaryDensity), "Tributary density cannot be negative.");
