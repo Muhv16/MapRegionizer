@@ -23,16 +23,18 @@ public static class MapGenerationArtifactWriter
         MapGenerationOptions options,
         TectonicPlateJsonExportMode tectonicJsonMode = TectonicPlateJsonExportMode.Summary,
         ElevationJsonExportMode elevationJsonMode = ElevationJsonExportMode.Summary,
-        ClimateJsonExportMode climateJsonMode = ClimateJsonExportMode.Summary)
+        ClimateJsonExportMode climateJsonMode = ClimateJsonExportMode.Summary,
+        MapArtifactRenderOptions? renderOptions = null)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(options);
+        renderOptions ??= new MapArtifactRenderOptions();
 
         outputDirectory = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(outputDirectory);
 
         var artifacts = BuildArtifactPaths(outputDirectory, map);
-        WriteArtifacts(map, artifacts, outputDirectory, tectonicJsonMode, elevationJsonMode, climateJsonMode);
+        WriteArtifacts(map, artifacts, outputDirectory, tectonicJsonMode, elevationJsonMode, climateJsonMode, renderOptions);
 
         var summary = BuildSummary(map, artifacts, Path.GetFullPath(maskPath), outputDirectory, options, tectonicJsonMode, elevationJsonMode, climateJsonMode);
         File.WriteAllText(artifacts.SummaryJson, JsonSerializer.Serialize(summary, SummaryJsonOptions));
@@ -89,15 +91,34 @@ public static class MapGenerationArtifactWriter
         string outputDirectory,
         TectonicPlateJsonExportMode tectonicJsonMode,
         ElevationJsonExportMode elevationJsonMode,
-        ClimateJsonExportMode climateJsonMode)
+        ClimateJsonExportMode climateJsonMode,
+        MapArtifactRenderOptions renderOptions)
     {
-        MapImageRenderer.RenderToFile(map, artifacts.ResultImage);
+        MapImageRenderer.RenderToFile(map, artifacts.ResultImage, new MapRenderOptions
+        {
+            Scale = renderOptions.Scale,
+            BorderWidth = renderOptions.RegionBorderWidth
+        });
 
         if (map.TectonicPlates is not null)
         {
-            MapImageRenderer.RenderTectonicPlatesToFile(map, artifacts.TectonicPlatesImage!);
-            MapImageRenderer.RenderCrustToFile(map, artifacts.TectonicCrustImage!);
-            MapImageRenderer.RenderTectonicFeaturesToFile(map, artifacts.TectonicFeaturesImage!);
+            MapImageRenderer.RenderTectonicPlatesToFile(map, artifacts.TectonicPlatesImage!, new TectonicPlateRenderOptions
+            {
+                Scale = renderOptions.Scale,
+                PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+            });
+            MapImageRenderer.RenderCrustToFile(map, artifacts.TectonicCrustImage!, new CrustRenderOptions
+            {
+                Scale = renderOptions.Scale,
+                PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth,
+                DrawPlateBoundaries = renderOptions.DrawCrustPlateBoundaries
+            });
+            MapImageRenderer.RenderTectonicFeaturesToFile(map, artifacts.TectonicFeaturesImage!, new TectonicFeatureRenderOptions
+            {
+                Scale = renderOptions.Scale,
+                PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth,
+                DrawPlateBoundaries = renderOptions.DrawFeaturePlateBoundaries
+            });
             TectonicPlateJsonWriter.WriteToFile(map, artifacts.TectonicPlatesJson!, new TectonicPlateJsonExportOptions
             {
                 Mode = tectonicJsonMode
@@ -106,8 +127,17 @@ public static class MapGenerationArtifactWriter
 
         if (map.Elevation is not null)
         {
-            MapImageRenderer.RenderElevationToFile(map, artifacts.ElevationImage!);
-            MapImageRenderer.RenderElevationDebugToFiles(map, outputDirectory);
+            var elevationOptions = new ElevationRenderOptions
+            {
+                Scale = renderOptions.Scale,
+                DrawHillshade = renderOptions.DrawElevationHillshade,
+                DrawPlateBoundaries = renderOptions.DrawElevationPlateBoundaries,
+                PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+            };
+            var riverOptions = new RiverRenderOptions { Scale = renderOptions.Scale };
+
+            MapImageRenderer.RenderElevationToFile(map, artifacts.ElevationImage!, elevationOptions);
+            MapImageRenderer.RenderElevationDebugToFiles(map, outputDirectory, options: elevationOptions, riverOptions: riverOptions);
             ElevationJsonWriter.WriteToFile(map, artifacts.ElevationJson!, new ElevationJsonExportOptions
             {
                 Mode = elevationJsonMode
@@ -119,20 +149,23 @@ public static class MapGenerationArtifactWriter
 
         if (artifacts.RiversJson is not null)
         {
-            MapImageRenderer.RenderElevationRiversToFile(map, artifacts.ElevationRiversImage!);
+            MapImageRenderer.RenderElevationRiversToFile(map, artifacts.ElevationRiversImage!, new RiverRenderOptions
+            {
+                Scale = renderOptions.Scale
+            });
             RiverJsonWriter.WriteToFile(map, artifacts.RiversJson);
         }
 
         if (artifacts.ClimateJson is not null)
         {
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateImage!);
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateBiomesDebugImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.DebugBiomes, DrawRivers = false, DrawHillshade = false });
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateTemperatureImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Temperature });
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateMoistureImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Moisture });
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimatePrecipitationImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Precipitation });
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateHabitabilityImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Habitability });
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateAgricultureImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Agriculture });
-            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateIceImage!, new ClimateRenderOptions { Mode = ClimateRenderMode.Ice });
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Biomes));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateBiomesDebugImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.DebugBiomes, drawRivers: false, drawHillshade: false));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateTemperatureImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Temperature));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateMoistureImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Moisture));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimatePrecipitationImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Precipitation));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateHabitabilityImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Habitability));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateAgricultureImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Agriculture));
+            MapImageRenderer.RenderClimateToFile(map, artifacts.ClimateIceImage!, CreateClimateOptions(renderOptions, ClimateRenderMode.Ice));
             ClimateJsonWriter.WriteToFile(map, artifacts.ClimateJson, new ClimateJsonExportOptions
             {
                 Mode = climateJsonMode
@@ -142,6 +175,27 @@ public static class MapGenerationArtifactWriter
         GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson);
         GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson);
         GeoJsonMapWriter.WriteWaterBodiesToFile(map, artifacts.WaterBodiesGeoJson);
+    }
+
+    private static ClimateRenderOptions CreateClimateOptions(
+        MapArtifactRenderOptions renderOptions,
+        ClimateRenderMode mode,
+        bool? drawRivers = null,
+        bool? drawHillshade = null)
+    {
+        return new ClimateRenderOptions
+        {
+            Scale = renderOptions.Scale,
+            Mode = mode,
+            DrawHillshade = drawHillshade ?? renderOptions.DrawClimateHillshade,
+            DrawRivers = drawRivers ?? renderOptions.DrawClimateRivers,
+            DrawRiverValleyAccents = renderOptions.DrawClimateRiverValleyAccents,
+            Elevation = new ElevationRenderOptions
+            {
+                Scale = renderOptions.Scale,
+                DrawHillshade = drawHillshade ?? renderOptions.DrawClimateHillshade
+            }
+        };
     }
 
     private static MapGenerationRunSummary BuildSummary(
@@ -266,4 +320,18 @@ public static class MapGenerationArtifactWriter
 
         return (min, max);
     }
+}
+
+public sealed class MapArtifactRenderOptions
+{
+    public float Scale { get; init; } = 1;
+    public float RegionBorderWidth { get; init; } = 2;
+    public float TectonicBoundaryWidth { get; init; } = 1;
+    public bool DrawCrustPlateBoundaries { get; init; }
+    public bool DrawFeaturePlateBoundaries { get; init; }
+    public bool DrawElevationHillshade { get; init; } = true;
+    public bool DrawElevationPlateBoundaries { get; init; }
+    public bool DrawClimateHillshade { get; init; } = true;
+    public bool DrawClimateRivers { get; init; } = true;
+    public bool DrawClimateRiverValleyAccents { get; init; } = true;
 }

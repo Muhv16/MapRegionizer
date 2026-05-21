@@ -122,8 +122,33 @@
                                 </UniformGrid>
                             </Expander>
 
+                            <Expander Header="{Binding L[ExportSettings]}" IsExpanded="False">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                        <TextBlock Text="{Binding L[ExportScale]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                        <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpExportScale]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
+                                        <Slider Value="{Binding ExportScale, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.25" Maximum="4" TickFrequency="0.25"/>
+                                        <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding ExportScale, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" FormatString="N2"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding L[ExportRegionBorderWidth]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                    <NumericUpDown Value="{Binding ExportRegionBorderWidth}" Minimum="0" FormatString="N2"/>
+                                    <TextBlock Text="{Binding L[ExportTectonicBoundaryWidth]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
+                                    <NumericUpDown Value="{Binding ExportTectonicBoundaryWidth}" Minimum="0" FormatString="N2"/>
+                                    <CheckBox Content="{Binding L[ExportCrustPlateBoundaries]}" IsChecked="{Binding ExportDrawCrustPlateBoundaries}"/>
+                                    <CheckBox Content="{Binding L[ExportFeaturePlateBoundaries]}" IsChecked="{Binding ExportDrawFeaturePlateBoundaries}"/>
+                                    <CheckBox Content="{Binding L[ExportElevationHillshade]}" IsChecked="{Binding ExportDrawElevationHillshade}"/>
+                                    <CheckBox Content="{Binding L[ExportElevationPlateBoundaries]}" IsChecked="{Binding ExportDrawElevationPlateBoundaries}"/>
+                                    <CheckBox Content="{Binding L[ExportClimateHillshade]}" IsChecked="{Binding ExportDrawClimateHillshade}"/>
+                                    <CheckBox Content="{Binding L[ExportClimateRivers]}" IsChecked="{Binding ExportDrawClimateRivers}"/>
+                                    <CheckBox Content="{Binding L[ExportClimateRiverValleys]}" IsChecked="{Binding ExportDrawClimateRiverValleyAccents}"/>
+                                </StackPanel>
+                            </Expander>
+
                             <Expander Header="{Binding L[Regions]}" IsExpanded="True">
                                 <StackPanel Spacing="8">
+                                    <Button Classes="action" Content="{Binding L[RunRegionsOnly]}" Command="{Binding RunRegionsOnlyCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch"/>
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                         <TextBlock Text="{Binding L[RegionSize]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
                                         <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpRegionSize]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>

@@ -282,10 +282,17 @@ public static class MapImageRenderer
         return image;
     }
 
-    public static void RenderElevationDebugToFiles(GeneratedMap map, string outputDirectory, string prefix = "elevation")
+    public static void RenderElevationDebugToFiles(
+        GeneratedMap map,
+        string outputDirectory,
+        string prefix = "elevation",
+        ElevationRenderOptions? options = null,
+        RiverRenderOptions? riverOptions = null)
     {
         ArgumentNullException.ThrowIfNull(map);
         Directory.CreateDirectory(outputDirectory);
+        options ??= new ElevationRenderOptions();
+        riverOptions ??= new RiverRenderOptions { Scale = options.Scale };
 
         var modes = new[]
         {
@@ -300,10 +307,17 @@ public static class MapImageRenderer
         };
 
         foreach (var (mode, suffix) in modes)
-            RenderElevationToFile(map, System.IO.Path.Combine(outputDirectory, $"{prefix}-{suffix}.png"), new ElevationRenderOptions { Mode = mode });
+            RenderElevationToFile(map, System.IO.Path.Combine(outputDirectory, $"{prefix}-{suffix}.png"), new ElevationRenderOptions
+            {
+                Scale = options.Scale,
+                Mode = mode,
+                DrawHillshade = options.DrawHillshade,
+                DrawPlateBoundaries = options.DrawPlateBoundaries,
+                PlateBoundaryWidth = options.PlateBoundaryWidth
+            });
 
         if (map.Hydrology is not null)
-            RenderElevationRiversToFile(map, System.IO.Path.Combine(outputDirectory, $"{prefix}-rivers.png"));
+            RenderElevationRiversToFile(map, System.IO.Path.Combine(outputDirectory, $"{prefix}-rivers.png"), riverOptions);
     }
 
     private static void DrawRivers(Image<Rgba32> image, HydrologyMap hydrology, double pixelSize, RiverRenderOptions options)

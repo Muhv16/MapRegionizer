@@ -63,4 +63,14 @@ public sealed class UserSettings
     public string LastPreviewLayer { get; set; } = "overview";
     public bool HasCompletedOnboarding { get; set; }
     public MapGenerationOptions GenerationOptions { get; set; } = new();
+    public double ExportScale { get; set; } = 1.0;
+    public double ExportRegionBorderWidth { get; set; } = 2.0;
+    public double ExportTectonicBoundaryWidth { get; set; } = 1.0;
+    public bool ExportDrawCrustPlateBoundaries { get; set; }
+    public bool ExportDrawFeaturePlateBoundaries { get; set; }
+    public bool ExportDrawElevationHillshade { get; set; } = true;
+    public bool ExportDrawElevationPlateBoundaries { get; set; }
+    public bool ExportDrawClimateHillshade { get; set; } = true;
+    public bool ExportDrawClimateRivers { get; set; } = true;
+    public bool ExportDrawClimateRiverValleyAccents { get; set; } = true;
 }

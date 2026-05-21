@@ -116,13 +116,73 @@ public sealed class MainViewModel : ReactiveObject
     private double _lakeOutletStrictness = 0.35;
     private bool _preserveRiverCoastline = true;
     private bool _allowRiverCarving;
+    private double _oceanSeaMinAreaRatio = 0.12;
+    private double _inlandSeaMinAreaRatio = 0.015;
+    private int _oceanSeaNearOceanMaxDistanceCells = 13;
     private double _climatePolarLatitudeMargin = 0.05;
     private double _climateEquatorTemperatureCelsius = 28.0;
     private double _climatePoleCoolingCelsius = 55.0;
+    private double _climateLatitudeCurveExponent = 1.35;
     private double _climateLapseRateCelsiusPerMeter = 0.0045;
+    private double _climateBaseSeasonalityCelsius = 6.0;
+    private double _climateLatitudeSeasonalityCelsius = 18.0;
+    private double _climateContinentalSeasonalityCelsius = 13.0;
+    private double _climateContinentalSummerBoostCelsius = 5.0;
+    private double _climateContinentalWinterPenaltyCelsius = 8.0;
+    private int _climateContinentalityDistanceCells = 96;
+    private int _climateLargeLakeMinCellCount = 220;
+    private double _climateOceanEvaporation = 1.30;
+    private double _climateLakeEvaporation = 0.68;
+    private double _climateLandEvapotranspiration = 0.08;
+    private double _climateMoistureRetention = 0.86;
+    private double _climateBaseRainfallEfficiency = 0.22;
+    private double _climateOrographicStrength = 0.84;
+    private double _climateDescentDrying = 0.27;
+    private double _climateContinentalDrying = 0.17;
+    private double _climateRiverMoistureBonus = 0.26;
+    private double _climateRiverAgricultureBonus = 0.54;
+    private double _climateMonsoonRainStrength = 0.38;
+    private double _climateDrySeasonStrength = 0.22;
+    private int _climateMonsoonOceanDistanceCells = 30;
+    private int _climateMonsoonCoastProbeCells = 10;
+    private double _climateSnowMeltThresholdCelsius = 2.0;
+    private double _climateSnowPrecipitationScale = 0.42;
+    private bool _preserveOceanCoastline = true;
+    private bool _preserveInlandWaterMask = true;
+    private bool _allowLakeExpansion;
+    private bool _allowLakeDrainage;
+    private double _lakeSurfacePercentile = 0.05;
+    private double _minLakeSurfaceMarginMeters = 0.5;
+    private double _maxLakeSurfaceMarginMeters = 8.0;
+    private double _minLakeDepthMeters = 1.0;
+    private double _maxLakeDepthMeters = 80.0;
+    private double _maxRiftLakeDepthMeters = 320.0;
+    private double _maxInlandSeaDepthMeters = 220.0;
+    private double _mountainLakeElevationMeters = 900.0;
+    private double _plateauLakeElevationMeters = 1400.0;
+    private double _mountainLakeReliefMeters = 260.0;
+    private double _lakeTectonicFaultThreshold = 0.28;
+    private double _lakeVolcanicInfluenceThreshold = 0.34;
+    private double _plainLakeKarstChance = 0.12;
+    private double _lakeDepthRandomnessMin = 0.8;
+    private double _lakeDepthRandomnessMax = 1.2;
+    private int _largeLakeDepressionMinCellCount = 900;
+    private double _mountainRiverDensity = 0.58;
+    private int _maxMountainSourcesPerCluster;
+    private int _minMountainSourceSpacing;
     private TectonicPlateJsonExportMode _tectonicJsonMode = TectonicPlateJsonExportMode.Summary;
     private ElevationJsonExportMode _elevationJsonMode = ElevationJsonExportMode.Summary;
     private ClimateJsonExportMode _climateJsonMode = ClimateJsonExportMode.Summary;
+    private double _exportScale = 1.0;
+    private double _exportRegionBorderWidth = 2.0;
+    private double _exportTectonicBoundaryWidth = 1.0;
+    private bool _exportDrawCrustPlateBoundaries;
+    private bool _exportDrawFeaturePlateBoundaries;
+    private bool _exportDrawElevationHillshade = true;
+    private bool _exportDrawElevationPlateBoundaries;
+    private bool _exportDrawClimateHillshade = true;
+    private bool _exportDrawClimateRivers = true;
+    private bool _exportDrawClimateRiverValleyAccents = true;
 
     public MainViewModel()
     {
@@ -131,6 +191,7 @@ public sealed class MainViewModel : ReactiveObject
         BrowseMaskCommand = ReactiveCommand.CreateFromTask(BrowseMaskAsync);
         BrowseOutputCommand = ReactiveCommand.CreateFromTask(BrowseOutputAsync);
         RunFullCommand = ReactiveCommand.CreateFromTask(RunFullAsync);
+        RunRegionsOnlyCommand = ReactiveCommand.CreateFromTask(RunRegionsOnlyAsync);
         ExportCommand = ReactiveCommand.CreateFromTask(ExportAsync);
         CancelCommand = ReactiveCommand.Create(CancelGeneration);
         RandomizeSeedCommand = ReactiveCommand.Create(RandomizeSeed);
@@ -166,6 +227,7 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> BrowseMaskCommand { get; }
     public ReactiveCommand<Unit, Unit> BrowseOutputCommand { get; }
     public ReactiveCommand<Unit, Unit> RunFullCommand { get; }
+    public ReactiveCommand<Unit, Unit> RunRegionsOnlyCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
     public ReactiveCommand<Unit, Unit> RandomizeSeedCommand { get; }
@@ -361,13 +423,73 @@ public sealed class MainViewModel : ReactiveObject
     public double LakeOutletStrictness { get => _lakeOutletStrictness; set => SetOption(ref _lakeOutletStrictness, value, MapDataKeys.Hydrology); }
     public bool PreserveRiverCoastline { get => _preserveRiverCoastline; set => SetOption(ref _preserveRiverCoastline, value, MapDataKeys.Hydrology); }
     public bool AllowRiverCarving { get => _allowRiverCarving; set => SetOption(ref _allowRiverCarving, value, MapDataKeys.Hydrology); }
+    public double OceanSeaMinAreaRatio { get => _oceanSeaMinAreaRatio; set => SetOptionNamed(ref _oceanSeaMinAreaRatio, value, nameof(OceanSeaMinAreaRatio), MapDataKeys.WaterBodies); }
+    public double InlandSeaMinAreaRatio { get => _inlandSeaMinAreaRatio; set => SetOptionNamed(ref _inlandSeaMinAreaRatio, value, nameof(InlandSeaMinAreaRatio), MapDataKeys.WaterBodies); }
+    public int OceanSeaNearOceanMaxDistanceCells { get => _oceanSeaNearOceanMaxDistanceCells; set => SetOption(ref _oceanSeaNearOceanMaxDistanceCells, value, MapDataKeys.WaterBodies); }
     public double ClimatePolarLatitudeMargin { get => _climatePolarLatitudeMargin; set => SetOption(ref _climatePolarLatitudeMargin, value, MapDataKeys.Climate); }
     public double ClimateEquatorTemperatureCelsius { get => _climateEquatorTemperatureCelsius; set => SetOption(ref _climateEquatorTemperatureCelsius, value, MapDataKeys.Climate); }
     public double ClimatePoleCoolingCelsius { get => _climatePoleCoolingCelsius; set => SetOption(ref _climatePoleCoolingCelsius, value, MapDataKeys.Climate); }
+    public double ClimateLatitudeCurveExponent { get => _climateLatitudeCurveExponent; set => SetOption(ref _climateLatitudeCurveExponent, value, MapDataKeys.Climate); }
     public double ClimateLapseRateCelsiusPerMeter { get => _climateLapseRateCelsiusPerMeter; set => SetOption(ref _climateLapseRateCelsiusPerMeter, value, MapDataKeys.Climate); }
+    public double ClimateBaseSeasonalityCelsius { get => _climateBaseSeasonalityCelsius; set => SetOption(ref _climateBaseSeasonalityCelsius, value, MapDataKeys.Climate); }
+    public double ClimateLatitudeSeasonalityCelsius { get => _climateLatitudeSeasonalityCelsius; set => SetOption(ref _climateLatitudeSeasonalityCelsius, value, MapDataKeys.Climate); }
+    public double ClimateContinentalSeasonalityCelsius { get => _climateContinentalSeasonalityCelsius; set => SetOption(ref _climateContinentalSeasonalityCelsius, value, MapDataKeys.Climate); }
+    public double ClimateContinentalSummerBoostCelsius { get => _climateContinentalSummerBoostCelsius; set => SetOption(ref _climateContinentalSummerBoostCelsius, value, MapDataKeys.Climate); }
+    public double ClimateContinentalWinterPenaltyCelsius { get => _climateContinentalWinterPenaltyCelsius; set => SetOption(ref _climateContinentalWinterPenaltyCelsius, value, MapDataKeys.Climate); }
+    public int ClimateContinentalityDistanceCells { get => _climateContinentalityDistanceCells; set => SetOption(ref _climateContinentalityDistanceCells, value, MapDataKeys.Climate); }
+    public int ClimateLargeLakeMinCellCount { get => _climateLargeLakeMinCellCount; set => SetOption(ref _climateLargeLakeMinCellCount, value, MapDataKeys.Climate); }
+    public double ClimateOceanEvaporation { get => _climateOceanEvaporation; set => SetOption(ref _climateOceanEvaporation, value, MapDataKeys.Climate); }
+    public double ClimateLakeEvaporation { get => _climateLakeEvaporation; set => SetOption(ref _climateLakeEvaporation, value, MapDataKeys.Climate); }
+    public double ClimateLandEvapotranspiration { get => _climateLandEvapotranspiration; set => SetOption(ref _climateLandEvapotranspiration, value, MapDataKeys.Climate); }
+    public double ClimateMoistureRetention { get => _climateMoistureRetention; set => SetOption(ref _climateMoistureRetention, value, MapDataKeys.Climate); }
+    public double ClimateBaseRainfallEfficiency { get => _climateBaseRainfallEfficiency; set => SetOption(ref _climateBaseRainfallEfficiency, value, MapDataKeys.Climate); }
+    public double ClimateOrographicStrength { get => _climateOrographicStrength; set => SetOption(ref _climateOrographicStrength, value, MapDataKeys.Climate); }
+    public double ClimateDescentDrying { get => _climateDescentDrying; set => SetOption(ref _climateDescentDrying, value, MapDataKeys.Climate); }
+    public double ClimateContinentalDrying { get => _climateContinentalDrying; set => SetOption(ref _climateContinentalDrying, value, MapDataKeys.Climate); }
+    public double ClimateRiverMoistureBonus { get => _climateRiverMoistureBonus; set => SetOption(ref _climateRiverMoistureBonus, value, MapDataKeys.Climate); }
+    public double ClimateRiverAgricultureBonus { get => _climateRiverAgricultureBonus; set => SetOption(ref _climateRiverAgricultureBonus, value, MapDataKeys.Climate); }
+    public double ClimateMonsoonRainStrength { get => _climateMonsoonRainStrength; set => SetOption(ref _climateMonsoonRainStrength, value, MapDataKeys.Climate); }
+    public double ClimateDrySeasonStrength { get => _climateDrySeasonStrength; set => SetOption(ref _climateDrySeasonStrength, value, MapDataKeys.Climate); }
+    public int ClimateMonsoonOceanDistanceCells { get => _climateMonsoonOceanDistanceCells; set => SetOption(ref _climateMonsoonOceanDistanceCells, value, MapDataKeys.Climate); }
+    public int ClimateMonsoonCoastProbeCells { get => _climateMonsoonCoastProbeCells; set => SetOption(ref _climateMonsoonCoastProbeCells, value, MapDataKeys.Climate); }
+    public double ClimateSnowMeltThresholdCelsius { get => _climateSnowMeltThresholdCelsius; set => SetOption(ref _climateSnowMeltThresholdCelsius, value, MapDataKeys.Climate); }
+    public double ClimateSnowPrecipitationScale { get => _climateSnowPrecipitationScale; set => SetOption(ref _climateSnowPrecipitationScale, value, MapDataKeys.Climate); }
+    public bool PreserveOceanCoastline { get => _preserveOceanCoastline; set => SetOption(ref _preserveOceanCoastline, value, MapDataKeys.BaseTerrain); }
+    public bool PreserveInlandWaterMask { get => _preserveInlandWaterMask; set => SetOption(ref _preserveInlandWaterMask, value, MapDataKeys.BaseTerrain); }
+    public bool AllowLakeExpansion { get => _allowLakeExpansion; set => SetOption(ref _allowLakeExpansion, value, MapDataKeys.WaterSurfaces); }
+    public bool AllowLakeDrainage { get => _allowLakeDrainage; set => SetOption(ref _allowLakeDrainage, value, MapDataKeys.WaterSurfaces); }
+    public double LakeSurfacePercentile { get => _lakeSurfacePercentile; set => SetOption(ref _lakeSurfacePercentile, value, MapDataKeys.WaterSurfaces); }
+    public double MinLakeSurfaceMarginMeters { get => _minLakeSurfaceMarginMeters; set => SetOption(ref _minLakeSurfaceMarginMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MaxLakeSurfaceMarginMeters { get => _maxLakeSurfaceMarginMeters; set => SetOption(ref _maxLakeSurfaceMarginMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MinLakeDepthMeters { get => _minLakeDepthMeters; set => SetOption(ref _minLakeDepthMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MaxLakeDepthMeters { get => _maxLakeDepthMeters; set => SetOption(ref _maxLakeDepthMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MaxRiftLakeDepthMeters { get => _maxRiftLakeDepthMeters; set => SetOption(ref _maxRiftLakeDepthMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MaxInlandSeaDepthMeters { get => _maxInlandSeaDepthMeters; set => SetOption(ref _maxInlandSeaDepthMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MountainLakeElevationMeters { get => _mountainLakeElevationMeters; set => SetOption(ref _mountainLakeElevationMeters, value, MapDataKeys.WaterSurfaces); }
+    public double PlateauLakeElevationMeters { get => _plateauLakeElevationMeters; set => SetOption(ref _plateauLakeElevationMeters, value, MapDataKeys.WaterSurfaces); }
+    public double MountainLakeReliefMeters { get => _mountainLakeReliefMeters; set => SetOption(ref _mountainLakeReliefMeters, value, MapDataKeys.WaterSurfaces); }
+    public double LakeTectonicFaultThreshold { get => _lakeTectonicFaultThreshold; set => SetOption(ref _lakeTectonicFaultThreshold, value, MapDataKeys.WaterSurfaces); }
+    public double LakeVolcanicInfluenceThreshold { get => _lakeVolcanicInfluenceThreshold; set => SetOption(ref _lakeVolcanicInfluenceThreshold, value, MapDataKeys.WaterSurfaces); }
+    public double PlainLakeKarstChance { get => _plainLakeKarstChance; set => SetOption(ref _plainLakeKarstChance, value, MapDataKeys.WaterSurfaces); }
+    public double LakeDepthRandomnessMin { get => _lakeDepthRandomnessMin; set => SetOption(ref _lakeDepthRandomnessMin, value, MapDataKeys.WaterSurfaces); }
+    public double LakeDepthRandomnessMax { get => _lakeDepthRandomnessMax; set => SetOption(ref _lakeDepthRandomnessMax, value, MapDataKeys.WaterSurfaces); }
+    public int LargeLakeDepressionMinCellCount { get => _largeLakeDepressionMinCellCount; set => SetOption(ref _largeLakeDepressionMinCellCount, value, MapDataKeys.WaterSurfaces); }
+    public double MountainRiverDensity { get => _mountainRiverDensity; set => SetOption(ref _mountainRiverDensity, value, MapDataKeys.Hydrology); }
+    public int MaxMountainSourcesPerCluster { get => _maxMountainSourcesPerCluster; set => SetOption(ref _maxMountainSourcesPerCluster, value, MapDataKeys.Hydrology); }
+    public int MinMountainSourceSpacing { get => _minMountainSourceSpacing; set => SetOption(ref _minMountainSourceSpacing, value, MapDataKeys.Hydrology); }
     public TectonicPlateJsonExportMode TectonicJsonMode { get => _tectonicJsonMode; set => SetAndSave(ref _tectonicJsonMode, value); }
     public ElevationJsonExportMode ElevationJsonMode { get => _elevationJsonMode; set => SetAndSave(ref _elevationJsonMode, value); }
     public ClimateJsonExportMode ClimateJsonMode { get => _climateJsonMode; set => SetAndSave(ref _climateJsonMode, value); }
+    public double ExportScale { get => _exportScale; set => SetAndSave(ref _exportScale, value); }
+    public double ExportRegionBorderWidth { get => _exportRegionBorderWidth; set => SetAndSave(ref _exportRegionBorderWidth, value); }
+    public double ExportTectonicBoundaryWidth { get => _exportTectonicBoundaryWidth; set => SetAndSave(ref _exportTectonicBoundaryWidth, value); }
+    public bool ExportDrawCrustPlateBoundaries { get => _exportDrawCrustPlateBoundaries; set => SetAndSave(ref _exportDrawCrustPlateBoundaries, value); }
+    public bool ExportDrawFeaturePlateBoundaries { get => _exportDrawFeaturePlateBoundaries; set => SetAndSave(ref _exportDrawFeaturePlateBoundaries, value); }
+    public bool ExportDrawElevationHillshade { get => _exportDrawElevationHillshade; set => SetAndSave(ref _exportDrawElevationHillshade, value); }
+    public bool ExportDrawElevationPlateBoundaries { get => _exportDrawElevationPlateBoundaries; set => SetAndSave(ref _exportDrawElevationPlateBoundaries, value); }
+    public bool ExportDrawClimateHillshade { get => _exportDrawClimateHillshade; set => SetAndSave(ref _exportDrawClimateHillshade, value); }
+    public bool ExportDrawClimateRivers { get => _exportDrawClimateRivers; set => SetAndSave(ref _exportDrawClimateRivers, value); }
+    public bool ExportDrawClimateRiverValleyAccents { get => _exportDrawClimateRiverValleyAccents; set => SetAndSave(ref _exportDrawClimateRiverValleyAccents, value); }
 
     private async Task BrowseMaskAsync()
     {
@@ -458,6 +580,77 @@ public sealed class MainViewModel : ReactiveObject
 
             StatusMessage = L["Completed"];
             AddHistoryEntry();
+            CompleteOnboarding();
+            SaveSettings();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = L["Ready"];
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            MarkRunningStageFailed(ex.Message);
+        }
+        finally
+        {
+            IsGenerating = false;
+            _generationCts?.Dispose();
+            _generationCts = null;
+            RefreshStageStates();
+        }
+    }
+
+    private async Task RunRegionsOnlyAsync()
+    {
+        if (!PrepareForGeneration())
+            return;
+
+        IsGenerating = true;
+        _generationCts = new CancellationTokenSource();
+        StatusMessage = L["GeneratingRegions"];
+
+        try
+        {
+            var options = BuildOptions();
+            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _sessionResetRequired = false;
+            RefreshStageStates();
+            RefreshLayerAvailability();
+
+            var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
+            var targets = new[] { MapDataKeys.Landmasses, MapDataKeys.RawRegions, MapDataKeys.Regions };
+            await _execution.RunProgressiveAsync(
+                session,
+                targets,
+                key => Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        var stage = FindStage(key);
+                        if (stage is not null)
+                        {
+                            stage.Status = GenerationStageStatus.Running;
+                            stage.Error = string.Empty;
+                        }
+                    }).GetTask(),
+                (key, duration) => Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        var stage = FindStage(key);
+                        if (stage is not null)
+                        {
+                            stage.Status = GenerationStageStatus.Ready;
+                            stage.Duration = duration;
+                        }
+
+                        RefreshStageStates();
+                        RefreshLayerAvailability();
+                        SelectBestAvailableLayer(key);
+                        RefreshPreview();
+                        RefreshStatistics();
+                    }).GetTask(),
+                _generationCts.Token);
+
+            StatusMessage = L["RegionsCompleted"];
+            AddHistoryEntry(L["RegionsOnly"]);
             CompleteOnboarding();
             SaveSettings();
         }
@@ -586,7 +779,8 @@ public sealed class MainViewModel : ReactiveObject
                 BuildOptions(),
                 TectonicJsonMode,
                 ElevationJsonMode,
-                ClimateJsonMode));
+                ClimateJsonMode,
+                BuildExportRenderOptions()));
 
             ArtifactSummary = FormatArtifactSummary(result.Artifacts);
             StatusMessage = L["StatusExported"];
@@ -600,6 +794,23 @@ public sealed class MainViewModel : ReactiveObject
     }
 
     private void CancelGeneration() => _generationCts?.Cancel();
+
+    private MapArtifactRenderOptions BuildExportRenderOptions()
+    {
+        return new MapArtifactRenderOptions
+        {
+            Scale = (float)ExportScale,
+            RegionBorderWidth = (float)ExportRegionBorderWidth,
+            TectonicBoundaryWidth = (float)ExportTectonicBoundaryWidth,
+            DrawCrustPlateBoundaries = ExportDrawCrustPlateBoundaries,
+            DrawFeaturePlateBoundaries = ExportDrawFeaturePlateBoundaries,
+            DrawElevationHillshade = ExportDrawElevationHillshade,
+            DrawElevationPlateBoundaries = ExportDrawElevationPlateBoundaries,
+            DrawClimateHillshade = ExportDrawClimateHillshade,
+            DrawClimateRivers = ExportDrawClimateRivers,
+            DrawClimateRiverValleyAccents = ExportDrawClimateRiverValleyAccents
+        };
+    }
 
     private void DismissOnboarding()
     {
@@ -731,6 +942,13 @@ public sealed class MainViewModel : ReactiveObject
             try
             {
                 BuildOptions().Validate();
+                if (ExportScale <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(ExportScale), "Export scale must be greater than zero.");
+                if (ExportRegionBorderWidth < 0)
+                    throw new ArgumentOutOfRangeException(nameof(ExportRegionBorderWidth), "Region border width cannot be negative.");
+                if (ExportTectonicBoundaryWidth < 0)
+                    throw new ArgumentOutOfRangeException(nameof(ExportTectonicBoundaryWidth), "Tectonic boundary width cannot be negative.");
+
                 ValidationMessage = string.Empty;
             }
             catch (Exception ex)
@@ -750,6 +968,12 @@ public sealed class MainViewModel : ReactiveObject
             Seed = Seed,
             ProjectionMode = ProjectionMode,
             ShapeExtraction = new ShapeExtractionOptions { SimplifyTolerance = SimplifyTolerance },
+            WaterBodies = new WaterBodyClassificationOptions
+            {
+                OceanSeaMinAreaRatio = OceanSeaMinAreaRatio,
+                InlandSeaMinAreaRatio = InlandSeaMinAreaRatio,
+                OceanSeaNearOceanMaxDistanceCells = OceanSeaNearOceanMaxDistanceCells
+            },
             Regions = new RegionGenerationOptions
             {
                 TargetArea = TargetArea,
@@ -797,20 +1021,43 @@ public sealed class MainViewModel : ReactiveObject
                 ShelfWidthFactor = ElevationShelfWidthFactor,
                 VolcanismInfluence = VolcanismInfluence,
                 SmallIslandReliefFactor = SmallIslandReliefFactor,
+                RiftInfluence = RiftInfluence,
                 GenerateSmallLakes = GenerateSmallLakes,
                 SmallLakeCountMultiplier = SmallLakeCountMultiplier,
                 SmallLakeScatterMultiplier = SmallLakeScatterMultiplier,
                 SmallLakeSizeMultiplier = SmallLakeSizeMultiplier,
-                RiftInfluence = RiftInfluence,
                 PreserveMaskCoastline = PreserveMaskCoastline,
+                PreserveOceanCoastline = PreserveOceanCoastline,
+                PreserveInlandWaterMask = PreserveInlandWaterMask,
+                AllowLakeExpansion = AllowLakeExpansion,
+                AllowLakeDrainage = AllowLakeDrainage,
                 MaxElevationMeters = MaxElevationMeters,
                 MinOceanDepthMeters = MinOceanDepthMeters,
                 MinLandElevationMeters = MinLandElevationMeters,
-                MaxSeaElevationMeters = MaxSeaElevationMeters
+                MaxSeaElevationMeters = MaxSeaElevationMeters,
+                LakeSurfacePercentile = LakeSurfacePercentile,
+                MinLakeSurfaceMarginMeters = MinLakeSurfaceMarginMeters,
+                MaxLakeSurfaceMarginMeters = MaxLakeSurfaceMarginMeters,
+                MinLakeDepthMeters = MinLakeDepthMeters,
+                MaxLakeDepthMeters = MaxLakeDepthMeters,
+                MaxRiftLakeDepthMeters = MaxRiftLakeDepthMeters,
+                MaxInlandSeaDepthMeters = MaxInlandSeaDepthMeters,
+                MountainLakeElevationMeters = MountainLakeElevationMeters,
+                PlateauLakeElevationMeters = PlateauLakeElevationMeters,
+                MountainLakeReliefMeters = MountainLakeReliefMeters,
+                LakeTectonicFaultThreshold = LakeTectonicFaultThreshold,
+                LakeVolcanicInfluenceThreshold = LakeVolcanicInfluenceThreshold,
+                PlainLakeKarstChance = PlainLakeKarstChance,
+                LakeDepthRandomnessMin = LakeDepthRandomnessMin,
+                LakeDepthRandomnessMax = LakeDepthRandomnessMax,
+                LargeLakeDepressionMinCellCount = LargeLakeDepressionMinCellCount
             },
             Hydrology = new HydrologyGenerationOptions
             {
                 RiverDensity = RiverDensity,
+                MountainRiverDensity = MountainRiverDensity,
+                MaxMountainSourcesPerCluster = MaxMountainSourcesPerCluster,
+                MinMountainSourceSpacing = MinMountainSourceSpacing,
                 MajorRiverCountMultiplier = MajorRiverCountMultiplier,
                 LongRiverCountMultiplier = LongRiverCountMultiplier,
                 TributaryDensity = TributaryDensity,
@@ -828,7 +1075,31 @@ public sealed class MainViewModel : ReactiveObject
                 PolarLatitudeMargin = ClimatePolarLatitudeMargin,
                 EquatorTemperatureCelsius = ClimateEquatorTemperatureCelsius,
                 PoleCoolingCelsius = ClimatePoleCoolingCelsius,
-                LapseRateCelsiusPerMeter = ClimateLapseRateCelsiusPerMeter
+                LatitudeCurveExponent = ClimateLatitudeCurveExponent,
+                LapseRateCelsiusPerMeter = ClimateLapseRateCelsiusPerMeter,
+                BaseSeasonalityCelsius = ClimateBaseSeasonalityCelsius,
+                LatitudeSeasonalityCelsius = ClimateLatitudeSeasonalityCelsius,
+                ContinentalSeasonalityCelsius = ClimateContinentalSeasonalityCelsius,
+                ContinentalSummerBoostCelsius = ClimateContinentalSummerBoostCelsius,
+                ContinentalWinterPenaltyCelsius = ClimateContinentalWinterPenaltyCelsius,
+                ContinentalityDistanceCells = ClimateContinentalityDistanceCells,
+                LargeLakeMinCellCount = ClimateLargeLakeMinCellCount,
+                OceanEvaporation = ClimateOceanEvaporation,
+                LakeEvaporation = ClimateLakeEvaporation,
+                LandEvapotranspiration = ClimateLandEvapotranspiration,
+                MoistureRetention = ClimateMoistureRetention,
+                BaseRainfallEfficiency = ClimateBaseRainfallEfficiency,
+                OrographicStrength = ClimateOrographicStrength,
+                DescentDrying = ClimateDescentDrying,
+                ContinentalDrying = ClimateContinentalDrying,
+                RiverMoistureBonus = ClimateRiverMoistureBonus,
+                RiverAgricultureBonus = ClimateRiverAgricultureBonus,
+                MonsoonRainStrength = ClimateMonsoonRainStrength,
+                DrySeasonStrength = ClimateDrySeasonStrength,
+                MonsoonOceanDistanceCells = ClimateMonsoonOceanDistanceCells,
+                MonsoonCoastProbeCells = ClimateMonsoonCoastProbeCells,
+                SnowMeltThresholdCelsius = ClimateSnowMeltThresholdCelsius,
+                SnowPrecipitationScale = ClimateSnowPrecipitationScale
             }
         };
     }
@@ -850,6 +1121,9 @@ public sealed class MainViewModel : ReactiveObject
             BoundaryDetail = options.Boundaries.Detail;
             MaxOffset = options.Boundaries.MaxOffset;
             MinLineLengthToCurve = options.Boundaries.MinLineLengthToCurve;
+            OceanSeaMinAreaRatio = options.WaterBodies.OceanSeaMinAreaRatio;
+            InlandSeaMinAreaRatio = options.WaterBodies.InlandSeaMinAreaRatio;
+            OceanSeaNearOceanMaxDistanceCells = options.WaterBodies.OceanSeaNearOceanMaxDistanceCells;
             PlateCount = options.TectonicPlates.PlateCount;
             HotspotCount = options.TectonicPlates.HotspotCount;
             ContinentalSeedRatio = options.TectonicPlates.ContinentalSeedRatio;
@@ -878,17 +1152,40 @@ public sealed class MainViewModel : ReactiveObject
             ElevationShelfWidthFactor = options.Elevation.ShelfWidthFactor;
             VolcanismInfluence = options.Elevation.VolcanismInfluence;
             SmallIslandReliefFactor = options.Elevation.SmallIslandReliefFactor;
+            RiftInfluence = options.Elevation.RiftInfluence;
             GenerateSmallLakes = options.Elevation.GenerateSmallLakes;
             SmallLakeCountMultiplier = options.Elevation.SmallLakeCountMultiplier;
             SmallLakeScatterMultiplier = options.Elevation.SmallLakeScatterMultiplier;
             SmallLakeSizeMultiplier = options.Elevation.SmallLakeSizeMultiplier;
-            RiftInfluence = options.Elevation.RiftInfluence;
             PreserveMaskCoastline = options.Elevation.PreserveMaskCoastline;
+            PreserveOceanCoastline = options.Elevation.PreserveOceanCoastline;
+            PreserveInlandWaterMask = options.Elevation.PreserveInlandWaterMask;
+            AllowLakeExpansion = options.Elevation.AllowLakeExpansion;
+            AllowLakeDrainage = options.Elevation.AllowLakeDrainage;
             MaxElevationMeters = options.Elevation.MaxElevationMeters;
             MinOceanDepthMeters = options.Elevation.MinOceanDepthMeters;
             MinLandElevationMeters = options.Elevation.MinLandElevationMeters;
             MaxSeaElevationMeters = options.Elevation.MaxSeaElevationMeters;
+            LakeSurfacePercentile = options.Elevation.LakeSurfacePercentile;
+            MinLakeSurfaceMarginMeters = options.Elevation.MinLakeSurfaceMarginMeters;
+            MaxLakeSurfaceMarginMeters = options.Elevation.MaxLakeSurfaceMarginMeters;
+            MinLakeDepthMeters = options.Elevation.MinLakeDepthMeters;
+            MaxLakeDepthMeters = options.Elevation.MaxLakeDepthMeters;
+            MaxRiftLakeDepthMeters = options.Elevation.MaxRiftLakeDepthMeters;
+            MaxInlandSeaDepthMeters = options.Elevation.MaxInlandSeaDepthMeters;
+            MountainLakeElevationMeters = options.Elevation.MountainLakeElevationMeters;
+            PlateauLakeElevationMeters = options.Elevation.PlateauLakeElevationMeters;
+            MountainLakeReliefMeters = options.Elevation.MountainLakeReliefMeters;
+            LakeTectonicFaultThreshold = options.Elevation.LakeTectonicFaultThreshold;
+            LakeVolcanicInfluenceThreshold = options.Elevation.LakeVolcanicInfluenceThreshold;
+            PlainLakeKarstChance = options.Elevation.PlainLakeKarstChance;
+            LakeDepthRandomnessMin = options.Elevation.LakeDepthRandomnessMin;
+            LakeDepthRandomnessMax = options.Elevation.LakeDepthRandomnessMax;
+            LargeLakeDepressionMinCellCount = options.Elevation.LargeLakeDepressionMinCellCount;
             RiverDensity = options.Hydrology.RiverDensity;
+            MountainRiverDensity = options.Hydrology.MountainRiverDensity;
+            MaxMountainSourcesPerCluster = options.Hydrology.MaxMountainSourcesPerCluster;
+            MinMountainSourceSpacing = options.Hydrology.MinMountainSourceSpacing;
             MajorRiverCountMultiplier = options.Hydrology.MajorRiverCountMultiplier;
             LongRiverCountMultiplier = options.Hydrology.LongRiverCountMultiplier;
             TributaryDensity = options.Hydrology.TributaryDensity;
@@ -903,7 +1200,31 @@ public sealed class MainViewModel : ReactiveObject
             ClimatePolarLatitudeMargin = options.Climate.PolarLatitudeMargin;
             ClimateEquatorTemperatureCelsius = options.Climate.EquatorTemperatureCelsius;
             ClimatePoleCoolingCelsius = options.Climate.PoleCoolingCelsius;
+            ClimateLatitudeCurveExponent = options.Climate.LatitudeCurveExponent;
             ClimateLapseRateCelsiusPerMeter = options.Climate.LapseRateCelsiusPerMeter;
+            ClimateBaseSeasonalityCelsius = options.Climate.BaseSeasonalityCelsius;
+            ClimateLatitudeSeasonalityCelsius = options.Climate.LatitudeSeasonalityCelsius;
+            ClimateContinentalSeasonalityCelsius = options.Climate.ContinentalSeasonalityCelsius;
+            ClimateContinentalSummerBoostCelsius = options.Climate.ContinentalSummerBoostCelsius;
+            ClimateContinentalWinterPenaltyCelsius = options.Climate.ContinentalWinterPenaltyCelsius;
+            ClimateContinentalityDistanceCells = options.Climate.ContinentalityDistanceCells;
+            ClimateLargeLakeMinCellCount = options.Climate.LargeLakeMinCellCount;
+            ClimateOceanEvaporation = options.Climate.OceanEvaporation;
+            ClimateLakeEvaporation = options.Climate.LakeEvaporation;
+            ClimateLandEvapotranspiration = options.Climate.LandEvapotranspiration;
+            ClimateMoistureRetention = options.Climate.MoistureRetention;
+            ClimateBaseRainfallEfficiency = options.Climate.BaseRainfallEfficiency;
+            ClimateOrographicStrength = options.Climate.OrographicStrength;
+            ClimateDescentDrying = options.Climate.DescentDrying;
+            ClimateContinentalDrying = options.Climate.ContinentalDrying;
+            ClimateRiverMoistureBonus = options.Climate.RiverMoistureBonus;
+            ClimateRiverAgricultureBonus = options.Climate.RiverAgricultureBonus;
+            ClimateMonsoonRainStrength = options.Climate.MonsoonRainStrength;
+            ClimateDrySeasonStrength = options.Climate.DrySeasonStrength;
+            ClimateMonsoonOceanDistanceCells = options.Climate.MonsoonOceanDistanceCells;
+            ClimateMonsoonCoastProbeCells = options.Climate.MonsoonCoastProbeCells;
+            ClimateSnowMeltThresholdCelsius = options.Climate.SnowMeltThresholdCelsius;
+            ClimateSnowPrecipitationScale = options.Climate.SnowPrecipitationScale;
         }
         finally
         {
@@ -982,6 +1303,16 @@ public sealed class MainViewModel : ReactiveObject
             SelectedLanguage = LanguageOptions.Contains(_settings.Language) ? _settings.Language : "ru-RU";
             SelectedTheme = ThemeOptions.Contains(_settings.Theme) ? _settings.Theme : "System";
             LoadOptions(_settings.GenerationOptions);
+            ExportScale = _settings.ExportScale;
+            ExportRegionBorderWidth = _settings.ExportRegionBorderWidth;
+            ExportTectonicBoundaryWidth = _settings.ExportTectonicBoundaryWidth;
+            ExportDrawCrustPlateBoundaries = _settings.ExportDrawCrustPlateBoundaries;
+            ExportDrawFeaturePlateBoundaries = _settings.ExportDrawFeaturePlateBoundaries;
+            ExportDrawElevationHillshade = _settings.ExportDrawElevationHillshade;
+            ExportDrawElevationPlateBoundaries = _settings.ExportDrawElevationPlateBoundaries;
+            ExportDrawClimateHillshade = _settings.ExportDrawClimateHillshade;
+            ExportDrawClimateRivers = _settings.ExportDrawClimateRivers;
+            ExportDrawClimateRiverValleyAccents = _settings.ExportDrawClimateRiverValleyAccents;
             ShowOnboarding = !_settings.HasCompletedOnboarding;
             SelectedPreviewLayer = PreviewLayers.FirstOrDefault(l => l.Kind.ToString().Equals(_settings.LastPreviewLayer, StringComparison.OrdinalIgnoreCase))
                 ?? PreviewLayers[0];
@@ -1151,10 +1482,12 @@ public sealed class MainViewModel : ReactiveObject
             SelectedPreviewLayer = layer;
     }
 
-    private void AddHistoryEntry()
+    private void AddHistoryEntry(string? mode = null)
     {
         var title = $"{DateTime.Now:g} - {Path.GetFileName(MaskPath)}";
         var details = $"Seed: {(Seed?.ToString() ?? "random")} | {SelectedPreviewLayer?.Name}";
+        if (!string.IsNullOrWhiteSpace(mode))
+            details = $"{mode} | {details}";
         History.Insert(0, new RunHistoryEntryViewModel(title, details, OutputDirectory));
         while (History.Count > 8)
             History.RemoveAt(History.Count - 1);
@@ -1286,6 +1619,16 @@ public sealed class MainViewModel : ReactiveObject
         _settings.LastPreviewLayer = SelectedPreviewLayer?.Kind.ToString() ?? PreviewLayerKind.Overview.ToString();
         _settings.HasCompletedOnboarding = !ShowOnboarding;
         _settings.GenerationOptions = BuildOptions();
+        _settings.ExportScale = ExportScale;
+        _settings.ExportRegionBorderWidth = ExportRegionBorderWidth;
+        _settings.ExportTectonicBoundaryWidth = ExportTectonicBoundaryWidth;
+        _settings.ExportDrawCrustPlateBoundaries = ExportDrawCrustPlateBoundaries;
+        _settings.ExportDrawFeaturePlateBoundaries = ExportDrawFeaturePlateBoundaries;
+        _settings.ExportDrawElevationHillshade = ExportDrawElevationHillshade;
+        _settings.ExportDrawElevationPlateBoundaries = ExportDrawElevationPlateBoundaries;
+        _settings.ExportDrawClimateHillshade = ExportDrawClimateHillshade;
+        _settings.ExportDrawClimateRivers = ExportDrawClimateRivers;
+        _settings.ExportDrawClimateRiverValleyAccents = ExportDrawClimateRiverValleyAccents;
         _settingsService.Save(_settings);
     }
 
