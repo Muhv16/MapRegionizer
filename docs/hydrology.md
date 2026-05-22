@@ -84,6 +84,8 @@ AllowLakeDrainage = false
 
 `GenerateHydrologyStage` runs after `GenerateLakeLevelsStage` and produces `HydrologyMap`. It depends on final `Elevation`, `WaterSurfaces`, `WaterBodyTopology`, and generated lake footprints.
 
+Internally, hydrology generation is split behind the stable `HydrologyGenerator.Generate(...)` facade. Stage implementation files live under `Terrain/Hydrology`: `HydrologyMapAssembler` prepares shared rasters and creates the final `HydrologyMap`; `LakeConnector` resolves inland lake/sea cells, outlets, and lake routing; `DrainageGraphBuilder` coordinates `FlowDirectionSolver` and `FlowAccumulationSolver`; `BasinDelineator` and `EndorheicOverflowConnector` own basin classification and forced dry-basin spill paths; `RiverNetworkExtractor` coordinates `RiverSourceSelector`, `ForcedLongRiverPlanner`, `MajorTributaryInjector`, `RiverSegmentExtractor`, `ChannelPathTracer`, and `RiverCrossingRepairer`. Shared grid math, terrain rules, render rules, and generation state live in small internal helper types so these blocks can be exercised independently without changing the public hydrology API.
+
 The stage first builds `HydroSurfaceMeters`:
 
 ```text
