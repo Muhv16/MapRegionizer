@@ -76,23 +76,18 @@ internal sealed class HydrologyGenerator
         rivers.MarkForcedLongRiverCells(forcedLongPaths, riverCells, lakeIds);
         rivers.AddMajorRiverTributaryCells(context, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths);
 
-        if (RiverCrossingRepairer.ResolveCrossingRiverEdges(context.Mask, context.Elevation, hydroSurface, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, riverCells, lakeIds))
-        {
-            flowState = graph.RestabilizeFlow(context, hydroSurface, lakeIds, flowState.FlowDirections, localRunoff);
-            basinState = basins.Build(context, flowState.FlowDirections, flowState.Accumulation, lakeIds);
-            endorheicPolicies = BasinDelineator.BuildEndorheicRiverPolicies(basinState.Basins, context.Elevation);
-            validEndorheicBasins = BasinDelineator.BuildValidEndorheicBasinSet(basinState.Basins, endorheicPolicies);
-            allowedRiverBasins = BasinDelineator.BuildAllowedRiverBasinSet(basinState.Basins, validEndorheicBasins);
-            forcedLongPaths = rivers.BuildForcedLongRiverPaths(context, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, basinState.Basins, allowedRiverBasins, lakeIds, riverCells);
-            rivers.MarkForcedLongRiverCells(forcedLongPaths, riverCells, lakeIds);
-        }
+        var riverTopology = rivers.BuildTopology(flowState.FlowDirections, riverCells, lakeIds, context.Width, context.Height);
+        RiverTopologyPlanarityResolver.ResolveCrossingEdges(riverTopology, context.Mask, context.Elevation, hydroSurface, flowState.Accumulation, basinState.BasinIds, lakeIds);
 
         var mouths = new List<RiverMouth>();
-        var riverSegments = rivers.Extract(context, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, riverCells, lakeIds, landComponents, validEndorheicBasins, mouths, forcedLongPaths, outlets);
+        var riverSegments = rivers.Extract(context, riverTopology, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, lakeIds, landComponents, validEndorheicBasins, mouths, forcedLongPaths, outlets);
+        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
+        riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width);
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
         mouths.Clear();
         mouths.AddRange(riverSegments.Select(r => new RiverMouth(r.Id, r.Mouth, r.TargetKind, r.TargetId, r.MouthKind ?? RiverMouthKind.SimpleMouth, r.Discharge)));
 
-        return HydrologyMapAssembler.Create(context, hydroSurface, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, riverCells, riverSegments, mouths, outlets, basinState.Basins);
+        var finalRiverCells = HydrologyMapAssembler.BuildRiverCellRaster(context.Width, context.Height, riverSegments);
+        return HydrologyMapAssembler.Create(context, hydroSurface, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, finalRiverCells, riverSegments, mouths, outlets, basinState.Basins);
     }
 }

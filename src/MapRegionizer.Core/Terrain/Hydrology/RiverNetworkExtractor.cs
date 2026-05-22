@@ -58,20 +58,26 @@ internal sealed class RiverNetworkExtractor
         IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths) =>
         MajorTributaryInjector.AddMajorRiverTributaryCells(context.Mask, context.Topology, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths, context.Options);
 
+    public RiverTopologyGraph BuildTopology(int[] flowDirections, byte[] riverCells, int[] lakeIds, int width, int height) =>
+        RiverTopologyGraph.Build(width, height, flowDirections, riverCells, lakeIds);
+
     public List<RiverSegment> Extract(
         HydrologyGenerationContext context,
+        RiverTopologyGraph topologyGraph,
         int[] flowDirections,
         double[] accumulation,
         int[] basinIds,
-        byte[] riverCells,
         int[] lakeIds,
         LandComponentMap landComponents,
         HashSet<int> validEndorheicBasins,
         List<RiverMouth> mouths,
         IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths,
         IReadOnlyList<LakeOutlet> outlets) =>
-        _segmentExtractor.ExtractRivers(context.Mask, context.Elevation, context.Topology, context.WaterSurfaces, flowDirections, accumulation, basinIds, riverCells, lakeIds, landComponents, validEndorheicBasins, context.Options, mouths, forcedLongPaths, outlets);
+        _segmentExtractor.ExtractRivers(context.Mask, context.Elevation, context.Topology, context.WaterSurfaces, topologyGraph, flowDirections, accumulation, basinIds, lakeIds, landComponents, validEndorheicBasins, context.Options, mouths, forcedLongPaths, outlets);
 
     public List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height) =>
         RiverSegmentExtractor.FinalizeVisibleRivers(rivers, width, height);
+
+    public List<RiverSegment> ResolveVisibleCrossings(IReadOnlyList<RiverSegment> rivers, int width) =>
+        VisibleRiverCrossingRepairer.ResolvePolylineCrossings(rivers, width);
 }

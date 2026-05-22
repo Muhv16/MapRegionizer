@@ -8,6 +8,9 @@ namespace MapRegionizer.GeoJson;
 
 public static class RiverJsonWriter
 {
+    private const double GeometryEpsilon = 0.000001;
+    private const double TouchTolerance = 0.15;
+
     public static string Write(HydrologyMap hydrology, RiverJsonExportOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(hydrology);
@@ -250,6 +253,7 @@ public static class RiverJsonWriter
         var backtrackTurns = hydrology.Rivers.Sum(r => CountTurns(r.Cells, minimumDelta: 4));
         var expectedEndorheic = hydrology.Rivers.Count(r => r.Kind == RiverKind.Endorheic);
         var crossingRiverEdges = CountCrossingRiverEdges(hydrology);
+        var polylineCrossings = CountPolylineCrossings(hydrology.Rivers, hydrology.Width);
         var detached = hydrology.Rivers.Count(r =>
             r.TargetKind != DrainageTargetKind.Ocean &&
             r.TargetKind != DrainageTargetKind.Lake &&
@@ -268,7 +272,8 @@ public static class RiverJsonWriter
             Math.Round(curvature.Count == 0 ? 0.0 : curvature.Average(), 4),
             sharpTurns,
             backtrackTurns,
-            crossingRiverEdges);
+            crossingRiverEdges,
+            polylineCrossings);
     }
 
     private static bool IsMajorRiver(RiverSegment river, RiverJsonExportOptions options, int shortLimit) =>
@@ -278,8 +283,7 @@ public static class RiverJsonWriter
 
     private static int CountCrossingRiverEdges(HydrologyMap hydrology)
     {
-        var flowDirections = hydrology.FlowDirectionsSpan;
-        var riverCells = hydrology.RiverCellsSpan;
+        var edges = BuildCanonicalRiverEdges(hydrology.Rivers, hydrology.Width);
         var count = 0;
         for (var y = 0; y < hydrology.Height - 1; y++)
         {
@@ -290,8 +294,7 @@ public static class RiverJsonWriter
                 var b = y * hydrology.Width + eastX;
                 var c = (y + 1) * hydrology.Width + x;
                 var d = (y + 1) * hydrology.Width + eastX;
-                if (HasVisibleEdgeBetween(a, d, flowDirections, riverCells, hydrology.Width, hydrology.Height) &&
-                    HasVisibleEdgeBetween(b, c, flowDirections, riverCells, hydrology.Width, hydrology.Height))
+                if (edges.Contains(EdgeKey(a, d)) && edges.Contains(EdgeKey(b, c)))
                 {
                     count++;
                 }
@@ -301,10 +304,182 @@ public static class RiverJsonWriter
         return count;
     }
 
-    private static bool HasVisibleEdgeBetween(int first, int second, ReadOnlySpan<int> flowDirections, ReadOnlySpan<byte> riverCells, int width, int height) =>
-        riverCells[first] != 0 && riverCells[second] != 0 &&
-        (DownstreamIndex(first, flowDirections[first], width, height) == second ||
-         DownstreamIndex(second, flowDirections[second], width, height) == first);
+    private static HashSet<long> BuildCanonicalRiverEdges(IReadOnlyList<RiverSegment> rivers, int width)
+    {
+        var edges = new HashSet<long>();
+        foreach (var river in rivers)
+        {
+            for (var i = 0; i < river.Cells.Count - 1; i++)
+            {
+                var first = river.Cells[i].Y * width + WrapX(river.Cells[i].X, width);
+                var second = river.Cells[i + 1].Y * width + WrapX(river.Cells[i + 1].X, width);
+                edges.Add(EdgeKey(first, second));
+            }
+        }
+
+        return edges;
+    }
+
+    private static long EdgeKey(int first, int second)
+    {
+        if (first > second)
+            (first, second) = (second, first);
+
+        return ((long)first << 32) | (uint)second;
+    }
+
+    private static int CountPolylineCrossings(IReadOnlyList<RiverSegment> rivers, int width)
+    {
+        var segments = rivers.SelectMany(r => BuildPolylineSegments(r, width)).ToList();
+        var count = 0;
+        for (var i = 0; i < segments.Count; i++)
+        {
+            var first = segments[i];
+            for (var j = i + 1; j < segments.Count; j++)
+            {
+                var second = segments[j];
+                if (first.River.Id == second.River.Id)
+                    continue;
+                if (!BoundingBoxesOverlap(first, second) || !TryFindContact(first, second, out var point))
+                    continue;
+                if (IsAllowedConfluenceTouch(point, first.River, second.River, width))
+                    continue;
+                if (CrossingAngleDegrees(first, second) < 35.0 && !IsParentChild(first.River, second.River))
+                    continue;
+
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static IEnumerable<RiverPolylineSegment> BuildPolylineSegments(RiverSegment river, int width)
+    {
+        for (var i = 0; i < river.Polyline.Count - 1; i++)
+        {
+            var a = river.Polyline[i];
+            var b = river.Polyline[i + 1];
+            if (Math.Abs(b.X - a.X) > width / 2.0)
+                continue;
+            var length = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+            if (length > 0.001)
+                yield return new RiverPolylineSegment(river, a, b, length);
+        }
+    }
+
+    private static bool BoundingBoxesOverlap(RiverPolylineSegment first, RiverPolylineSegment second) =>
+        Math.Max(Math.Min(first.A.X, first.B.X), Math.Min(second.A.X, second.B.X)) <= Math.Min(Math.Max(first.A.X, first.B.X), Math.Max(second.A.X, second.B.X)) + TouchTolerance &&
+        Math.Max(Math.Min(first.A.Y, first.B.Y), Math.Min(second.A.Y, second.B.Y)) <= Math.Min(Math.Max(first.A.Y, first.B.Y), Math.Max(second.A.Y, second.B.Y)) + TouchTolerance;
+
+    private static bool TryFindContact(RiverPolylineSegment first, RiverPolylineSegment second, out MapPoint point)
+    {
+        var x1 = first.A.X;
+        var y1 = first.A.Y;
+        var x2 = first.B.X;
+        var y2 = first.B.Y;
+        var x3 = second.A.X;
+        var y3 = second.A.Y;
+        var x4 = second.B.X;
+        var y4 = second.B.Y;
+        var denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+        if (Math.Abs(denominator) > GeometryEpsilon)
+        {
+            var px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator;
+            var py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator;
+            var firstT = SegmentParameter(first.A, first.B, px, py);
+            var secondT = SegmentParameter(second.A, second.B, px, py);
+            if (firstT < -GeometryEpsilon || firstT > 1.0 + GeometryEpsilon ||
+                secondT < -GeometryEpsilon || secondT > 1.0 + GeometryEpsilon)
+            {
+                point = default;
+                return false;
+            }
+
+            point = new MapPoint(px, py);
+            return true;
+        }
+
+        foreach (var candidate in new[] { first.A, first.B })
+        {
+            if (DistanceToSegment(candidate, second.A, second.B) <= TouchTolerance)
+            {
+                point = candidate;
+                return true;
+            }
+        }
+
+        foreach (var candidate in new[] { second.A, second.B })
+        {
+            if (DistanceToSegment(candidate, first.A, first.B) <= TouchTolerance)
+            {
+                point = candidate;
+                return true;
+            }
+        }
+
+        point = default;
+        return false;
+    }
+
+    private static double SegmentParameter(MapPoint a, MapPoint b, double x, double y) =>
+        Math.Abs(b.X - a.X) >= Math.Abs(b.Y - a.Y)
+            ? (x - a.X) / (b.X - a.X)
+            : (y - a.Y) / (b.Y - a.Y);
+
+    private static double CrossingAngleDegrees(RiverPolylineSegment first, RiverPolylineSegment second)
+    {
+        var ax = first.B.X - first.A.X;
+        var ay = first.B.Y - first.A.Y;
+        var bx = second.B.X - second.A.X;
+        var by = second.B.Y - second.A.Y;
+        var cosine = Math.Abs(ax * bx + ay * by) / Math.Max(0.000001, first.Length * second.Length);
+        return Math.Acos(Math.Clamp(cosine, -1.0, 1.0)) * 180.0 / Math.PI;
+    }
+
+    private static bool IsAllowedConfluenceTouch(MapPoint point, RiverSegment first, RiverSegment second, int width)
+    {
+        var firstIsChild = first.ParentRiverId == second.Id;
+        var secondIsChild = second.ParentRiverId == first.Id;
+        if (firstIsChild || secondIsChild)
+        {
+            var child = firstIsChild ? first : second;
+            return Distance(child.Polyline[^1], point) <= TouchTolerance;
+        }
+
+        return Distance(first.Polyline[^1], point) <= TouchTolerance && second.Cells.Any(c => DistanceToPoint(c, point, width) <= 1.05) ||
+               Distance(second.Polyline[^1], point) <= TouchTolerance && first.Cells.Any(c => DistanceToPoint(c, point, width) <= 1.05);
+    }
+
+    private static bool IsParentChild(RiverSegment first, RiverSegment second) =>
+        first.ParentRiverId == second.Id || second.ParentRiverId == first.Id;
+
+    private static double DistanceToSegment(MapPoint point, MapPoint start, MapPoint end)
+    {
+        var dx = end.X - start.X;
+        var dy = end.Y - start.Y;
+        var lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= GeometryEpsilon)
+            return Distance(point, start);
+
+        var t = Math.Clamp(((point.X - start.X) * dx + (point.Y - start.Y) * dy) / lengthSquared, 0.0, 1.0);
+        var projected = new MapPoint(start.X + dx * t, start.Y + dy * t);
+        return Distance(point, projected);
+    }
+
+    private static double Distance(MapPoint first, MapPoint second)
+    {
+        var dx = first.X - second.X;
+        var dy = first.Y - second.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private static double DistanceToPoint(GridPoint cell, MapPoint point, int width)
+    {
+        var dx = WrappedDeltaX((cell.X + 0.5) - point.X, width);
+        var dy = cell.Y + 0.5 - point.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
 
     private static int DownstreamIndex(int index, int direction, int width, int height)
     {
@@ -335,6 +510,14 @@ public static class RiverJsonWriter
     };
 
     private static int WrapX(int x, int width) => (x % width + width) % width;
+
+    private static double WrappedDeltaX(double dx, int width)
+    {
+        if (Math.Abs(dx) <= width / 2.0)
+            return dx;
+
+        return dx > 0 ? dx - width : dx + width;
+    }
 
     private static int DynamicShortRiverLimit(HydrologyMap hydrology) =>
         Math.Clamp((int)Math.Round(Math.Sqrt(hydrology.Width * hydrology.Height) / 34.0), 5, 8);
@@ -464,7 +647,8 @@ public static class RiverJsonWriter
         double MeanCurvature,
         int SharpTurnCount,
         int BacktrackLikeTurnCount,
-        int CrossingRiverEdgeCount);
+        int CrossingRiverEdgeCount,
+        int PolylineCrossingCount);
 
     private sealed record RiverDto(
         int Id,
@@ -516,12 +700,14 @@ public static class RiverJsonWriter
     private sealed record PointDto(int X, int Y);
 
     private sealed record MapPointDto(double X, double Y);
+
+    private sealed record RiverPolylineSegment(RiverSegment River, MapPoint A, MapPoint B, double Length);
 }
 
 public sealed class RiverJsonExportOptions
 {
     public bool WriteIndented { get; init; } = true;
-    public bool IncludeCellPaths { get; init; }
+    public bool IncludeCellPaths { get; init; } = true;
     public bool IncludeDiagnosticRasters { get; init; }
     public double MajorRiverDischargeThreshold { get; init; } = 220.0;
 }

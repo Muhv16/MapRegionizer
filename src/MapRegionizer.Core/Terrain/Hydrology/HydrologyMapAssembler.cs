@@ -113,6 +113,23 @@ internal sealed class HydrologyMapAssembler
         return new LandComponentMap(componentIds, components);
     }
 
+    internal static byte[] BuildRiverCellRaster(int width, int height, IReadOnlyList<RiverSegment> rivers)
+    {
+        var riverCells = new byte[width * height];
+        foreach (var river in rivers)
+        {
+            foreach (var cell in river.Cells)
+            {
+                if (cell.Y < 0 || cell.Y >= height)
+                    continue;
+
+                riverCells[cell.Y * width + WrapX(cell.X, width)] = 1;
+            }
+        }
+
+        return riverCells;
+    }
+
     internal static HydrologyMap Create(
         HydrologyGenerationContext context,
         double[] hydroSurface,
