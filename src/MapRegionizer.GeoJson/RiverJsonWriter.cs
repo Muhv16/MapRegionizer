@@ -249,6 +249,7 @@ public static class RiverJsonWriter
         var sharpTurns = hydrology.Rivers.Sum(r => CountTurns(r.Cells, minimumDelta: 3));
         var backtrackTurns = hydrology.Rivers.Sum(r => CountTurns(r.Cells, minimumDelta: 4));
         var expectedEndorheic = hydrology.Rivers.Count(r => r.Kind == RiverKind.Endorheic);
+        var crossingRiverEdges = CountCrossingRiverEdges(hydrology);
         var detached = hydrology.Rivers.Count(r =>
             r.TargetKind != DrainageTargetKind.Ocean &&
             r.TargetKind != DrainageTargetKind.Lake &&
@@ -266,13 +267,74 @@ public static class RiverJsonWriter
             zigZagRuns.Count == 0 ? 0 : zigZagRuns.Max(),
             Math.Round(curvature.Count == 0 ? 0.0 : curvature.Average(), 4),
             sharpTurns,
-            backtrackTurns);
+            backtrackTurns,
+            crossingRiverEdges);
     }
 
     private static bool IsMajorRiver(RiverSegment river, RiverJsonExportOptions options, int shortLimit) =>
         river.Discharge >= options.MajorRiverDischargeThreshold &&
         river.Cells.Count > shortLimit &&
         !(river.MeanSlope > 16.0 && river.Discharge < options.MajorRiverDischargeThreshold * 1.35);
+
+    private static int CountCrossingRiverEdges(HydrologyMap hydrology)
+    {
+        var flowDirections = hydrology.FlowDirectionsSpan;
+        var riverCells = hydrology.RiverCellsSpan;
+        var count = 0;
+        for (var y = 0; y < hydrology.Height - 1; y++)
+        {
+            for (var x = 0; x < hydrology.Width; x++)
+            {
+                var eastX = WrapX(x + 1, hydrology.Width);
+                var a = y * hydrology.Width + x;
+                var b = y * hydrology.Width + eastX;
+                var c = (y + 1) * hydrology.Width + x;
+                var d = (y + 1) * hydrology.Width + eastX;
+                if (HasVisibleEdgeBetween(a, d, flowDirections, riverCells, hydrology.Width, hydrology.Height) &&
+                    HasVisibleEdgeBetween(b, c, flowDirections, riverCells, hydrology.Width, hydrology.Height))
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    private static bool HasVisibleEdgeBetween(int first, int second, ReadOnlySpan<int> flowDirections, ReadOnlySpan<byte> riverCells, int width, int height) =>
+        riverCells[first] != 0 && riverCells[second] != 0 &&
+        (DownstreamIndex(first, flowDirections[first], width, height) == second ||
+         DownstreamIndex(second, flowDirections[second], width, height) == first);
+
+    private static int DownstreamIndex(int index, int direction, int width, int height)
+    {
+        if (direction < 0 || direction >= 8 || width <= 0)
+            return -1;
+
+        var x = index % width;
+        var y = index / width;
+        var (dx, dy) = DirectionOffset(direction);
+        var nextY = y + dy;
+        if (nextY < 0 || nextY >= height)
+            return -1;
+
+        return nextY * width + WrapX(x + dx, width);
+    }
+
+    private static (int Dx, int Dy) DirectionOffset(int direction) => direction switch
+    {
+        0 => (1, 0),
+        1 => (1, 1),
+        2 => (0, 1),
+        3 => (-1, 1),
+        4 => (-1, 0),
+        5 => (-1, -1),
+        6 => (0, -1),
+        7 => (1, -1),
+        _ => (0, 0)
+    };
+
+    private static int WrapX(int x, int width) => (x % width + width) % width;
 
     private static int DynamicShortRiverLimit(HydrologyMap hydrology) =>
         Math.Clamp((int)Math.Round(Math.Sqrt(hydrology.Width * hydrology.Height) / 34.0), 5, 8);
@@ -401,7 +463,8 @@ public static class RiverJsonWriter
         int MaxAlternatingZigZagRunCells,
         double MeanCurvature,
         int SharpTurnCount,
-        int BacktrackLikeTurnCount);
+        int BacktrackLikeTurnCount,
+        int CrossingRiverEdgeCount);
 
     private sealed record RiverDto(
         int Id,
