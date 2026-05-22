@@ -193,6 +193,7 @@ public sealed class MainViewModel : ReactiveObject
         RunFullCommand = ReactiveCommand.CreateFromTask(RunFullAsync);
         RunRegionsOnlyCommand = ReactiveCommand.CreateFromTask(RunRegionsOnlyAsync);
         ExportCommand = ReactiveCommand.CreateFromTask(ExportAsync);
+        ExportPreviewCommand = ReactiveCommand.CreateFromTask(ExportPreviewAsync);
         CancelCommand = ReactiveCommand.Create(CancelGeneration);
         RandomizeSeedCommand = ReactiveCommand.Create(RandomizeSeed);
         CopySeedCommand = ReactiveCommand.CreateFromTask(CopySeedAsync);
@@ -229,6 +230,7 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> RunFullCommand { get; }
     public ReactiveCommand<Unit, Unit> RunRegionsOnlyCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportCommand { get; }
+    public ReactiveCommand<Unit, Unit> ExportPreviewCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
     public ReactiveCommand<Unit, Unit> RandomizeSeedCommand { get; }
     public ReactiveCommand<Unit, Unit> CopySeedCommand { get; }
@@ -791,6 +793,55 @@ public sealed class MainViewModel : ReactiveObject
         {
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
         }
+    }
+
+    private async Task ExportPreviewAsync()
+    {
+        if (_workspace.Session is null)
+        {
+            StatusMessage = L["StatusGenerateFirst"];
+            return;
+        }
+
+        if (SelectedPreviewLayer is null)
+            return;
+
+        var window = GetMainWindow();
+        if (window is null)
+            return;
+
+        var layerName = SelectedPreviewLayer.Name ?? "preview";
+        var result = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = L["ExportPreview"],
+            FileTypeChoices =
+            [
+                new FilePickerFileType("PNG") { Patterns = ["*.png"] },
+                new FilePickerFileType("JPEG") { Patterns = ["*.jpg", "*.jpeg"] }
+            ],
+            DefaultExtension = "png",
+            SuggestedFileName = $"{SanitizeFileName(layerName)}.png"
+        });
+
+        if (result?.Path.LocalPath is not { Length: > 0 } path)
+            return;
+
+        try
+        {
+            await _preview.SavePreviewToFileAsync(_workspace.Session, SelectedPreviewLayer, path, BuildExportRenderOptions());
+            StatusMessage = $"{L["StatusPreviewExported"]}: {Path.GetFileName(path)}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"{L["Failed"]}: {ex.Message}";
+        }
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name;
     }
 
     private void CancelGeneration() => _generationCts?.Cancel();

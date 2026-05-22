@@ -1,10 +1,12 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using AvaloniaRegionizer.ViewModels;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
 using MapRegionizer.ImageSharp;
+using MapRegionizer.Runner;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -152,6 +154,104 @@ public sealed class MapPreviewService
                 (byte)(80 + Math.Abs((hash >> 8) & 0x7F)),
                 (byte)(80 + Math.Abs((hash >> 16) & 0x7F)),
                 255);
+        }
+    }
+
+    public async Task SavePreviewToFileAsync(MapGenerationSession session, PreviewLayerViewModel layer, string filePath, MapArtifactRenderOptions renderOptions)
+    {
+        var map = session.CurrentMap;
+        var isJpeg = Path.GetExtension(filePath).ToLowerInvariant() is ".jpg" or ".jpeg";
+
+        Image<Rgba32> image;
+        switch (layer.Kind)
+        {
+            case PreviewLayerKind.TectonicPlates:
+                image = MapImageRenderer.RenderTectonicPlates(map, new TectonicPlateRenderOptions
+                {
+                    Scale = renderOptions.Scale,
+                    PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+                });
+                break;
+            case PreviewLayerKind.Crust:
+                image = MapImageRenderer.RenderCrust(map, new CrustRenderOptions
+                {
+                    Scale = renderOptions.Scale,
+                    DrawPlateBoundaries = renderOptions.DrawCrustPlateBoundaries,
+                    PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+                });
+                break;
+            case PreviewLayerKind.TectonicFeatures:
+            {
+                var plateMap = map.TectonicPlates;
+                image = plateMap is not null
+                    ? MapImageRenderer.RenderTectonicFeatures(map, new TectonicFeatureRenderOptions
+                    {
+                        Scale = renderOptions.Scale,
+                        DrawPlateBoundaries = renderOptions.DrawFeaturePlateBoundaries,
+                        PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+                    })
+                    : RenderFeatureFields(session.TectonicFeatures ?? throw new InvalidOperationException("Tectonic features are not available."));
+                break;
+            }
+            case PreviewLayerKind.Elevation or PreviewLayerKind.ElevationBase or PreviewLayerKind.ElevationTectonic or
+                PreviewLayerKind.ElevationRoughness or PreviewLayerKind.ElevationErosion or PreviewLayerKind.ElevationZones or
+                PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin:
+                image = MapImageRenderer.RenderElevation(map, new ElevationRenderOptions
+                {
+                    Scale = renderOptions.Scale,
+                    Mode = layer.ElevationMode!.Value,
+                    DrawHillshade = renderOptions.DrawElevationHillshade,
+                    DrawPlateBoundaries = renderOptions.DrawElevationPlateBoundaries,
+                    PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+                });
+                break;
+            case PreviewLayerKind.ElevationRivers:
+                image = MapImageRenderer.RenderElevationRivers(map, new RiverRenderOptions
+                {
+                    Scale = renderOptions.Scale
+                });
+                break;
+            case PreviewLayerKind.ClimateBiomesDebug:
+                image = MapImageRenderer.RenderClimate(map, new ClimateRenderOptions
+                {
+                    Scale = renderOptions.Scale,
+                    Mode = ClimateRenderMode.DebugBiomes,
+                    DrawRivers = false,
+                    DrawHillshade = false
+                });
+                break;
+            case PreviewLayerKind.ClimateBiomesPresentation or PreviewLayerKind.ClimateTemperature or PreviewLayerKind.ClimateMoisture or
+                PreviewLayerKind.ClimatePrecipitation or PreviewLayerKind.ClimateSeasonality or PreviewLayerKind.ClimateHabitability or
+                PreviewLayerKind.ClimateAgriculture or PreviewLayerKind.ClimateIce:
+                image = MapImageRenderer.RenderClimate(map, new ClimateRenderOptions
+                {
+                    Scale = renderOptions.Scale,
+                    Mode = layer.ClimateMode!.Value,
+                    DrawHillshade = renderOptions.DrawClimateHillshade,
+                    DrawRivers = renderOptions.DrawClimateRivers,
+                    DrawRiverValleyAccents = renderOptions.DrawClimateRiverValleyAccents,
+                    Elevation = new ElevationRenderOptions
+                    {
+                        Scale = renderOptions.Scale,
+                        DrawHillshade = renderOptions.DrawClimateHillshade
+                    }
+                });
+                break;
+            default:
+                image = MapImageRenderer.Render(map, new MapRenderOptions
+                {
+                    Scale = renderOptions.Scale,
+                    BorderWidth = renderOptions.RegionBorderWidth
+                });
+                break;
+        }
+
+        using (image)
+        {
+            if (isJpeg)
+                await image.SaveAsJpegAsync(filePath);
+            else
+                await image.SaveAsPngAsync(filePath);
         }
     }
 

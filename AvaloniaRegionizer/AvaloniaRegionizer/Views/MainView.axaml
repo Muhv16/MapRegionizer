@@ -143,6 +143,7 @@
                                     <CheckBox Content="{Binding L[ExportClimateHillshade]}" IsChecked="{Binding ExportDrawClimateHillshade}"/>
                                     <CheckBox Content="{Binding L[ExportClimateRivers]}" IsChecked="{Binding ExportDrawClimateRivers}"/>
                                     <CheckBox Content="{Binding L[ExportClimateRiverValleys]}" IsChecked="{Binding ExportDrawClimateRiverValleyAccents}"/>
+                                    <Button Classes="action" Content="{Binding L[ExportPreview]}" Command="{Binding ExportPreviewCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Expander>
 
