@@ -121,6 +121,26 @@ Elevation is configured through `ElevationGenerationOptions`.
 
 ## Generation Algorithm
 
+Internally, base terrain generation is now orchestrated by the stable `ElevationGenerator.Generate(...)` facade. The facade does not own the terrain algorithm directly; it prepares an `ElevationInput` context, builds tectonic, coastal, mountain, and basin fields, composes raw terrain, applies erosion and constraints, classifies terrain, then creates the `BaseTerrain` `ElevationMap`. This keeps the public contract and pipeline position stable while allowing the elevation stage to be maintained as smaller focused classes.
+
+The base-terrain workflow is:
+
+```text
+ElevationInput.Prepare
+ -> TectonicFieldBuilder.Build
+ -> CoastalFieldBuilder.Build
+ -> MountainFieldBuilder.Build
+ -> BasinFieldBuilder.Build
+ -> ElevationComposer.Compose
+ -> ErosionPass.Apply
+ -> TerrainClassifier.Classify
+ -> ElevationMapFactory.CreateBaseTerrain
+```
+
+`ElevationInput` owns shared dimensions, options, topology references, distance fields, land enclosure, shelf width, and plate-domain lookup. `TectonicFieldBuilder` converts tectonic features, boundaries, orogen provinces, and rift provinces into smoothed influence rasters. `MountainFieldBuilder` builds ridge continuity, pass potential, and foothill fields. `BasinFieldBuilder` builds the low-relief basin signal. `ElevationComposer` combines base shape, tectonic contribution, procedural detail, bathymetry, island profiles, mountain cross-sections, and large basin shaping. `ErosionPass` owns smoothing, interior-lowland lift, and preservation constraints. `TerrainClassifier` writes derived terrain classes for the base terrain diagnostics. `ElevationMapFactory` creates the `BaseTerrain` map with bed elevation equal to terrain elevation and no water surfaces.
+
+Lake-level shaping is intentionally not part of this base-terrain workflow. `GenerateSmallLakesStage` still runs after `BaseTerrain`, and `LakeLevelGenerator` inside `GenerateLakeLevelsStage` applies local water surfaces, shoreline rim fixes, and lake-bed shaping for both source water bodies and generated lakes.
+
 ### 1. Base Shape
 
 The generator computes distance-to-land and distance-to-water rasters with horizontal wrapping. Land starts low near coasts and rises inland. Oceanic water starts as shallow shelf near land and deepens into ocean basins. Inland water starts as a basin candidate rather than global sea: it uses land-like base terrain during the main terrain pass and is converted into a lake or inland-sea bed after the local water surface is known. Shelf distance is locally warped by smooth multi-scale noise, and the tectonic crust stage uses variable shelf, inner-shelf, and shallow-sea widths. This prevents isolated islands from receiving perfect circular shallow-water halos while preserving the original land/water mask. Crust and coastal-zone data nudge this base:

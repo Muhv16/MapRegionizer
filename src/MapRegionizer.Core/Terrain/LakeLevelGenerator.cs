@@ -29,9 +29,9 @@ internal sealed class LakeLevelGenerator
         var basinInfluence = baseTerrain.BasinInfluenceSpan.ToArray();
         var waterSurface = Enumerable.Repeat(double.NaN, length).ToArray();
 
-        var distanceToLand = ElevationGenerator.ComputeDistance(mask, sourceIsLand: true);
-        var distanceToWater = ElevationGenerator.ComputeDistance(mask, sourceIsLand: false);
-        var landEnclosure = ElevationGenerator.BuildLandEnclosureField(mask);
+        var distanceToLand = ElevationGridMath.ComputeDistance(mask, sourceIsLand: true);
+        var distanceToWater = ElevationGridMath.ComputeDistance(mask, sourceIsLand: false);
+        var landEnclosure = ElevationGridMath.BuildLandEnclosureField(mask);
         var minDimension = Math.Max(1, Math.Min(mask.Width, mask.Height));
         var shelfWidth = Math.Max(2.0, minDimension * 0.035 * options.ShelfWidthFactor);
         var ridgeMask = new double[length];
@@ -40,15 +40,15 @@ internal sealed class LakeLevelGenerator
         var subductionMask = new double[length];
         var passiveMask = new double[length];
 
-        ElevationGenerator.StampBoundaryMasks(mask, boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask);
-        ridgeMask = ElevationGenerator.ShapeSignal(ElevationGenerator.SmoothField(ridgeMask, mask.Width, mask.Height, 11), 0.16, 1.65);
-        subductionMask = ElevationGenerator.DiffuseTectonicLineSignal(subductionMask, mask.Width, mask.Height, 8, 11, 0.08, 1.18, 0.24);
+        TectonicFieldBuilder.StampBoundaryMasks(mask, boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask);
+        ridgeMask = ElevationSignalMath.ShapeSignal(ElevationSignalMath.SmoothField(ridgeMask, mask.Width, mask.Height, 11), 0.16, 1.65);
+        subductionMask = ElevationSignalMath.DiffuseTectonicLineSignal(subductionMask, mask.Width, mask.Height, 8, 11, 0.08, 1.18, 0.24);
 
-        var volcanism = ElevationGenerator.BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15);
-        var heatFlow = ElevationGenerator.BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4);
-        var sedimentSupply = ElevationGenerator.BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35);
-        var riftProvince = ElevationGenerator.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetRiftInfluence, 5, 0.035, 0.92);
-        var riftGraben = ElevationGenerator.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetGrabenMask, 2, 0.05, 1.04);
+        var volcanism = ElevationSignalMath.BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15);
+        var heatFlow = ElevationSignalMath.BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4);
+        var sedimentSupply = ElevationSignalMath.BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35);
+        var riftProvince = ElevationSignalMath.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetRiftInfluence, 5, 0.035, 0.92);
+        var riftGraben = ElevationSignalMath.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetGrabenMask, 2, 0.05, 1.04);
 
         var waterSurfaces = ApplyWaterSurfaceLevels(
             mask,
@@ -67,7 +67,7 @@ internal sealed class LakeLevelGenerator
             options);
 
         Array.Clear(terrainClasses);
-        ElevationGenerator.ClassifyTerrain(
+        TerrainClassifier.ClassifyTerrain(
             mask,
             crustFields,
             elevation,
