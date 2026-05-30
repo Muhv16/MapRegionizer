@@ -1,0 +1,32 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:AvaloniaRegionizer.ViewModels"
+             x:Class="AvaloniaRegionizer.Views.ProjectToolbarView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+    <Border Classes="panel">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsGenerating}" VerticalAlignment="Center">
+                <TextBlock Text="{Binding L[Seed]}" VerticalAlignment="Center" Foreground="{Binding SecondaryText}"/>
+                <TextBlock Text="{Binding SeedText}" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Button Grid.Column="1" Content="{Binding L[Profile]}" MinWidth="110">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuItem Header="{Binding L[FastPreview]}" Command="{Binding ApplyFastPresetCommand}"/>
+                        <MenuItem Header="{Binding L[Balanced]}" Command="{Binding ApplyBalancedPresetCommand}"/>
+                        <MenuItem Header="{Binding L[Detailed]}" Command="{Binding ApplyDetailedPresetCommand}"/>
+                        <MenuItem Header="{Binding L[DiagnosticExport]}" Command="{Binding ApplyDiagnosticPresetCommand}"/>
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+
+            <Button Grid.Column="2" Classes="primary" Content="{Binding L[RunFull]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
+            <Grid Grid.Column="3" ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
+                <Button Content="{Binding L[Export]}" Command="{Binding ExportCommand}" IsEnabled="{Binding !IsGenerating}" MinWidth="92"/>
+                <Button Grid.Column="1" Content="{Binding L[Cancel]}" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}" MinWidth="82"/>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

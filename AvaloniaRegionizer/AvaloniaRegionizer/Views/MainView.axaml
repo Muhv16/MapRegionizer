@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:AvaloniaRegionizer.ViewModels"
+             xmlns:views="clr-namespace:AvaloniaRegionizer.Views"
              mc:Ignorable="d"
              d:DesignWidth="1440"
              d:DesignHeight="860"
@@ -11,519 +12,67 @@
              x:CompileBindings="False">
 
     <UserControl.Styles>
-        <Style Selector="Border.card">
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="{Binding PanelBackground}"/>
+            <Setter Property="BorderBrush" Value="{Binding SoftBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="12"/>
         </Style>
         <Style Selector="Button">
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="MinHeight" Value="32"/>
         </Style>
         <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#3B82F6"/>
+            <Setter Property="Background" Value="#2563EB"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="MinWidth" Value="132"/>
-            <Setter Property="MinHeight" Value="38"/>
-            <Setter Property="Padding" Value="16,8"/>
-        </Style>
-        <Style Selector="Button.action">
-            <Setter Property="MinWidth" Value="96"/>
-            <Setter Property="MinHeight" Value="34"/>
-            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="14,7"/>
         </Style>
         <Style Selector="Button.preset">
-            <Setter Property="MinHeight" Value="54"/>
+            <Setter Property="MinHeight" Value="52"/>
             <Setter Property="Padding" Value="10,7"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
-        <Style Selector="TextBlock.fieldLabel">
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{Binding PrimaryText}"/>
+        </Style>
+        <Style Selector="TextBlock.navGroup">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{Binding SecondaryText}"/>
+            <Setter Property="Margin" Value="0,6,0,0"/>
         </Style>
-        <Style Selector="TextBlock.sectionTitle">
-            <Setter Property="FontSize" Value="17"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
+        <Style Selector="NumericUpDown">
+            <Setter Property="MinHeight" Value="32"/>
         </Style>
-        <Style Selector="NumericUpDown.sliderValue">
-            <Setter Property="MinWidth" Value="118"/>
-            <Setter Property="MaxWidth" Value="118"/>
-            <Setter Property="Height" Value="34"/>
+        <Style Selector="ComboBox">
+            <Setter Property="MinHeight" Value="32"/>
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="*,Auto" Background="{Binding AppBackground}">
-        <Grid ColumnDefinitions="360,*,390" RowDefinitions="*" Margin="10" ColumnSpacing="10">
-            <Border Grid.Column="0" Classes="card" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}">
-                <DockPanel>
-                    <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="2,0,2,10">
-                        <TextBlock Text="{Binding L[SettingsTitle]}" Classes="sectionTitle" Foreground="{Binding PrimaryText}"/>
-                        <Border Background="{Binding CardBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1" CornerRadius="6" Padding="10" IsVisible="{Binding ShowOnboarding}">
-                            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="8">
-                                <StackPanel Spacing="4">
-                                    <TextBlock Text="{Binding L[OnboardingTitle]}" FontWeight="SemiBold" Foreground="{Binding PrimaryText}"/>
-                                    <TextBlock Text="{Binding L[OnboardingStepMask]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding L[OnboardingStepPreset]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding L[OnboardingStepGenerate]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding L[OnboardingStepExport]}" Foreground="{Binding SecondaryText}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <Button Grid.Column="1" Content="x" Command="{Binding DismissOnboardingCommand}" MinWidth="28" MinHeight="28" Padding="4" ToolTip.Tip="{Binding L[DismissOnboarding]}"/>
-                            </Grid>
-                        </Border>
-                    </StackPanel>
-                    <ScrollViewer>
-                        <StackPanel Spacing="12">
-                            <Expander Header="{Binding L[InputOutput]}" IsExpanded="True">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="{Binding L[Mask]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBox Text="{Binding MaskPath}" PlaceholderText="{Binding L[Mask]}" ToolTip.Tip="{Binding MaskPath}"/>
-                                        <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseMaskCommand}" MinWidth="84"/>
-                                    </Grid>
-                                    <TextBlock Text="{Binding MaskPath}" ToolTip.Tip="{Binding MaskPath}" TextTrimming="CharacterEllipsis" FontSize="11" Foreground="{Binding SecondaryText}"/>
-                                    <TextBlock Text="{Binding L[Output]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBox Text="{Binding OutputDirectory}" PlaceholderText="{Binding L[Output]}"/>
-                                        <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseOutputCommand}" MinWidth="84"/>
-                                    </Grid>
-                                    <TextBlock Text="{Binding L[Seed]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                    <TextBox Text="{Binding SeedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="{Binding L[Seed]}"/>
-                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
-                                        <Button Content="{Binding L[Randomize]}" Command="{Binding RandomizeSeedCommand}" MinWidth="86" ToolTip.Tip=""/>
-                                        <Button Grid.Column="1" Content="{Binding L[Copy]}" Command="{Binding CopySeedCommand}" MinWidth="74" ToolTip.Tip="{Binding L[CopySeedHint]}" ToolTip.ShowDelay="250"/>
-                                    </Grid>
-                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding L[Language]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                            <ComboBox ItemsSource="{Binding LanguageOptions}" SelectedItem="{Binding SelectedLanguage}"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1">
-                                            <TextBlock Text="{Binding L[Theme]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                            <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </StackPanel>
-                            </Expander>
+    <Grid Background="{Binding AppBackground}" RowDefinitions="Auto,*,Auto" Margin="10" RowSpacing="10">
+        <views:ProjectToolbarView Grid.Row="0"/>
 
-                            <Expander Header="{Binding L[Profile]}" IsExpanded="True">
-                                <UniformGrid Columns="2" Rows="2">
-                                    <Button Classes="preset" Command="{Binding ApplyFastPresetCommand}" Margin="0,0,6,6" ToolTip.Tip="{Binding L[FastPreview]}">
-                                        <TextBlock Text="{Binding L[FastPreview]}" TextWrapping="Wrap" TextAlignment="Center"/>
-                                    </Button>
-                                    <Button Classes="preset" Command="{Binding ApplyBalancedPresetCommand}" Margin="0,0,0,6" ToolTip.Tip="{Binding L[Balanced]}">
-                                        <TextBlock Text="{Binding L[Balanced]}" TextWrapping="Wrap" TextAlignment="Center"/>
-                                    </Button>
-                                    <Button Classes="preset" Command="{Binding ApplyDetailedPresetCommand}" Margin="0,0,6,0" ToolTip.Tip="{Binding L[Detailed]}">
-                                        <TextBlock Text="{Binding L[Detailed]}" TextWrapping="Wrap" TextAlignment="Center"/>
-                                    </Button>
-                                    <Button Classes="preset" Command="{Binding ApplyDiagnosticPresetCommand}" ToolTip.Tip="{Binding L[DiagnosticExportFull]}">
-                                        <TextBlock Text="{Binding L[DiagnosticExport]}" TextWrapping="Wrap" TextAlignment="Center"/>
-                                    </Button>
-                                </UniformGrid>
-                            </Expander>
+        <Grid Grid.Row="1" ColumnDefinitions="190,430,*,330" ColumnSpacing="10">
+            <views:SettingsSidebarView Grid.Column="0"/>
+            <views:SettingsPanelView Grid.Column="1"/>
 
-                            <Expander Header="{Binding L[ExportSettings]}" IsExpanded="False">
-                                <StackPanel Spacing="8">
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBlock Text="{Binding L[ExportScale]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpExportScale]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
-                                    </Grid>
-                                    <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
-                                        <Slider Value="{Binding ExportScale, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.25" Maximum="4" TickFrequency="0.25"/>
-                                        <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding ExportScale, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" FormatString="N2"/>
-                                    </Grid>
-                                    <TextBlock Text="{Binding L[ExportRegionBorderWidth]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                    <NumericUpDown Value="{Binding ExportRegionBorderWidth}" Minimum="0" FormatString="N2"/>
-                                    <TextBlock Text="{Binding L[ExportTectonicBoundaryWidth]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                    <NumericUpDown Value="{Binding ExportTectonicBoundaryWidth}" Minimum="0" FormatString="N2"/>
-                                    <CheckBox Content="{Binding L[ExportCrustPlateBoundaries]}" IsChecked="{Binding ExportDrawCrustPlateBoundaries}"/>
-                                    <CheckBox Content="{Binding L[ExportFeaturePlateBoundaries]}" IsChecked="{Binding ExportDrawFeaturePlateBoundaries}"/>
-                                    <CheckBox Content="{Binding L[ExportElevationHillshade]}" IsChecked="{Binding ExportDrawElevationHillshade}"/>
-                                    <CheckBox Content="{Binding L[ExportElevationPlateBoundaries]}" IsChecked="{Binding ExportDrawElevationPlateBoundaries}"/>
-                                    <CheckBox Content="{Binding L[ExportClimateHillshade]}" IsChecked="{Binding ExportDrawClimateHillshade}"/>
-                                    <CheckBox Content="{Binding L[ExportClimateRivers]}" IsChecked="{Binding ExportDrawClimateRivers}"/>
-                                    <CheckBox Content="{Binding L[ExportClimateRiverValleys]}" IsChecked="{Binding ExportDrawClimateRiverValleyAccents}"/>
-                                    <Button Classes="action" Content="{Binding L[ExportPreview]}" Command="{Binding ExportPreviewCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch" Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Expander>
-
-                            <Expander Header="{Binding L[Regions]}" IsExpanded="True">
-                                <StackPanel Spacing="8">
-                                    <Button Classes="action" Content="{Binding L[RunRegionsOnly]}" Command="{Binding RunRegionsOnlyCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch"/>
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBlock Text="{Binding L[RegionSize]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpRegionSize]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
-                                    </Grid>
-                                    <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
-                                        <StackPanel>
-                                            <Slider Value="{Binding TargetAreaSlider, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="80" Maximum="1200" TickFrequency="20"/>
-                                            <Grid ColumnDefinitions="*,Auto">
-                                                <TextBlock Text="{Binding L[Less]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding L[MoreValue]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
-                                            </Grid>
-                                        </StackPanel>
-                                        <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding TargetArea, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1"/>
-                                    </Grid>
-
-                                    <CheckBox Content="{Binding L[DistortionEnabled]}" IsChecked="{Binding BoundaryDistortionEnabled}" ToolTip.Tip="{Binding L[HelpDistortionEnabled]}"/>
-
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                        <TextBlock Text="{Binding L[BoundaryDetail]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpBoundaryDetail]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
-                                    </Grid>
-                                    <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
-                                        <StackPanel>
-                                            <Slider Value="{Binding BoundaryDetail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" TickFrequency="0.01"/>
-                                            <Grid ColumnDefinitions="*,Auto">
-                                                <TextBlock Text="{Binding L[Smooth]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding L[DetailedScale]}" FontSize="11" Foreground="{Binding SecondaryText}"/>
-                                            </Grid>
-                                        </StackPanel>
-                                        <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding BoundaryDetail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" FormatString="N2"/>
-                                    </Grid>
-                                </StackPanel>
-                            </Expander>
-
-                            <Expander Header="{Binding L[AdvancedSettings]}" IsExpanded="False">
-                            <TabControl>
-                                <TabItem Header="{Binding L[General]}">
-                                    <StackPanel Spacing="8" Margin="0,10,0,0">
-                                        <TextBlock Text="{Binding L[Projection]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <ComboBox ItemsSource="{Binding ProjectionModes}" SelectedItem="{Binding ProjectionMode}"/>
-                                        <TextBlock Text="{Binding L[PixelSize]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <NumericUpDown Value="{Binding PixelSize}" Minimum="0.01" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[SimplifyTolerance]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <NumericUpDown Value="{Binding SimplifyTolerance}" Minimum="0" FormatString="N2"/>
-                                    </StackPanel>
-                                </TabItem>
-
-                                <TabItem Header="{Binding L[Regions]}">
-                                    <StackPanel Spacing="8" Margin="0,10,0,0">
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                            <TextBlock Text="{Binding L[PointsMultiplier]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                            <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpPointsMultiplier]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
-                                        </Grid>
-                                        <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
-                                            <Slider Value="{Binding PointsMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.5" Maximum="8" TickFrequency="0.1"/>
-                                            <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding PointsMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" FormatString="N2"/>
-                                        </Grid>
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                            <TextBlock Text="{Binding L[MinAreaRatio]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                            <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpMinAreaRatio]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
-                                        </Grid>
-                                        <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
-                                            <Slider Value="{Binding MinAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" TickFrequency="0.01"/>
-                                            <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding MinAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" FormatString="N2"/>
-                                        </Grid>
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                            <TextBlock Text="{Binding L[MaxAreaRatio]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                            <TextBlock Grid.Column="1" Text="?" ToolTip.Tip="{Binding L[HelpMaxAreaRatio]}" ToolTip.ShowDelay="250" FontWeight="Bold" Opacity="0.7"/>
-                                        </Grid>
-                                        <Grid ColumnDefinitions="*,118" ColumnSpacing="10">
-                                            <Slider Value="{Binding MaxAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1" Maximum="3" TickFrequency="0.05"/>
-                                            <NumericUpDown Grid.Column="1" Classes="sliderValue" Value="{Binding MaxAreaRatio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1" FormatString="N2"/>
-                                        </Grid>
-                                        <TextBlock Text="{Binding L[MaxOffset]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <NumericUpDown Value="{Binding MaxOffset}" Minimum="0" FormatString="N2"/>
-                                        <TextBlock Text="{Binding L[MinLineLengthToCurve]}" Classes="fieldLabel" Foreground="{Binding SecondaryText}"/>
-                                        <NumericUpDown Value="{Binding MinLineLengthToCurve}" Minimum="0" FormatString="N2"/>
-                                    </StackPanel>
-                                </TabItem>
-
-                                <TabItem Header="{Binding L[Tectonics]}">
-                                    <ScrollViewer MaxHeight="460">
-                                        <StackPanel Spacing="8" Margin="0,10,0,0">
-                                            <TextBlock Text="{Binding L[PlateCount]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding PlateCount}" Minimum="1"/>
-                                            <TextBlock Text="{Binding L[HotspotCount]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding HotspotCount}" Minimum="0"/>
-                                            <TextBlock Text="{Binding L[ContinentalSeedRatio]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ContinentalSeedRatio}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[BoundaryNoise]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding BoundaryNoise}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[BoundaryNoiseScale]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding BoundaryNoiseScale}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[LandWaterTransitionPenalty]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding LandWaterTransitionPenalty}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[Activity]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding Activity}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[EarthLikeFactor]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding EarthLikeFactor}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[HistoryDepth]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding HistoryDepth}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[MicroplateRatio]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MicroplateRatio}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[MicroplateAreaRatio]}" FontWeight="SemiBold"/>
-                                            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                                                <NumericUpDown Value="{Binding MinMicroplateAreaRatio}" Minimum="0" Maximum="1" FormatString="N4"/>
-                                                <NumericUpDown Grid.Column="1" Value="{Binding MaxMicroplateAreaRatio}" Minimum="0" Maximum="1" FormatString="N4"/>
-                                            </Grid>
-                                            <TextBlock Text="{Binding L[MinBoundarySegmentLength]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MinBoundarySegmentLength}" Minimum="1"/>
-                                            <TextBlock Text="{Binding L[ActiveMarginRatio]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ActiveMarginRatio}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[ShelfWidthFactor]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding TectonicShelfWidthFactor}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[RiftChance]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding RiftChance}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <CheckBox Content="{Binding L[ValidateGeometry]}" IsChecked="{Binding ValidateGeometry}"/>
-                                            <TextBlock Text="{Binding L[ValidationCycles]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MaxValidationCycles}" Minimum="0"/>
-                                            <TextBlock Text="{Binding L[MinPlateSize]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MinPlateSize}" Minimum="0"/>
-                                            <TextBlock Text="{Binding L[MinPlateSizeRatio]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MinPlateSizeRatio}" Minimum="0" Maximum="1" FormatString="N4"/>
-                                        </StackPanel>
-                                    </ScrollViewer>
-                                </TabItem>
-
-                                <TabItem Header="{Binding L[Elevation]}">
-                                    <ScrollViewer MaxHeight="460">
-                                        <StackPanel Spacing="8" Margin="0,10,0,0">
-                                            <TextBlock Text="{Binding L[ReliefScale]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ReliefScale}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[Mountaininess]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding Mountaininess}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[Erosion]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding Erosion}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[Roughness]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding Roughness}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[SeaDepthScale]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding SeaDepthScale}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[ShelfWidthFactor]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ElevationShelfWidthFactor}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[VolcanismInfluence]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding VolcanismInfluence}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[SmallIslandReliefFactor]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding SmallIslandReliefFactor}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <CheckBox Content="{Binding L[GenerateSmallLakes]}" IsChecked="{Binding GenerateSmallLakes}"/>
-                                            <TextBlock Text="{Binding L[SmallLakeCountMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding SmallLakeCountMultiplier}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[SmallLakeScatterMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding SmallLakeScatterMultiplier}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[SmallLakeSizeMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding SmallLakeSizeMultiplier}" Minimum="0.01" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[RiftInfluence]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding RiftInfluence}" Minimum="0" FormatString="N2"/>
-                                            <CheckBox Content="{Binding L[PreserveCoastline]}" IsChecked="{Binding PreserveMaskCoastline}"/>
-                                            <TextBlock Text="{Binding L[MaxElevation]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MaxElevationMeters}" Minimum="1"/>
-                                            <TextBlock Text="{Binding L[MinOceanDepth]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MinOceanDepthMeters}" Maximum="-1"/>
-                                            <TextBlock Text="{Binding L[MinLandElevation]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MinLandElevationMeters}" Minimum="0"/>
-                                            <TextBlock Text="{Binding L[MaxSeaElevation]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MaxSeaElevationMeters}" Maximum="0"/>
-                                            <TextBlock Text="{Binding L[TectonicJson]}" FontWeight="SemiBold"/>
-                                            <ComboBox ItemsSource="{Binding TectonicJsonModes}" SelectedItem="{Binding TectonicJsonMode}"/>
-                                            <TextBlock Text="{Binding L[ElevationJson]}" FontWeight="SemiBold"/>
-                                            <ComboBox ItemsSource="{Binding ElevationJsonModes}" SelectedItem="{Binding ElevationJsonMode}"/>
-                                        </StackPanel>
-                                    </ScrollViewer>
-                                </TabItem>
-
-                                <TabItem Header="{Binding L[Rivers]}">
-                                    <ScrollViewer MaxHeight="460">
-                                        <StackPanel Spacing="8" Margin="0,10,0,0">
-                                            <TextBlock Text="{Binding L[RiverDensity]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding RiverDensity}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[MajorRiverCountMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MajorRiverCountMultiplier}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[LongRiverCountMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding LongRiverCountMultiplier}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[TributaryDensity]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding TributaryDensity}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[MajorRiverTributaryMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MajorRiverTributaryMultiplier}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[LakeOutletInflowForceMultiplier]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding LakeOutletInflowForceMultiplier}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[EndorheicBasinChance]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding EndorheicBasinChance}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[DeltaFrequency]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding DeltaFrequency}" Minimum="0" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[MeanderStrength]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding MeanderStrength}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[LakeOutletStrictness]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding LakeOutletStrictness}" Minimum="0" Maximum="1" FormatString="N2"/>
-                                            <CheckBox Content="{Binding L[PreserveRiverCoastline]}" IsChecked="{Binding PreserveRiverCoastline}"/>
-                                            <CheckBox Content="{Binding L[AllowRiverCarving]}" IsChecked="{Binding AllowRiverCarving}"/>
-                                        </StackPanel>
-                                    </ScrollViewer>
-                                </TabItem>
-
-                                <TabItem Header="{Binding L[Climate]}">
-                                    <ScrollViewer MaxHeight="460">
-                                        <StackPanel Spacing="8" Margin="0,10,0,0">
-                                            <TextBlock Text="{Binding L[ClimatePolarLatitudeMargin]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ClimatePolarLatitudeMargin}" Minimum="0" Maximum="0.99" FormatString="N2"/>
-                                            <TextBlock Text="{Binding L[ClimateEquatorTemperature]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ClimateEquatorTemperatureCelsius}" FormatString="N1"/>
-                                            <TextBlock Text="{Binding L[ClimatePoleCooling]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ClimatePoleCoolingCelsius}" Minimum="0" FormatString="N1"/>
-                                            <TextBlock Text="{Binding L[ClimateLapseRate]}" FontWeight="SemiBold"/>
-                                            <NumericUpDown Value="{Binding ClimateLapseRateCelsiusPerMeter}" Minimum="0" Increment="0.0001" FormatString="N4"/>
-                                            <TextBlock Text="{Binding L[ClimateJson]}" FontWeight="SemiBold"/>
-                                            <ComboBox ItemsSource="{Binding ClimateJsonModes}" SelectedItem="{Binding ClimateJsonMode}"/>
-                                        </StackPanel>
-                                    </ScrollViewer>
-                                </TabItem>
-                            </TabControl>
-                            </Expander>
-                        </StackPanel>
-                    </ScrollViewer>
-                </DockPanel>
-            </Border>
-
-            <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="8">
-                <Border Classes="card" Padding="10" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
-                        <Button Grid.Column="0" Classes="primary" Content="{Binding L[RunFull]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" MinWidth="220" VerticalAlignment="Center">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        <Button Grid.Column="2" Classes="action" Content="{Binding L[Export]}" Command="{Binding ExportCommand}" IsEnabled="{Binding !IsGenerating}"/>
-                        <CheckBox Grid.Column="3" Content="{Binding L[Compare]}" IsChecked="{Binding IsCompareMode}" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="4" Text="{Binding PreviewLegend}" Opacity="0.68" TextWrapping="Wrap" MaxWidth="280" VerticalAlignment="Center"/>
-                    </Grid>
-                </Border>
-
-                <Border Grid.Row="1" Background="{Binding CanvasBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
-                    <Grid>
-                        <Grid ColumnDefinitions="*,*" IsVisible="{Binding IsCompareMode}">
-                            <Border BorderBrush="{Binding SoftBorder}" BorderThickness="0,0,1,0">
-                                <Image Source="{Binding PreviousPreview}" Stretch="Uniform"/>
-                            </Border>
-                            <Image Grid.Column="1" Source="{Binding CurrentPreview}" Stretch="Uniform"/>
-                        </Grid>
-                        <Image Source="{Binding CurrentPreview}" Stretch="Uniform" IsVisible="{Binding !IsCompareMode}"/>
-                        <TextBlock Text="{Binding L[NoPreview]}" FontSize="20" Foreground="{Binding SecondaryText}" HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding !HasPreview}"/>
-                        <Border VerticalAlignment="Bottom" Background="{Binding CanvasFooterBackground}" Padding="10,6">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
-                                <TextBlock Text="{Binding PreviewTitle}" Foreground="{Binding CanvasFooterText}" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Grid.Column="1" Text="{Binding L[Fit]}" Foreground="{Binding CanvasFooterText}"/>
-                                <TextBlock Grid.Column="2" Text="100%" Foreground="{Binding CanvasFooterText}"/>
-                                <TextBlock Grid.Column="3" Text="{Binding L[Position]}" Foreground="{Binding CanvasFooterText}"/>
-                            </Grid>
-                        </Border>
-                    </Grid>
-                </Border>
-
+            <Grid Grid.Column="2" RowDefinitions="*,210" RowSpacing="10">
+                <views:MapPreviewView Grid.Row="0"/>
+                <views:BottomInspectorView Grid.Row="1"/>
             </Grid>
 
-            <Border Grid.Column="2" Classes="card" Padding="0" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}">
-                <TabControl Margin="10">
-                    <TabItem Header="{Binding L[Layers]}">
-                        <ListBox ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" BorderThickness="0">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid ColumnDefinitions="Auto,6,*,Auto,Auto" ColumnSpacing="8" Margin="0,4">
-                                        <CheckBox IsChecked="{Binding IsAvailable}" IsEnabled="False" VerticalAlignment="Center"/>
-                                        <Border Grid.Column="1" Width="6" Height="22" CornerRadius="3" Background="#64748B"/>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowDelay="250"/>
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Opacity="0.72">
-                                                <Ellipse Width="7" Height="7" Fill="#22A35A" IsVisible="{Binding IsAvailable}" VerticalAlignment="Center"/>
-                                                <TextBlock Text="{Binding DataContext.L[LayerReady], RelativeSource={RelativeSource AncestorType=UserControl}}" FontSize="11" IsVisible="{Binding IsAvailable}"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="3" Text="view" FontSize="11" Opacity="0.65" VerticalAlignment="Center"/>
-                                        <Button Grid.Column="4" Content="..." MinWidth="28" Padding="4" ToolTip.Tip="" IsEnabled="False"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </TabItem>
-
-                    <TabItem Header="{Binding L[Stages]}">
-                        <Grid RowDefinitions="*,Auto" RowSpacing="8">
-                            <ScrollViewer>
-                                <StackPanel Spacing="2">
-                                    <ItemsControl ItemsSource="{Binding Stages}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Grid ColumnDefinitions="26,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" Margin="0,5">
-                                                    <TextBlock Text="{Binding StatusIcon}" Foreground="{Binding StatusBrush}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Top"/>
-                                                    <StackPanel Grid.Column="1">
-                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Tooltip}" ToolTip.ShowDelay="250"/>
-                                                        <TextBlock FontSize="11" Opacity="0.68" TextTrimming="CharacterEllipsis">
-                                                            <TextBlock.Text>
-                                                                <MultiBinding StringFormat="{}{0} - {1}">
-                                                                    <Binding Path="StatusText"/>
-                                                                    <Binding Path="DurationText"/>
-                                                                </MultiBinding>
-                                                            </TextBlock.Text>
-                                                        </TextBlock>
-                                                    </StackPanel>
-                                                    <Button Grid.Column="2" Content="..." MinWidth="30" Padding="4" ToolTip.Tip="{Binding DataContext.L[More], RelativeSource={RelativeSource AncestorType=UserControl}}" ToolTip.ShowDelay="250">
-                                                        <Button.Flyout>
-                                                            <MenuFlyout>
-                                                                <MenuItem Header="{Binding RunUntilLabel}" Command="{Binding RunUntilCommand}" ToolTip.Tip="{Binding RunUntilHint}"/>
-                                                                <MenuItem Header="{Binding RegenerateLabel}" Command="{Binding RegenerateCommand}" ToolTip.Tip="{Binding RegenerateHint}"/>
-                                                                <MenuItem Header="{Binding CopySeedLabel}" Command="{Binding CopySeedCommand}" ToolTip.Tip="{Binding CopySeedHint}"/>
-                                                                <MenuItem Header="{Binding ShowArtifactsLabel}" IsEnabled="False" ToolTip.Tip=""/>
-                                                            </MenuFlyout>
-                                                        </Button.Flyout>
-                                                    </Button>
-                                                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Error}" Foreground="#C62828" TextWrapping="Wrap"/>
-                                                </Grid>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-                            </ScrollViewer>
-                            <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="8">
-                                <Button Content="{Binding L[Stop]}" Command="{Binding CancelCommand}" IsEnabled="{Binding IsGenerating}"/>
-                                <Button Grid.Column="1" Content="{Binding L[Continue]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
-                            </Grid>
-                        </Grid>
-                    </TabItem>
-
-                    <TabItem Header="{Binding L[History]}">
-                        <ScrollViewer>
-                            <StackPanel Spacing="10">
-                                <ItemsControl ItemsSource="{Binding History}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
-                                                <StackPanel Spacing="6">
-                                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                                    <TextBlock Text="{Binding Details}" Opacity="0.76"/>
-                                                    <TextBlock Text="{Binding OutputDirectory}" FontSize="11" Opacity="0.55" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OutputDirectory}"/>
-                                                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="6">
-                                                        <Button Content="{Binding DataContext.L[Load], RelativeSource={RelativeSource AncestorType=UserControl}}" IsEnabled="False"/>
-                                                        <Button Grid.Column="1" Content="{Binding DataContext.L[Compare], RelativeSource={RelativeSource AncestorType=UserControl}}" IsEnabled="False"/>
-                                                        <Button Grid.Column="2" Content="{Binding DataContext.L[OpenFolder], RelativeSource={RelativeSource AncestorType=UserControl}}" IsEnabled="False"/>
-                                                    </Grid>
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <TextBlock Text="{Binding L[NoHistory]}" Opacity="0.6" IsVisible="{Binding !HasHistory}"/>
-                                <Expander Header="{Binding L[Diagnostics]}" IsExpanded="False">
-                                    <StackPanel Spacing="10">
-                                        <TextBlock Text="{Binding Statistics}" TextWrapping="Wrap" FontSize="12" Opacity="0.82"/>
-                                        <TextBlock Text="{Binding ArtifactSummary}" TextWrapping="Wrap" FontSize="12" Opacity="0.82"/>
-                                    </StackPanel>
-                                </Expander>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </TabItem>
-                </TabControl>
-            </Border>
+            <views:LayerPanelView Grid.Column="3"/>
         </Grid>
 
-        <Border Grid.Row="1" Background="{Binding PanelBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1,0,1,1" Padding="10,7">
+        <Border Grid.Row="2" Classes="panel" Padding="10,7">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                 <TextBlock Text="{Binding StatusMessage}" Foreground="{Binding PrimaryText}" TextWrapping="Wrap"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="{Binding ValidationMessage}" Foreground="#EF4444" IsVisible="{Binding HasValidationMessage}"/>
-                    <Button Content="{Binding L[Cancel]}" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}"/>
-                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding ValidationMessage}" Foreground="#EF4444" IsVisible="{Binding HasValidationMessage}"/>
             </Grid>
         </Border>
     </Grid>

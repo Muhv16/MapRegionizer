@@ -45,11 +45,11 @@ public sealed class MainViewModel : ReactiveObject
     private string _previewLegend = string.Empty;
     private string _previewTitle = string.Empty;
     private bool _isGenerating;
-    private bool _isCompareMode;
     private bool _showOnboarding;
     private Bitmap? _currentPreview;
-    private Bitmap? _previousPreview;
     private PreviewLayerViewModel? _selectedPreviewLayer;
+    private SettingsSectionViewModel? _selectedSettingsSection;
+    private BottomInspectorTab _selectedInspectorTab;
     private string _selectedLanguage = "ru-RU";
     private string _selectedTheme = "System";
 
@@ -198,6 +198,7 @@ public sealed class MainViewModel : ReactiveObject
         RandomizeSeedCommand = ReactiveCommand.Create(RandomizeSeed);
         CopySeedCommand = ReactiveCommand.CreateFromTask(CopySeedAsync);
         DismissOnboardingCommand = ReactiveCommand.Create(DismissOnboarding);
+        SelectSettingsSectionCommand = ReactiveCommand.Create<SettingsSectionViewModel>(section => SelectedSettingsSection = section);
         ApplyFastPresetCommand = ReactiveCommand.Create(() => ApplyPreset("fast"));
         ApplyBalancedPresetCommand = ReactiveCommand.Create(() => ApplyPreset("balanced"));
         ApplyDetailedPresetCommand = ReactiveCommand.Create(() => ApplyPreset("detailed"));
@@ -205,6 +206,7 @@ public sealed class MainViewModel : ReactiveObject
 
         InitializeStages();
         InitializePreviewLayers();
+        InitializeSettingsSections();
         LoadSettings();
 
         _localization.LanguageChanged += (_, _) => RefreshLocalization();
@@ -224,6 +226,12 @@ public sealed class MainViewModel : ReactiveObject
     public ObservableCollection<GenerationStageViewModel> FutureStages { get; } = [];
     public ObservableCollection<PreviewLayerViewModel> PreviewLayers { get; } = [];
     public ObservableCollection<RunHistoryEntryViewModel> History { get; } = [];
+    public ObservableCollection<SettingsSectionViewModel> SettingsSections { get; } = [];
+    public ObservableCollection<GenerationLogEntryViewModel> GenerationLog { get; } = [];
+
+    public IEnumerable<SettingsSectionViewModel> ProjectSettingsSections => SettingsSections.Where(s => s.Kind == SettingsSectionKind.Project).OrderBy(s => s.Order);
+    public IEnumerable<SettingsSectionViewModel> MapSettingsSections => SettingsSections.Where(s => s.Kind == SettingsSectionKind.Map).OrderBy(s => s.Order);
+    public IEnumerable<SettingsSectionViewModel> AdvancedSettingsSections => SettingsSections.Where(s => s.Kind == SettingsSectionKind.Advanced).OrderBy(s => s.Order);
 
     public ReactiveCommand<Unit, Unit> BrowseMaskCommand { get; }
     public ReactiveCommand<Unit, Unit> BrowseOutputCommand { get; }
@@ -235,6 +243,7 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> RandomizeSeedCommand { get; }
     public ReactiveCommand<Unit, Unit> CopySeedCommand { get; }
     public ReactiveCommand<Unit, Unit> DismissOnboardingCommand { get; }
+    public ReactiveCommand<SettingsSectionViewModel, Unit> SelectSettingsSectionCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyFastPresetCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyBalancedPresetCommand { get; }
     public ReactiveCommand<Unit, Unit> ApplyDetailedPresetCommand { get; }
@@ -268,7 +277,6 @@ public sealed class MainViewModel : ReactiveObject
     public string CanvasFooterBackground => IsLightTheme ? "#E6EAF1" : "#D017191F";
     public string CanvasFooterText => IsLightTheme ? "#2C3442" : "#D1D5DB";
     public bool IsGenerating { get => _isGenerating; set => this.RaiseAndSetIfChanged(ref _isGenerating, value); }
-    public bool IsCompareMode { get => _isCompareMode; set => this.RaiseAndSetIfChanged(ref _isCompareMode, value); }
     public bool ShowOnboarding { get => _showOnboarding; set => this.RaiseAndSetIfChanged(ref _showOnboarding, value); }
     public Bitmap? CurrentPreview
     {
@@ -277,23 +285,76 @@ public sealed class MainViewModel : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _currentPreview, value);
             this.RaisePropertyChanged(nameof(HasPreview));
+            RaiseSelectedLayerDetailsChanged();
         }
     }
 
-    public Bitmap? PreviousPreview
-    {
-        get => _previousPreview;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _previousPreview, value);
-            this.RaisePropertyChanged(nameof(HasPreviousPreview));
-        }
-    }
     public bool HasPreview => CurrentPreview is not null;
-    public bool HasPreviousPreview => PreviousPreview is not null;
     public bool HasHistory => History.Count > 0;
     public bool HasArtifacts => !string.IsNullOrWhiteSpace(ArtifactSummary);
     public bool HasValidationMessage => !string.IsNullOrWhiteSpace(ValidationMessage);
+    public bool HasGenerationLog => GenerationLog.Count > 0;
+    public string SelectedLayerName => SelectedPreviewLayer?.Name ?? string.Empty;
+    public string SelectedLayerStatusText => SelectedPreviewLayer?.IsAvailable == true ? L["LayerReady"] : L["LayerUnavailable"];
+    public string SelectedLayerStatusBrush => SelectedPreviewLayer?.IsAvailable == true ? "#22C55E" : "#94A3B8";
+    public string SelectedLayerDataKeyText => SelectedPreviewLayer?.RequiredKey.ToString() ?? string.Empty;
+    public string CurrentPreviewSizeText => CurrentPreview is null ? L["NoPreview"] : $"{CurrentPreview.PixelSize.Width} x {CurrentPreview.PixelSize.Height}";
+
+    public BottomInspectorTab SelectedInspectorTab
+    {
+        get => _selectedInspectorTab;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _selectedInspectorTab, value);
+            this.RaisePropertyChanged(nameof(SelectedInspectorIndex));
+        }
+    }
+
+    public int SelectedInspectorIndex
+    {
+        get => (int)SelectedInspectorTab;
+        set
+        {
+            if (value < 0 || value > (int)BottomInspectorTab.Thumbnails)
+                return;
+
+            SelectedInspectorTab = (BottomInspectorTab)value;
+        }
+    }
+
+    public SettingsSectionViewModel? SelectedSettingsSection
+    {
+        get => _selectedSettingsSection;
+        set
+        {
+            if (ReferenceEquals(_selectedSettingsSection, value))
+                return;
+
+            if (_selectedSettingsSection is not null)
+                _selectedSettingsSection.IsSelected = false;
+
+            this.RaiseAndSetIfChanged(ref _selectedSettingsSection, value);
+
+            if (_selectedSettingsSection is not null)
+                _selectedSettingsSection.IsSelected = true;
+
+            RaiseSelectedSectionChanged();
+        }
+    }
+
+    public bool IsInputOutputSectionSelected => IsSelectedSection("InputOutput");
+    public bool IsGenerationSectionSelected => IsSelectedSection("Generation");
+    public bool IsQualityProfileSectionSelected => IsSelectedSection("QualityProfile");
+    public bool IsMaskSectionSelected => IsSelectedSection("Mask");
+    public bool IsReliefSectionSelected => IsSelectedSection("Relief");
+    public bool IsWaterRiversSectionSelected => IsSelectedSection("WaterRivers");
+    public bool IsClimateSectionSelected => IsSelectedSection("Climate");
+    public bool IsBiomesSectionSelected => IsSelectedSection("Biomes");
+    public bool IsRegionsSectionSelected => IsSelectedSection("Regions");
+    public bool IsExportSectionSelected => IsSelectedSection("Export");
+    public bool IsTectonicsSectionSelected => IsSelectedSection("Tectonics");
+    public bool IsErosionSectionSelected => IsSelectedSection("Erosion");
+    public bool IsDiagnosticsSectionSelected => IsSelectedSection("Diagnostics");
 
     public PreviewLayerViewModel? SelectedPreviewLayer
     {
@@ -302,6 +363,7 @@ public sealed class MainViewModel : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _selectedPreviewLayer, value);
             RefreshPreview();
+            RaiseSelectedLayerDetailsChanged();
             SaveSettings();
         }
     }
@@ -540,6 +602,7 @@ public sealed class MainViewModel : ReactiveObject
         IsGenerating = true;
         _generationCts = new CancellationTokenSource();
         StatusMessage = L["Generating"];
+        AddLog(L["LogGenerationStarted"]);
 
         try
         {
@@ -561,6 +624,7 @@ public sealed class MainViewModel : ReactiveObject
                         {
                             stage.Status = GenerationStageStatus.Running;
                             stage.Error = string.Empty;
+                            AddLog($"{L["LogStageStarted"]}: {stage.Name}");
                         }
                     }).GetTask(),
                 (key, duration) => Dispatcher.UIThread.InvokeAsync(() =>
@@ -570,6 +634,7 @@ public sealed class MainViewModel : ReactiveObject
                         {
                             stage.Status = GenerationStageStatus.Ready;
                             stage.Duration = duration;
+                            AddLog($"{L["LogStageCompleted"]}: {stage.Name} ({stage.DurationText})");
                         }
 
                         RefreshStageStates();
@@ -581,6 +646,7 @@ public sealed class MainViewModel : ReactiveObject
                 _generationCts.Token);
 
             StatusMessage = L["Completed"];
+            AddLog(L["LogGenerationCompleted"]);
             AddHistoryEntry();
             CompleteOnboarding();
             SaveSettings();
@@ -588,10 +654,12 @@ public sealed class MainViewModel : ReactiveObject
         catch (OperationCanceledException)
         {
             StatusMessage = L["Ready"];
+            AddLog(L["LogGenerationCancelled"], "warning");
         }
         catch (Exception ex)
         {
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
             MarkRunningStageFailed(ex.Message);
         }
         finally
@@ -611,6 +679,7 @@ public sealed class MainViewModel : ReactiveObject
         IsGenerating = true;
         _generationCts = new CancellationTokenSource();
         StatusMessage = L["GeneratingRegions"];
+        AddLog(L["LogRegionsStarted"]);
 
         try
         {
@@ -632,6 +701,7 @@ public sealed class MainViewModel : ReactiveObject
                         {
                             stage.Status = GenerationStageStatus.Running;
                             stage.Error = string.Empty;
+                            AddLog($"{L["LogStageStarted"]}: {stage.Name}");
                         }
                     }).GetTask(),
                 (key, duration) => Dispatcher.UIThread.InvokeAsync(() =>
@@ -641,6 +711,7 @@ public sealed class MainViewModel : ReactiveObject
                         {
                             stage.Status = GenerationStageStatus.Ready;
                             stage.Duration = duration;
+                            AddLog($"{L["LogStageCompleted"]}: {stage.Name} ({stage.DurationText})");
                         }
 
                         RefreshStageStates();
@@ -652,6 +723,7 @@ public sealed class MainViewModel : ReactiveObject
                 _generationCts.Token);
 
             StatusMessage = L["RegionsCompleted"];
+            AddLog(L["LogRegionsCompleted"]);
             AddHistoryEntry(L["RegionsOnly"]);
             CompleteOnboarding();
             SaveSettings();
@@ -659,10 +731,12 @@ public sealed class MainViewModel : ReactiveObject
         catch (OperationCanceledException)
         {
             StatusMessage = L["Ready"];
+            AddLog(L["LogGenerationCancelled"], "warning");
         }
         catch (Exception ex)
         {
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
             MarkRunningStageFailed(ex.Message);
         }
         finally
@@ -683,6 +757,7 @@ public sealed class MainViewModel : ReactiveObject
         _generationCts = new CancellationTokenSource();
         stage.Status = GenerationStageStatus.Running;
         StatusMessage = L["Generating"];
+        AddLog($"{L["LogStageStarted"]}: {stage.Name}");
 
         try
         {
@@ -696,6 +771,7 @@ public sealed class MainViewModel : ReactiveObject
             started.Stop();
             stage.Duration = started.Elapsed;
             stage.Status = GenerationStageStatus.Ready;
+            AddLog($"{L["LogStageCompleted"]}: {stage.Name} ({stage.DurationText})");
 
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -709,6 +785,7 @@ public sealed class MainViewModel : ReactiveObject
             stage.Status = GenerationStageStatus.Failed;
             stage.Error = ex.Message;
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
         }
         finally
         {
@@ -726,6 +803,7 @@ public sealed class MainViewModel : ReactiveObject
         IsGenerating = true;
         _generationCts = new CancellationTokenSource();
         stage.Status = GenerationStageStatus.Running;
+        AddLog($"{L["LogStageStarted"]}: {stage.Name}");
 
         try
         {
@@ -739,6 +817,7 @@ public sealed class MainViewModel : ReactiveObject
             started.Stop();
             stage.Duration = started.Elapsed;
             stage.Status = session.IsDirty(stage.DataKey.Value) ? GenerationStageStatus.Dirty : GenerationStageStatus.Ready;
+            AddLog($"{L["LogStageCompleted"]}: {stage.Name} ({stage.DurationText})");
 
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -752,6 +831,7 @@ public sealed class MainViewModel : ReactiveObject
             stage.Status = GenerationStageStatus.Failed;
             stage.Error = ex.Message;
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
         }
         finally
         {
@@ -786,12 +866,14 @@ public sealed class MainViewModel : ReactiveObject
 
             ArtifactSummary = FormatArtifactSummary(result.Artifacts);
             StatusMessage = L["StatusExported"];
+            AddLog(L["StatusExported"]);
             this.RaisePropertyChanged(nameof(HasArtifacts));
             AddHistoryEntry();
         }
         catch (Exception ex)
         {
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
         }
     }
 
@@ -830,10 +912,12 @@ public sealed class MainViewModel : ReactiveObject
         {
             await _preview.SavePreviewToFileAsync(_workspace.Session, SelectedPreviewLayer, path, BuildExportRenderOptions());
             StatusMessage = $"{L["StatusPreviewExported"]}: {Path.GetFileName(path)}";
+            AddLog(StatusMessage);
         }
         catch (Exception ex)
         {
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
         }
     }
 
@@ -1342,6 +1426,27 @@ public sealed class MainViewModel : ReactiveObject
         SelectedPreviewLayer = PreviewLayers[0];
     }
 
+    private void InitializeSettingsSections()
+    {
+        SettingsSections.Add(new SettingsSectionViewModel("InputOutput", "ProjectGroup", "InputOutput", SettingsSectionKind.Project, 0, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Generation", "ProjectGroup", "GenerationSection", SettingsSectionKind.Project, 1, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("QualityProfile", "ProjectGroup", "QualityProfile", SettingsSectionKind.Project, 2, Localize));
+
+        SettingsSections.Add(new SettingsSectionViewModel("Mask", "MapGroup", "Mask", SettingsSectionKind.Map, 0, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Relief", "MapGroup", "Relief", SettingsSectionKind.Map, 1, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("WaterRivers", "MapGroup", "WaterRivers", SettingsSectionKind.Map, 2, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Climate", "MapGroup", "Climate", SettingsSectionKind.Map, 3, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Biomes", "MapGroup", "Biomes", SettingsSectionKind.Map, 4, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Regions", "MapGroup", "Regions", SettingsSectionKind.Map, 5, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Export", "MapGroup", "ExportSettings", SettingsSectionKind.Map, 6, Localize));
+
+        SettingsSections.Add(new SettingsSectionViewModel("Tectonics", "AdvancedGroup", "Tectonics", SettingsSectionKind.Advanced, 0, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Erosion", "AdvancedGroup", "Erosion", SettingsSectionKind.Advanced, 1, Localize));
+        SettingsSections.Add(new SettingsSectionViewModel("Diagnostics", "AdvancedGroup", "Diagnostics", SettingsSectionKind.Advanced, 2, Localize));
+
+        SelectedSettingsSection = SettingsSections.FirstOrDefault(s => s.Id == "InputOutput");
+    }
+
     private void LoadSettings()
     {
         _suppressDirty = true;
@@ -1390,7 +1495,6 @@ public sealed class MainViewModel : ReactiveObject
             var nextPreview = _preview.Render(_workspace.Session, SelectedPreviewLayer);
             if (nextPreview is not null)
             {
-                PreviousPreview = CurrentPreview;
                 CurrentPreview = nextPreview;
                 PreviewTitle = SelectedPreviewLayer?.Name ?? string.Empty;
             }
@@ -1406,11 +1510,12 @@ public sealed class MainViewModel : ReactiveObject
                     ? $"{L["SelectedMask"]}: {MaskFileName}"
                     : _preview.GetLegend(_localization, SelectedPreviewLayer, false);
             this.RaisePropertyChanged(nameof(HasPreview));
-            this.RaisePropertyChanged(nameof(HasPreviousPreview));
+            RaiseSelectedLayerDetailsChanged();
         }
         catch (Exception ex)
         {
             PreviewLegend = $"{L["LegendNotAvailable"]} {ex.Message}";
+            RaiseSelectedLayerDetailsChanged();
         }
     }
 
@@ -1436,6 +1541,8 @@ public sealed class MainViewModel : ReactiveObject
         var session = _workspace.Session;
         foreach (var layer in PreviewLayers)
             layer.IsAvailable = session?.Has(layer.RequiredKey) == true;
+
+        RaiseSelectedLayerDetailsChanged();
     }
 
     private void RefreshStatistics()
@@ -1636,7 +1743,6 @@ public sealed class MainViewModel : ReactiveObject
 
         _sessionResetRequired = true;
         _workspace.Reset();
-        PreviousPreview = null;
         CurrentPreview = _preview.RenderMask(MaskPath);
         PreviewTitle = MaskFileName;
         PreviewLegend = File.Exists(MaskPath)
@@ -1715,11 +1821,55 @@ public sealed class MainViewModel : ReactiveObject
             stage.RefreshLocalization();
         foreach (var layer in PreviewLayers)
             layer.RefreshLocalization();
+        foreach (var section in SettingsSections)
+            section.RefreshLocalization();
         RefreshPreview();
+        RaiseSelectedLayerDetailsChanged();
         ValidateAll();
     }
 
     private string Localize(string key) => L[key];
+
+    private bool IsSelectedSection(string id) => string.Equals(SelectedSettingsSection?.Id, id, StringComparison.Ordinal);
+
+    private void RaiseSelectedSectionChanged()
+    {
+        this.RaisePropertyChanged(nameof(IsInputOutputSectionSelected));
+        this.RaisePropertyChanged(nameof(IsGenerationSectionSelected));
+        this.RaisePropertyChanged(nameof(IsQualityProfileSectionSelected));
+        this.RaisePropertyChanged(nameof(IsMaskSectionSelected));
+        this.RaisePropertyChanged(nameof(IsReliefSectionSelected));
+        this.RaisePropertyChanged(nameof(IsWaterRiversSectionSelected));
+        this.RaisePropertyChanged(nameof(IsClimateSectionSelected));
+        this.RaisePropertyChanged(nameof(IsBiomesSectionSelected));
+        this.RaisePropertyChanged(nameof(IsRegionsSectionSelected));
+        this.RaisePropertyChanged(nameof(IsExportSectionSelected));
+        this.RaisePropertyChanged(nameof(IsTectonicsSectionSelected));
+        this.RaisePropertyChanged(nameof(IsErosionSectionSelected));
+        this.RaisePropertyChanged(nameof(IsDiagnosticsSectionSelected));
+    }
+
+    private void RaiseSelectedLayerDetailsChanged()
+    {
+        this.RaisePropertyChanged(nameof(SelectedLayerName));
+        this.RaisePropertyChanged(nameof(SelectedLayerStatusText));
+        this.RaisePropertyChanged(nameof(SelectedLayerStatusBrush));
+        this.RaisePropertyChanged(nameof(SelectedLayerDataKeyText));
+        this.RaisePropertyChanged(nameof(CurrentPreviewSizeText));
+        this.RaisePropertyChanged(nameof(PreviewLegend));
+    }
+
+    private void AddLog(string message, string level = "info")
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        GenerationLog.Insert(0, new GenerationLogEntryViewModel(DateTimeOffset.Now, message, level));
+        while (GenerationLog.Count > 200)
+            GenerationLog.RemoveAt(GenerationLog.Count - 1);
+
+        this.RaisePropertyChanged(nameof(HasGenerationLog));
+    }
 
     private static Window? GetMainWindow()
     {

@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:AvaloniaRegionizer.ViewModels"
+             x:Class="AvaloniaRegionizer.Views.LayerPanelView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+    <Border Classes="panel" Padding="10">
+        <TabControl>
+            <TabItem Header="{Binding L[Layers]}">
+                <ListBox ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="12,*,Auto" ColumnSpacing="8" Margin="0,3" MinHeight="32">
+                                <Ellipse Width="8" Height="8" Fill="#22C55E" IsVisible="{Binding IsAvailable}" VerticalAlignment="Center"/>
+                                <Ellipse Width="8" Height="8" Fill="#64748B" IsVisible="{Binding !IsAvailable}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" VerticalAlignment="Center"/>
+                                <Button Grid.Column="2" Content="..." MinWidth="28" Padding="4" IsEnabled="False"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </TabItem>
+
+            <TabItem Header="{Binding L[Stages]}">
+                <Grid RowDefinitions="*,Auto" RowSpacing="8">
+                    <ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding Stages}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="22,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" Margin="0,4">
+                                        <TextBlock Text="{Binding StatusIcon}" Foreground="{Binding StatusBrush}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Tooltip}"/>
+                                            <TextBlock FontSize="11" Opacity="0.68" TextTrimming="CharacterEllipsis">
+                                                <TextBlock.Text>
+                                                    <MultiBinding StringFormat="{}{0} - {1}">
+                                                        <Binding Path="StatusText"/>
+                                                        <Binding Path="DurationText"/>
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="..." MinWidth="28" Padding="4">
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuItem Header="{Binding RunUntilLabel}" Command="{Binding RunUntilCommand}"/>
+                                                    <MenuItem Header="{Binding RegenerateLabel}" Command="{Binding RegenerateCommand}"/>
+                                                    <MenuItem Header="{Binding CopySeedLabel}" Command="{Binding CopySeedCommand}"/>
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Error}" Foreground="#EF4444" TextWrapping="Wrap"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="8">
+                        <Button Content="{Binding L[Stop]}" Command="{Binding CancelCommand}" IsEnabled="{Binding IsGenerating}"/>
+                        <Button Grid.Column="1" Content="{Binding L[Continue]}" Command="{Binding RunFullCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="{Binding L[History]}">
+                <ScrollViewer>
+                    <StackPanel Spacing="8">
+                        <ItemsControl ItemsSource="{Binding History}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{Binding DataContext.SoftBorder, RelativeSource={RelativeSource AncestorType=UserControl}}" BorderThickness="1" CornerRadius="6" Padding="8">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Details}" FontSize="12" Opacity="0.76"/>
+                                            <TextBlock Text="{Binding OutputDirectory}" FontSize="11" Opacity="0.55" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OutputDirectory}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding L[NoHistory]}" Opacity="0.6" IsVisible="{Binding !HasHistory}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </Border>
+</UserControl>

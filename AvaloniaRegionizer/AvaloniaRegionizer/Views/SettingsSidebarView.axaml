@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:AvaloniaRegionizer.ViewModels"
+             x:Class="AvaloniaRegionizer.Views.SettingsSidebarView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+    <Border Classes="panel" Padding="10">
+        <ScrollViewer>
+            <StackPanel Spacing="12">
+                <TextBlock Text="{Binding L[Navigation]}" Classes="sectionTitle"/>
+
+                <TextBlock Text="{Binding L[ProjectGroup]}" Classes="navGroup"/>
+                <ItemsControl ItemsSource="{Binding ProjectSettingsSections}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.SelectSettingsSectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    HorizontalAlignment="Stretch"
+                                    Padding="8,6"
+                                    Margin="0,1">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text=">" IsVisible="{Binding IsSelected}" FontWeight="Bold"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="{Binding L[MapGroup]}" Classes="navGroup"/>
+                <ItemsControl ItemsSource="{Binding MapSettingsSections}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.SelectSettingsSectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    HorizontalAlignment="Stretch"
+                                    Padding="8,6"
+                                    Margin="0,1">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text=">" IsVisible="{Binding IsSelected}" FontWeight="Bold"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="{Binding L[AdvancedGroup]}" Classes="navGroup"/>
+                <ItemsControl ItemsSource="{Binding AdvancedSettingsSections}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.SelectSettingsSectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    HorizontalAlignment="Stretch"
+                                    Padding="8,6"
+                                    Margin="0,1">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text=">" IsVisible="{Binding IsSelected}" FontWeight="Bold"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>
