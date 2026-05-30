@@ -11,7 +11,7 @@ internal static class VisibleRiverCrossingRepairer
 
     internal static List<RiverSegment> ResolvePolylineCrossings(IReadOnlyList<RiverSegment> rivers, int width)
     {
-        var result = rivers.ToList();
+        var result = ResolveCanonicalEdgeCrossings(rivers, width);
         for (var pass = 0; pass < 64; pass++)
         {
             var contact = FindFirstInvalidContact(result, width);
@@ -23,6 +23,33 @@ internal static class VisibleRiverCrossingRepairer
             var weakSegment = weak.Id == value.First.River.Id ? value.First : value.Second;
             var strong = weak.Id == value.First.River.Id ? value.Second.River : value.First.River;
             var repaired = ConvertCrossingToConfluence(weak, weakSegment, strong, value.Point, width);
+            var index = result.FindIndex(r => r.Id == weak.Id);
+            if (index < 0)
+                break;
+
+            if (repaired is null)
+                result.RemoveAt(index);
+            else
+                result[index] = repaired;
+        }
+
+        return result;
+    }
+
+    internal static List<RiverSegment> ResolveCanonicalEdgeCrossings(IReadOnlyList<RiverSegment> rivers, int width)
+    {
+        var result = rivers.ToList();
+        for (var pass = 0; pass < 64; pass++)
+        {
+            var crossing = FindFirstCanonicalCrossing(result, width);
+            if (!crossing.HasValue)
+                break;
+
+            var value = crossing.Value;
+            var weak = ChooseWeakRiver(value.First.River, value.Second.River);
+            var weakEdge = weak.Id == value.First.River.Id ? value.First : value.Second;
+            var strongEdge = weak.Id == value.First.River.Id ? value.Second : value.First;
+            var repaired = ConvertCanonicalCrossingToConfluence(weak, weakEdge, strongEdge, width);
             var index = result.FindIndex(r => r.Id == weak.Id);
             if (index < 0)
                 break;
@@ -154,6 +181,44 @@ internal static class VisibleRiverCrossingRepairer
         };
     }
 
+    private static RiverSegment? ConvertCanonicalCrossingToConfluence(
+        RiverSegment weak,
+        RiverCellEdge weakEdge,
+        RiverCellEdge strongEdge,
+        int width)
+    {
+        if (weakEdge.SegmentIndex < 1 && weak.Cells.Count <= 3)
+            return null;
+
+        var weakStart = weak.Cells[weakEdge.SegmentIndex];
+        var weakEnd = weak.Cells[weakEdge.SegmentIndex + 1];
+        var confluence = ChannelPathTracer.IsAdjacent(weakStart, strongEdge.A, width)
+            ? strongEdge.A
+            : ChannelPathTracer.IsAdjacent(weakStart, strongEdge.B, width)
+                ? strongEdge.B
+                : ChannelPathTracer.IsAdjacent(weakEnd, strongEdge.A, width)
+                    ? strongEdge.A
+                    : strongEdge.B;
+
+        var cells = weak.Cells.Take(weakEdge.SegmentIndex + 1).ToList();
+        if (cells.Count == 0 || cells[^1] != confluence)
+            cells.Add(confluence);
+        if (cells.Count < 3)
+            return null;
+
+        return weak with
+        {
+            Cells = cells,
+            Polyline = BuildCellCenterPolyline(cells),
+            Mouth = confluence,
+            DrainageTerminal = strongEdge.River.DrainageTerminal,
+            TargetKind = strongEdge.River.TargetKind,
+            TargetId = strongEdge.River.TargetId,
+            LengthCells = Math.Round((double)cells.Count, 2),
+            MouthKind = RiverMouthKind.SimpleMouth
+        };
+    }
+
     private static int ChooseWeakCutIndex(RiverSegment weak, MapPoint crossing, int width)
     {
         var bestIndex = 0;
@@ -192,6 +257,57 @@ internal static class VisibleRiverCrossingRepairer
             return first.Cells.Count < second.Cells.Count ? first : second;
         return first.Id > second.Id ? first : second;
     }
+
+    private static CanonicalCrossing? FindFirstCanonicalCrossing(IReadOnlyList<RiverSegment> rivers, int width)
+    {
+        var edges = rivers.SelectMany(r => BuildCellEdges(r, width)).ToList();
+        for (var i = 0; i < edges.Count; i++)
+        {
+            for (var j = i + 1; j < edges.Count; j++)
+            {
+                if (edges[i].River.Id == edges[j].River.Id)
+                    continue;
+                if (AreOpposingDiagonalEdges(edges[i], edges[j], width))
+                    return new CanonicalCrossing(edges[i], edges[j]);
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<RiverCellEdge> BuildCellEdges(RiverSegment river, int width)
+    {
+        for (var i = 0; i < river.Cells.Count - 1; i++)
+        {
+            var a = river.Cells[i];
+            var b = river.Cells[i + 1];
+            var dx = HydrologyGridMath.WrappedDeltaX(b.X - a.X, width);
+            var dy = b.Y - a.Y;
+            if (Math.Abs(dx) == 1 && Math.Abs(dy) == 1)
+                yield return new RiverCellEdge(river, i, a, b);
+        }
+    }
+
+    private static bool AreOpposingDiagonalEdges(RiverCellEdge first, RiverCellEdge second, int width)
+    {
+        var firstMinY = Math.Min(first.A.Y, first.B.Y);
+        var secondMinY = Math.Min(second.A.Y, second.B.Y);
+        if (firstMinY != secondMinY)
+            return false;
+
+        var firstWest = HydrologyGridMath.WrappedDeltaX(first.B.X - first.A.X, width) > 0 ? first.A : first.B;
+        var firstEast = firstWest == first.A ? first.B : first.A;
+        var secondWest = HydrologyGridMath.WrappedDeltaX(second.B.X - second.A.X, width) > 0 ? second.A : second.B;
+        var secondEast = secondWest == second.A ? second.B : second.A;
+
+        return firstWest.X == secondWest.X &&
+               firstEast.X == secondEast.X &&
+               firstWest.Y != secondWest.Y &&
+               firstEast.Y != secondEast.Y;
+    }
+
+    private static List<MapPoint> BuildCellCenterPolyline(IReadOnlyList<GridPoint> cells) =>
+        cells.Select(c => new MapPoint(c.X + 0.5, c.Y + 0.5)).ToList();
 
     private static bool BoundingBoxesOverlap(RiverPolylineSegment first, RiverPolylineSegment second) =>
         Math.Max(Math.Min(first.A.X, first.B.X), Math.Min(second.A.X, second.B.X)) <= Math.Min(Math.Max(first.A.X, first.B.X), Math.Max(second.A.X, second.B.X)) + TouchTolerance &&
@@ -317,4 +433,8 @@ internal static class VisibleRiverCrossingRepairer
     private readonly record struct RiverPolylineSegment(RiverSegment River, int SegmentIndex, MapPoint A, MapPoint B, double Length);
 
     private readonly record struct RiverContact(RiverPolylineSegment First, RiverPolylineSegment Second, MapPoint Point, double AngleDegrees);
+
+    private readonly record struct RiverCellEdge(RiverSegment River, int SegmentIndex, GridPoint A, GridPoint B);
+
+    private readonly record struct CanonicalCrossing(RiverCellEdge First, RiverCellEdge Second);
 }

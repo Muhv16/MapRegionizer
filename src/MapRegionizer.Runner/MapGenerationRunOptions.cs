@@ -91,6 +91,7 @@ public sealed class MapGenerationRunOptions
     public double LakeOutletInflowForceMultiplier { get; set; } = 0.45;
     public double EndorheicBasinChance { get; set; } = 0.22;
     public double DeltaFrequency { get; set; } = 0.8;
+    public double ChannelCurvatureStrength { get; set; } = 1.0;
     public double MeanderStrength { get; set; } = 0.65;
     public double LakeOutletStrictness { get; set; } = 0.35;
     public bool PreserveRiverCoastline { get; set; } = true;
@@ -235,6 +236,7 @@ public sealed class MapGenerationRunOptions
                 LakeOutletInflowForceMultiplier = LakeOutletInflowForceMultiplier,
                 EndorheicBasinChance = EndorheicBasinChance,
                 DeltaFrequency = DeltaFrequency,
+                ChannelCurvatureStrength = ChannelCurvatureStrength,
                 MeanderStrength = MeanderStrength,
                 LakeOutletStrictness = LakeOutletStrictness,
                 PreserveCoastline = PreserveRiverCoastline,

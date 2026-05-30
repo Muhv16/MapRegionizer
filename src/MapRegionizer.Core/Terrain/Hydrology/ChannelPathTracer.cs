@@ -31,6 +31,8 @@ internal sealed class ChannelPathTracer
     {
         if (originalCells.Count <= 2)
             return originalCells.ToList();
+        if (options.ChannelCurvatureStrength <= 0.001)
+            return originalCells.ToList();
 
         var path = TraceChannelPath(mask, elevation, topology, lakeIds, originalCells, usedChannelCells, discharge, meanSlope, options);
         if (path.Count < 2)
@@ -38,6 +40,7 @@ internal sealed class ChannelPathTracer
 
         path = RerouteLongStraightRuns(mask, elevation, topology, lakeIds, path, usedChannelCells, discharge, meanSlope, options);
         path = SmoothAlternatingZigZags(path, mask.Width);
+        path = RerouteLongStraightRuns(mask, elevation, topology, lakeIds, path, usedChannelCells, discharge, meanSlope, options);
         return path.Count >= 2 ? path : originalCells.ToList();
     }
 
@@ -93,9 +96,9 @@ internal sealed class ChannelPathTracer
                 var straightRun = direction == node.PreviousDirection ? node.StraightRunLength + 1 : 1;
                 var diagonalRun = isDiagonal && direction == node.DiagonalRunDirection ? node.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
                 var nearTarget = Distance(next, target, width) <= 2.01;
-                if (!nearTarget && straightRun > 5)
+                if (!nearTarget && straightRun > MaxAllowedStraightRun(options))
                     continue;
-                if (!nearTarget && isDiagonal && diagonalRun > 4)
+                if (!nearTarget && isDiagonal && diagonalRun > MaxAllowedDiagonalRun(options))
                     continue;
 
                 var stepCost = ChannelStepCost(
@@ -171,20 +174,23 @@ internal sealed class ChannelPathTracer
         var ridgePenalty = Math.Max(0.0, elevation.GetRidgeContinuity(next) - elevation.GetMountainPassPotential(next) * 0.42) * 46.0;
         var usedAttraction = usedChannelCells[next.Y * width + next.X] > 0 ? -Math.Clamp(discharge / 180.0, 0.7, 3.4) * 7.5 : 0.0;
         var curvaturePenalty = ChannelCurvaturePenalty(previousDirection, direction);
+        var curvatureStrength = Math.Clamp(options.ChannelCurvatureStrength, 0.0, 2.0);
         var longStraightPenalty = straightRunLength >= 3
-            ? Math.Pow(straightRunLength - 1, 1.75) * (4.8 + lateralStrength * 7.5)
+            ? Math.Pow(straightRunLength - 1, 1.75) * (4.8 + lateralStrength * 7.5) * curvatureStrength
             : 0.0;
         var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
         var diagonalRunPenalty = isDiagonal && diagonalRunLength >= 3
-            ? Math.Pow(diagonalRunLength - 1, 1.85) * (6.8 + lateralStrength * 8.5)
+            ? Math.Pow(diagonalRunLength - 1, 1.85) * (6.8 + lateralStrength * 8.5) * curvatureStrength
             : 0.0;
-        if (hardLimitMode && straightRunLength >= 5)
-            longStraightPenalty += 95.0 * (straightRunLength - 4);
-        if (hardLimitMode && isDiagonal && diagonalRunLength >= 4)
-            diagonalRunPenalty += 120.0 * (diagonalRunLength - 3);
+        var straightLimit = MaxAllowedStraightRun(options);
+        var diagonalLimit = MaxAllowedDiagonalRun(options);
+        if (hardLimitMode && straightRunLength >= straightLimit)
+            longStraightPenalty += 95.0 * (straightRunLength - straightLimit + 1) * curvatureStrength;
+        if (hardLimitMode && isDiagonal && diagonalRunLength >= diagonalLimit)
+            diagonalRunPenalty += 120.0 * (diagonalRunLength - diagonalLimit + 1) * curvatureStrength;
 
-        var curlBias = ChannelCurlBias(next, direction, lateralStrength);
-        var meanderNoise = Hash01(next.X / 3, next.Y / 3, _seed + 7817) * lateralStrength * options.MeanderStrength * 3.2;
+        var curlBias = ChannelCurlBias(next, direction, lateralStrength * curvatureStrength);
+        var meanderNoise = Hash01(next.X / 3, next.Y / 3, _seed + 7817) * lateralStrength * options.MeanderStrength * curvatureStrength * 3.2;
         var targetBias = targetDistance * (3.1 + Math.Clamp(originalLength / 120.0, 0.0, 2.4));
         return 1.0
             + nextHeight * 0.045
@@ -272,10 +278,16 @@ internal sealed class ChannelPathTracer
         HydrologyGenerationOptions options)
     {
         const int minRun = 6;
+        var curvatureStrength = Math.Clamp(options.ChannelCurvatureStrength, 0.0, 2.0);
+        if (curvatureStrength <= 0.001)
+            return cells.ToList();
+
+        var effectiveMinRun = Math.Clamp((int)Math.Round(minRun / curvatureStrength), 3, 18);
         var result = cells.ToList();
-        for (var pass = 0; pass < 3; pass++)
+        var maxPasses = Math.Clamp((int)Math.Round(result.Count * curvatureStrength / 2.0), 6, 128);
+        for (var pass = 0; pass < maxPasses; pass++)
         {
-            var run = DetectLongStraightRuns(result, minRun)
+            var run = DetectLongStraightRuns(result, effectiveMinRun)
                 .OrderByDescending(r => r.Length)
                 .FirstOrDefault();
             if (run == default)
@@ -290,8 +302,11 @@ internal sealed class ChannelPathTracer
             var rerouted = FindLocalChannelPath(mask, elevation, topology, lakeIds, segment, usedChannelCells, discharge, meanSlope, options, run.Direction);
             if (rerouted.Count <= 2 || rerouted.SequenceEqual(segment))
             {
-                if (!TryBreakStraightRunWithKink(result, run, mask, elevation, topology, lakeIds))
+                if (!TryBreakStraightRunWithDetour(result, run, mask, elevation, topology, lakeIds, options) &&
+                    !TryBreakStraightRunWithKink(result, run, mask, elevation, topology, lakeIds))
+                {
                     break;
+                }
                 continue;
             }
 
@@ -300,6 +315,45 @@ internal sealed class ChannelPathTracer
         }
 
         return result;
+    }
+
+    internal bool TryBreakStraightRunWithDetour(
+        List<GridPoint> cells,
+        StraightRun run,
+        MapMask mask,
+        ElevationMap elevation,
+        WaterBodyTopology topology,
+        int[] lakeIds,
+        HydrologyGenerationOptions options)
+    {
+        if (options.ChannelCurvatureStrength <= 0.001)
+            return false;
+        if (run.Direction < 0 || run.Direction >= Directions.Length || run.Length < 2 || cells.Count < 4)
+            return false;
+
+        var width = mask.Width;
+        var height = mask.Height;
+        var move = Directions[run.Direction];
+        var firstBase = Math.Clamp(run.Start + run.Length / 2 - 1, run.Start, run.Start + run.Length - 2);
+        for (var offset = 0; offset <= Math.Max(1, run.Length / 2); offset++)
+        {
+            foreach (var baseIndex in CandidateDetourBases(firstBase, offset, run, cells.Count))
+            {
+                var start = cells[baseIndex];
+                var end = cells[baseIndex + 2];
+                foreach (var detour in DetourCandidates(start, move, width, height))
+                {
+                    if (detour[^1] != end || !CanUseDetour(detour, cells, baseIndex, mask, elevation, topology, lakeIds))
+                        continue;
+
+                    cells.RemoveRange(baseIndex, 3);
+                    cells.InsertRange(baseIndex, detour);
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     internal bool TryBreakStraightRunWithKink(
@@ -374,6 +428,58 @@ internal sealed class ChannelPathTracer
             yield return right;
     }
 
+    internal static IEnumerable<int> CandidateDetourBases(int firstBase, int offset, StraightRun run, int count)
+    {
+        var min = Math.Max(0, run.Start);
+        var max = Math.Min(count - 3, run.Start + run.Length - 2);
+        if (offset == 0)
+        {
+            if (firstBase >= min && firstBase <= max)
+                yield return firstBase;
+            yield break;
+        }
+
+        var left = firstBase - offset;
+        if (left >= min && left <= max)
+            yield return left;
+        var right = firstBase + offset;
+        if (right >= min && right <= max)
+            yield return right;
+    }
+
+    internal static IEnumerable<IReadOnlyList<GridPoint>> DetourCandidates(GridPoint start, (int Dx, int Dy) move, int width, int height)
+    {
+        GridPoint P(int dx, int dy) => new(WrapX(start.X + dx, width), start.Y + dy);
+        var endY = start.Y + move.Dy * 2;
+        if (endY < 0 || endY >= height)
+            yield break;
+
+        var end = P(move.Dx * 2, move.Dy * 2);
+        if (move.Dx != 0 && move.Dy != 0)
+        {
+            var y1 = start.Y + move.Dy;
+            if (y1 >= 0 && y1 < height)
+            {
+                yield return [start, P(move.Dx, 0), P(move.Dx, move.Dy), P(move.Dx * 2, move.Dy), end];
+                yield return [start, P(0, move.Dy), P(move.Dx, move.Dy), P(move.Dx, move.Dy * 2), end];
+            }
+
+            yield break;
+        }
+
+        if (move.Dx != 0)
+        {
+            if (start.Y + 1 < height)
+                yield return [start, P(0, 1), P(move.Dx, 1), P(move.Dx * 2, 1), end];
+            if (start.Y - 1 >= 0)
+                yield return [start, P(0, -1), P(move.Dx, -1), P(move.Dx * 2, -1), end];
+            yield break;
+        }
+
+        yield return [start, P(1, 0), P(1, move.Dy), P(1, move.Dy * 2), end];
+        yield return [start, P(-1, 0), P(-1, move.Dy), P(-1, move.Dy * 2), end];
+    }
+
     internal static IEnumerable<GridPoint> CardinalKinkCandidates(GridPoint current, (int Dx, int Dy) move, int width, int height)
     {
         if (move.Dx == 0)
@@ -426,9 +532,41 @@ internal sealed class ChannelPathTracer
                 return false;
         }
 
-        var breach = elevation.GetHydrologyHeight(candidate) - elevation.GetHydrologyHeight(previous);
-        var maxBreach = 10.0 + elevation.GetMountainPassPotential(candidate) * 24.0 + elevation.GetBasinInfluence(candidate) * 12.0;
-        return breach <= maxBreach;
+        return true;
+    }
+
+    internal static bool CanUseDetour(
+        IReadOnlyList<GridPoint> detour,
+        IReadOnlyList<GridPoint> cells,
+        int replaceStart,
+        MapMask mask,
+        ElevationMap elevation,
+        WaterBodyTopology topology,
+        int[] lakeIds)
+    {
+        for (var i = 1; i < detour.Count; i++)
+        {
+            if (!IsAdjacent(detour[i - 1], detour[i], mask.Width))
+                return false;
+        }
+
+        for (var i = 1; i < detour.Count - 1; i++)
+        {
+            var candidate = detour[i];
+            if (!IsRenderableRiverLand(candidate, mask, topology, lakeIds))
+                return false;
+
+            for (var existing = 0; existing < cells.Count; existing++)
+            {
+                if (existing >= replaceStart && existing <= replaceStart + 2)
+                    continue;
+                if (cells[existing] == candidate)
+                    return false;
+            }
+
+        }
+
+        return true;
     }
 
     internal static bool IsAdjacent(GridPoint a, GridPoint b, int width) =>
@@ -509,9 +647,9 @@ internal sealed class ChannelPathTracer
                 var straightRun = direction == node.PreviousDirection ? node.StraightRunLength + 1 : 1;
                 var diagonalRun = isDiagonal && direction == node.DiagonalRunDirection ? node.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
                 var nearTarget = Distance(next, target, width) <= 2.01;
-                if (!nearTarget && straightRun > 5)
+                if (!nearTarget && straightRun > MaxAllowedStraightRun(options))
                     continue;
-                if (!nearTarget && isDiagonal && diagonalRun > 4)
+                if (!nearTarget && isDiagonal && diagonalRun > MaxAllowedDiagonalRun(options))
                     continue;
                 if (!nearTarget && direction == forbiddenStraightDirection && straightRun >= 3)
                     continue;
@@ -608,6 +746,12 @@ internal sealed class ChannelPathTracer
         TerrainClassKind.Highland => 0.36,
         _ => 0.14
     };
+
+    internal static int MaxAllowedStraightRun(HydrologyGenerationOptions options) =>
+        Math.Clamp((int)Math.Round(5.0 / Math.Max(0.25, options.ChannelCurvatureStrength)), 3, 16);
+
+    internal static int MaxAllowedDiagonalRun(HydrologyGenerationOptions options) =>
+        Math.Clamp((int)Math.Round(4.0 / Math.Max(0.25, options.ChannelCurvatureStrength)), 2, 14);
 
     internal static double ChannelCurvaturePenalty(int previousDirection, int direction)
     {

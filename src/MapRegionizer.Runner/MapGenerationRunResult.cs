@@ -78,6 +78,7 @@ public sealed record MapGenerationRunOptionSummary(
     double LakeOutletInflowForceMultiplier,
     double EndorheicBasinChance,
     double DeltaFrequency,
+    double ChannelCurvatureStrength,
     double MeanderStrength,
     double LakeOutletStrictness,
     bool PreserveRiverCoastline,

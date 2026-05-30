@@ -111,6 +111,7 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --lake-outlet-inflow-force-multiplier <number>
 --endorheic-basin-chance <0..1>
 --delta-frequency <number>
+--channel-curvature-strength <0..2>     # default 1
 --meander-strength <0..1>
 --lake-outlet-strictness <0..1>
 --preserve-river-coastline <bool>
@@ -122,3 +123,14 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 The Avalonia client uses the same `MapGenerationRunner`, so CLI checks exercise the same generation and export path as the UI button.
 
 Hydrology adds a post-elevation pass and can make full generation noticeably slower. For smoke tests, verify at minimum that `elevation-rivers.png`, `rivers.json`, and `summary.json` exist and that `summary.json` includes non-null `RiverCount`, `MajorRiverCount`, `EndorheicBasinCount`, and `DeltaCount`. For river-routing changes, also inspect `rivers.json`: river `Cells` should be present as canonical integer paths, river polylines should end at `Mouth`, child river polylines should terminate where they meet the parent river, short segments should not jump to a distant final outlet, `DrainageTerminal` should be present for each river, `Quality.CrossingRiverEdgeCount` and `Quality.PolylineCrossingCount` should be `0`, and at least a few rivers should exceed the long-river threshold on normal world-sized masks when `--long-river-count-multiplier` is above `0`. On the `s1.png` seed `42` smoke case, default hydrology should produce a broad network rather than a handful of outlet stubs; a useful check is roughly `60..120` rivers with most lengths at or above `6` cells.
+
+For straight mountain-river regressions, use the larger `s3.png` case with seed `1091259244`:
+
+```powershell
+dotnet run --project src\MapRegionizer.Cli -- generate `
+  --mask artifacts\test-source\s3.png `
+  --out artifacts\agent-run-s3-1091259244 `
+  --seed 1091259244
+```
+
+Then check `rivers.json`: `Quality.MaxStraightRunCells` should stay well below the old failure mode where repeated D8 diagonals could run for dozens of cells, and `Quality.CrossingRiverEdgeCount` plus `Quality.PolylineCrossingCount` should remain `0`. Also inspect `elevation-rivers.png` for long parallel diagonal river strokes across mountain slopes.

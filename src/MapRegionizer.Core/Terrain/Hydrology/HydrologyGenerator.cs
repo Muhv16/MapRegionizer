@@ -84,6 +84,8 @@ internal sealed class HydrologyGenerator
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
         riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width);
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
+        riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width);
+        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
         mouths.Clear();
         mouths.AddRange(riverSegments.Select(r => new RiverMouth(r.Id, r.Mouth, r.TargetKind, r.TargetId, r.MouthKind ?? RiverMouthKind.SimpleMouth, r.Discharge)));
 

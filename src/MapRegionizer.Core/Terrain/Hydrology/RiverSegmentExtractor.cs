@@ -167,6 +167,7 @@ internal sealed class RiverSegmentExtractor
         var componentById = landComponents.Components.ToDictionary(c => c.Id);
         var nextRiverId = 1;
         var outletLakeIds = outlets.Where(o => o.HasOutlet).Select(o => o.LakeId.Value).ToHashSet();
+        var usedChannelCells = new int[width * height];
 
         foreach (var (mouthIndex, forcedPath) in forcedLongPaths.OrderByDescending(p => p.Value.Count))
             TryAddRiverFromMouth(mouthIndex, isTributary: false, forcedPath, forceLong: true);
@@ -262,16 +263,23 @@ internal sealed class RiverSegmentExtractor
                 return false;
 
             var discharge = accumulation[mouthIndex];
-            var meanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
+            GridPoint? renderOutlet = segmentOutletIndex == mouthIndex ? null : segmentOutlet;
+            var originalMeanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
+            var channelCells = _channelPathTracer.BuildChannelPath(mask, elevation, topology, lakeIds, cells, renderOutlet, usedChannelCells, discharge, originalMeanSlope, options);
+            if (!IsValidChannelPath(channelCells, cells))
+                channelCells = cells;
+
+            source = channelCells[0];
+            dryMouthCell = channelCells[^1];
+            var meanSlope = ComputeMeanSlope(elevation, channelCells, terminal, target.Kind);
             var targetIsClosedLake = IsClosedLakeTarget(target, outletLakeIds);
-            var kind = ClassifyRiver(elevation, cells, target.Kind, targetIsClosedLake, discharge, meanSlope);
+            var kind = ClassifyRiver(elevation, channelCells, target.Kind, targetIsClosedLake, discharge, meanSlope);
             var mouthKind = ClassifyMouth(elevation, terminal, target.Kind, discharge, meanSlope, options);
             var riverMouth = segmentOutlet;
-            GridPoint? renderOutlet = segmentOutletIndex == mouthIndex ? null : segmentOutlet;
             var river = new RiverSegment(
                 nextRiverId++,
-                cells,
-                _channelPathTracer.BuildPolyline(elevation, cells, renderOutlet, discharge, meanSlope, options),
+                channelCells,
+                _channelPathTracer.BuildPolyline(elevation, channelCells, renderOutlet, discharge, meanSlope, options),
                 source,
                 riverMouth,
                 terminal,
@@ -279,7 +287,7 @@ internal sealed class RiverSegmentExtractor
                 target.Kind,
                 target.TargetId,
                 Math.Round(discharge, 3),
-                Math.Round((double)cells.Count, 2),
+                Math.Round((double)channelCells.Count, 2),
                 Math.Round(meanSlope, 5),
                 kind,
                 mouthKind);
@@ -289,10 +297,30 @@ internal sealed class RiverSegmentExtractor
             if (componentId > 0)
                 componentCounts[componentId] = componentCounts.GetValueOrDefault(componentId) + 1;
 
+            MarkAcceptedChannel(channelCells, river.Id, usedChannelCells, width);
             rivers.Add(river);
             mouths.Add(new RiverMouth(river.Id, riverMouth, target.Kind, target.TargetId, mouthKind, river.Discharge));
             return true;
         }
+    }
+
+    internal static bool IsValidChannelPath(
+        IReadOnlyList<GridPoint> channelCells,
+        IReadOnlyList<GridPoint> originalCells)
+    {
+        if (channelCells.Count < 2 || originalCells.Count < 2)
+            return false;
+        return channelCells[0] == originalCells[0] && channelCells[^1] == originalCells[^1];
+    }
+
+    internal static void MarkAcceptedChannel(
+        IReadOnlyList<GridPoint> cells,
+        int riverId,
+        int[] usedChannelCells,
+        int width)
+    {
+        foreach (var cell in cells)
+            usedChannelCells[cell.Y * width + WrapX(cell.X, width)] = riverId;
     }
 
     internal static bool HasImmediateRenderableOutlet(

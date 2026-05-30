@@ -167,6 +167,9 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "delta-frequency":
                 options.DeltaFrequency = ParseDouble(value, name);
                 break;
+            case "channel-curvature-strength":
+                options.ChannelCurvatureStrength = ParseDouble(value, name);
+                break;
             case "meander-strength":
                 options.MeanderStrength = ParseDouble(value, name);
                 break;
@@ -363,7 +366,8 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --lake-outlet-inflow-force-multiplier <number>  Scales inflow count threshold for forced shallow-lake outlets. Default: 0.45.");
     Console.WriteLine("  --endorheic-basin-chance <0..1> Preserves closed basins/lakes. Default: 0.22.");
     Console.WriteLine("  --delta-frequency <number>      Scales delta mouth classification. Default: 0.8.");
-    Console.WriteLine("  --meander-strength <0..1>       Scales rendered river meanders. Default: 0.65.");
+    Console.WriteLine("  --channel-curvature-strength <0..2>  Scales canonical river path bending. Default: 1.");
+    Console.WriteLine("  --meander-strength <0..1>       Scales rendered river polyline meanders. Default: 0.65.");
     Console.WriteLine("  --lake-outlet-strictness <0..1> Controls how many lakes remain closed. Default: 0.35.");
     Console.WriteLine("  --preserve-river-coastline <bool> Keep hydrology from changing coastline. Default: true.");
     Console.WriteLine("  --allow-river-carving <bool>    Allow future terrain carving. Current default: false.");
