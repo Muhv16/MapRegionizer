@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using static MapRegionizer.Core.Terrain.FlowAccumulationSolver;
 
 namespace MapRegionizer.Core.Terrain;
 
@@ -42,6 +43,9 @@ internal sealed class HydrologyGenerator
             flowState = graph.BuildStabilizedFlow(context, hydroSurface, lakeIds, lakeNext, outlets, localRunoff);
         }
 
+        // Cache outlet lake IDs once — outlets do not change during the overflow loop.
+        var outletLakeIdsCache = outlets.Where(o => o.HasOutlet).Select(o => o.LakeId.Value).ToHashSet();
+
         var basinState = basins.Build(context, flowState.FlowDirections, flowState.Accumulation, lakeIds);
         var endorheicPolicies = BasinDelineator.BuildEndorheicRiverPolicies(basinState.Basins, context.Elevation);
 
@@ -58,7 +62,8 @@ internal sealed class HydrologyGenerator
                 basinState.BasinIds,
                 basinState.Basins,
                 endorheicPolicies,
-                outlets);
+                outlets,
+                outletLakeIdsCache);
 
             if (!changed)
                 break;
@@ -70,19 +75,26 @@ internal sealed class HydrologyGenerator
 
         var validEndorheicBasins = BasinDelineator.BuildValidEndorheicBasinSet(basinState.Basins, endorheicPolicies);
         var allowedRiverBasins = BasinDelineator.BuildAllowedRiverBasinSet(basinState.Basins, validEndorheicBasins);
-        var riverCells = rivers.SelectRiverCells(context, flowState.Accumulation, flowState.FlowDirections, basinState.BasinIds, allowedRiverBasins, lakeIds, landComponents);
-        rivers.EnsureInlandSeaInflowRiverCells(context, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, allowedRiverBasins, lakeIds, riverCells);
-        var forcedLongPaths = rivers.BuildForcedLongRiverPaths(context, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, basinState.Basins, allowedRiverBasins, lakeIds, riverCells);
+
+        // Build upstream cache once after flow directions stabilize.
+        var flowDir = flowState.FlowDirections;
+        var acc = flowState.Accumulation;
+        var w = context.Width;
+        var h = context.Height;
+        var upCache = BuildUpstreamLists(flowDir, w, h);
+        var upDepthCache = BuildLongestUpstreamDepths(flowDir, upCache, lakeIds, context.Mask, context.Topology, w, h);
+
+        var riverCells = rivers.SelectRiverCells(context, acc, flowDir, basinState.BasinIds, allowedRiverBasins, lakeIds, landComponents, upCache);
+        rivers.EnsureInlandSeaInflowRiverCells(context, flowDir, acc, basinState.BasinIds, allowedRiverBasins, lakeIds, riverCells, upCache, upDepthCache);
+        var forcedLongPaths = rivers.BuildForcedLongRiverPaths(context, flowDir, acc, basinState.BasinIds, basinState.Basins, allowedRiverBasins, lakeIds, riverCells, upCache, upDepthCache);
         rivers.MarkForcedLongRiverCells(forcedLongPaths, riverCells, lakeIds);
-        rivers.AddMajorRiverTributaryCells(context, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths);
+        rivers.AddMajorRiverTributaryCells(context, flowDir, acc, basinState.BasinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths, upCache, upDepthCache);
 
         var riverTopology = rivers.BuildTopology(flowState.FlowDirections, riverCells, lakeIds, context.Width, context.Height);
         RiverTopologyPlanarityResolver.ResolveCrossingEdges(riverTopology, context.Mask, context.Elevation, hydroSurface, flowState.Accumulation, basinState.BasinIds, lakeIds);
 
         var mouths = new List<RiverMouth>();
         var riverSegments = rivers.Extract(context, riverTopology, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, lakeIds, landComponents, validEndorheicBasins, mouths, forcedLongPaths, outlets);
-        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
-        riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width);
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
         riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width);
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);

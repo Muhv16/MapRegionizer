@@ -71,7 +71,16 @@ internal sealed class LakeConnector
                 candidates.Add((cell, bestDownstream, shorelineScore, breach));
             }
 
-            var best = candidates.OrderBy(c => c.Score).FirstOrDefault();
+            var minCandidateScore = double.PositiveInfinity;
+            (GridPoint Cell, GridPoint Downstream, double Score, double Breach) best = default;
+            foreach (var candidate in candidates)
+            {
+                if (candidate.Score < minCandidateScore)
+                {
+                    minCandidateScore = candidate.Score;
+                    best = candidate;
+                }
+            }
             var originChance = body.LakeOrigin switch
             {
                 LakeOriginKind.Glacial => 0.78,
@@ -164,23 +173,26 @@ internal sealed class LakeConnector
             if (shoreline.Count == 0)
                 continue;
 
-            var best = shoreline
-                .Select(cell =>
+            var best = (Cell: default(GridPoint), Downstream: default(GridPoint), Score: 0.0, Breach: 0.0);
+            var bestScore = double.PositiveInfinity;
+            foreach (var cell in shoreline)
+            {
+                var (downstream, downstreamScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell);
+                var breach = Math.Max(0.0, elevation.GetBedElevation(cell) - body.SpillElevationMeters);
+                var separationBonus = Math.Min(8.0, inflows.Min(inflow => ChebyshevDistance(cell, inflow))) * 5.0;
+                if (isCrowdedShallowLake)
+                    separationBonus += Math.Min(24.0, inflows.Average(inflow => Distance(cell, inflow, width))) * 3.5;
+                var score = elevation.GetBedElevation(cell)
+                            + elevation.GetRidgeContinuity(cell) * 58.0
+                            - elevation.GetBasinInfluence(cell) * 24.0
+                            + downstreamScore * 0.18
+                            - separationBonus;
+                if (score < bestScore)
                 {
-                    var (downstream, downstreamScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell);
-                    var breach = Math.Max(0.0, elevation.GetBedElevation(cell) - body.SpillElevationMeters);
-                    var separationBonus = Math.Min(8.0, inflows.Min(inflow => ChebyshevDistance(cell, inflow))) * 5.0;
-                    if (isCrowdedShallowLake)
-                        separationBonus += Math.Min(24.0, inflows.Average(inflow => Distance(cell, inflow, width))) * 3.5;
-                    var score = elevation.GetBedElevation(cell)
-                                + elevation.GetRidgeContinuity(cell) * 58.0
-                                - elevation.GetBasinInfluence(cell) * 24.0
-                                + downstreamScore * 0.18
-                                - separationBonus;
-                    return (Cell: cell, Downstream: downstream, Score: score, Breach: breach);
-                })
-                .OrderBy(c => c.Score)
-                .First();
+                    bestScore = score;
+                    best = (cell, downstream, score, breach);
+                }
+            }
 
             var forced = new LakeOutlet(
                 body.Id,
@@ -278,7 +290,8 @@ internal sealed class LakeConnector
 
     internal static int[] BuildLakeRouting(int width, int height, Dictionary<int, List<GridPoint>> lakeCells, IReadOnlyList<LakeOutlet> outlets)
     {
-        var lakeNext = Enumerable.Repeat(-1, width * height).ToArray();
+        var lakeNext = new int[width * height];
+        Array.Fill(lakeNext, -1);
         var byLake = outlets.Where(o => o.HasOutlet && o.OutletCell.HasValue).ToDictionary(o => o.LakeId.Value);
         foreach (var (lakeId, cells) in lakeCells)
         {
@@ -287,7 +300,9 @@ internal sealed class LakeConnector
 
             var waterSet = cells.ToHashSet();
             var outletCell = outlet.OutletCell!.Value;
-            var distances = cells.ToDictionary(c => c, _ => int.MaxValue);
+            var distances = new Dictionary<GridPoint, int>(cells.Count);
+            foreach (var cell in cells)
+                distances[cell] = int.MaxValue;
             var queue = new Queue<GridPoint>();
             foreach (var cell in cells)
             {

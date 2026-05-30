@@ -20,15 +20,17 @@ internal sealed class MajorTributaryInjector
         int[] lakeIds,
         byte[] riverCells,
         IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        List<int>[]? upstreamCache = null,
+        int[]? upstreamDepthsCache = null)
     {
         if (options.RiverDensity <= 0 || options.MajorRiverTributaryMultiplier <= 0 || forcedLongPaths.Count == 0)
             return;
 
         var width = mask.Width;
         var height = mask.Height;
-        var upstream = BuildUpstreamLists(flowDirections, width, height);
-        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
 
         foreach (var path in forcedLongPaths.Values.OrderByDescending(p => p.Count))
         {
@@ -36,6 +38,10 @@ internal sealed class MajorTributaryInjector
                 continue;
 
             var mainstem = path.ToHashSet();
+            var pathPositions = new Dictionary<int, int>(path.Count);
+            for (var pi = 0; pi < path.Count; pi++)
+                pathPositions[path[pi]] = pi;
+
             var reservedMouths = new HashSet<int>();
             var targetCount = Math.Clamp((int)Math.Round(path.Count / 14.0 * options.MajorRiverTributaryMultiplier * Math.Max(0.2, options.RiverDensity)), 1, 22);
             var minAnchorGap = Math.Max(5, path.Count / Math.Max(2, targetCount + 1));
@@ -49,7 +55,7 @@ internal sealed class MajorTributaryInjector
             {
                 if (added >= targetCount)
                     break;
-                if (reservedMouths.Any(m => Math.Abs(PathIndexOf(path, m) - PathIndexOf(path, anchor)) < minAnchorGap))
+                if (reservedMouths.Any(m => Math.Abs(pathPositions[m] - pathPositions[anchor]) < minAnchorGap))
                     continue;
 
                 var tributaryCandidates = upstream[anchor]

@@ -32,9 +32,38 @@ internal sealed class BasinDelineator
         var basinStats = new Dictionary<int, MutableBasin>();
         var nextId = 1;
 
+        // Memoized terminal lookup with path compression.
+        // Each cell's terminal is found once, then cached for all subsequent lookups.
+        var terminalCache = new int[basinIds.Length];
+        Array.Fill(terminalCache, -1);
+
         for (var index = 0; index < basinIds.Length; index++)
         {
-            var terminal = FindTerminal(index, flowDirections, width, height);
+            var terminal = terminalCache[index];
+            if (terminal < 0)
+            {
+                var path = new List<int>();
+                var current = index;
+                var guard = 0;
+                while (current >= 0 && terminalCache[current] < 0 && guard++ < basinIds.Length)
+                {
+                    path.Add(current);
+                    var ds = DownstreamIndex(current, flowDirections[current], width, height);
+                    if (ds < 0)
+                    {
+                        terminal = current;
+                        break;
+                    }
+                    current = ds;
+                }
+
+                if (terminal < 0)
+                    terminal = current >= 0 ? terminalCache[current] : path[^1];
+
+                foreach (var cell in path)
+                    terminalCache[cell] = terminal;
+            }
+
             var terminalPoint = new GridPoint(terminal % width, terminal / width);
             var lakeId = lakeIds[terminal];
             var targetKind = DrainageTargetKind.EndorheicDryBasin;
@@ -65,10 +94,11 @@ internal sealed class BasinDelineator
             basinStats[basinId].TotalRunoff += accumulation[index];
         }
 
-        return (basinIds, basinStats.Values
-            .OrderBy(b => b.Id)
-            .Select(b => new DrainageBasin(b.Id, b.TargetKind, b.TargetId, b.TerminalCell, b.CellCount, Math.Round(b.TotalRunoff, 3)))
-            .ToList());
+        var resultBasins = new List<DrainageBasin>(basinStats.Count);
+        foreach (var b in basinStats.Values)
+            resultBasins.Add(new DrainageBasin(b.Id, b.TargetKind, b.TargetId, b.TerminalCell, b.CellCount, Math.Round(b.TotalRunoff, 3)));
+        resultBasins.Sort((a, b) => a.Id.CompareTo(b.Id));
+        return (basinIds, resultBasins);
     }
 
     internal static Dictionary<int, EndorheicRiverPolicy> BuildEndorheicRiverPolicies(IReadOnlyList<DrainageBasin> basins, ElevationMap elevation)

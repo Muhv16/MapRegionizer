@@ -61,32 +61,37 @@ internal sealed class ChannelPathTracer
         var target = originalCells[^1];
         var corridorRadius = Math.Clamp((int)Math.Round(Math.Sqrt(originalCells.Count) * 0.72), 4, 8);
         var start = originalCells[0];
-        var open = new PriorityQueue<ChannelSearchNode, double>();
-        var first = new ChannelSearchNode(start, -1, 0, -1, 0);
-        var bestCosts = new Dictionary<ChannelSearchNode, double> { [first] = 0.0 };
-        var previous = new Dictionary<ChannelSearchNode, ChannelSearchNode>();
-        open.Enqueue(first, Distance(start, target, width));
-        ChannelSearchNode? found = null;
+        var open = new PriorityQueue<GridPoint, double>();
+        var nodeInfo = new Dictionary<GridPoint, ChannelNodeInfo>
+        {
+            [start] = new ChannelNodeInfo { Cost = 0.0, HasParent = false, PreviousDirection = -1, StraightRunLength = 0, DiagonalRunDirection = -1, DiagonalRunLength = 0 }
+        };
+        var closed = new HashSet<GridPoint>();
+        open.Enqueue(start, Distance(start, target, width));
         var maxExpansions = Math.Clamp(originalCells.Count * 520, 2400, 52000);
         var expansions = 0;
 
         while (open.Count > 0 && expansions++ < maxExpansions)
         {
-            var node = open.Dequeue();
-            var baseCost = bestCosts[node];
-            if (node.Cell == target)
-            {
-                found = node;
+            var currentCell = open.Dequeue();
+            if (!nodeInfo.TryGetValue(currentCell, out var currentInfo))
+                continue;
+            if (!closed.Add(currentCell))
+                continue;
+
+            var baseCost = currentInfo.Cost;
+            if (currentCell == target)
                 break;
-            }
 
             for (var direction = 0; direction < Directions.Length; direction++)
             {
-                var moved = Move(node.Cell, direction, width, mask.Height);
+                var moved = Move(currentCell, direction, width, mask.Height);
                 if (!moved.HasValue)
                     continue;
 
                 var next = moved.Value;
+                if (closed.Contains(next))
+                    continue;
                 if (next != target && !IsRenderableRiverLand(next, mask, topology, lakeIds))
                     continue;
 
@@ -95,22 +100,22 @@ internal sealed class ChannelPathTracer
                     continue;
 
                 var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
-                var straightRun = direction == node.PreviousDirection ? node.StraightRunLength + 1 : 1;
-                var diagonalRun = isDiagonal && direction == node.DiagonalRunDirection ? node.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
+                var straightRun = direction == currentInfo.PreviousDirection ? currentInfo.StraightRunLength + 1 : 1;
+                var diagonalRun = isDiagonal && direction == currentInfo.DiagonalRunDirection ? currentInfo.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
                 var nearTarget = Distance(next, target, width) <= 2.01;
                 if (!nearTarget && straightRun > 5)
                     continue;
                 if (!nearTarget && isDiagonal && diagonalRun > 4)
                     continue;
-                if (!nearTarget && IsBacktrackLikeTurn(node.PreviousDirection, direction))
+                if (!nearTarget && IsBacktrackLikeTurn(currentInfo.PreviousDirection, direction))
                     continue;
 
                 var stepCost = ChannelStepCost(
-                    node.Cell,
+                    currentCell,
                     next,
                     target,
                     direction,
-                    node.PreviousDirection,
+                    currentInfo.PreviousDirection,
                     straightRun,
                     isDiagonal ? direction : -1,
                     diagonalRun,
@@ -126,22 +131,30 @@ internal sealed class ChannelPathTracer
                 if (!stepCost.HasValue)
                     continue;
 
-                var nextNode = new ChannelSearchNode(next, direction, straightRun, isDiagonal ? direction : -1, diagonalRun);
                 var cost = baseCost + stepCost.Value;
-                if (bestCosts.TryGetValue(nextNode, out var oldCost) && oldCost <= cost)
+                if (nodeInfo.TryGetValue(next, out var oldInfo) && oldInfo.Cost <= cost)
                     continue;
 
-                bestCosts[nextNode] = cost;
-                previous[nextNode] = node;
+                nodeInfo[next] = new ChannelNodeInfo
+                {
+                    Cost = cost,
+                    Parent = currentCell,
+                    HasParent = true,
+                    PreviousDirection = direction,
+                    StraightRunLength = straightRun,
+                    DiagonalRunDirection = isDiagonal ? direction : -1,
+                    DiagonalRunLength = diagonalRun
+                };
+
                 var heuristic = Distance(next, target, width) * 2.4 + pathDistance * 0.8;
-                open.Enqueue(nextNode, cost + heuristic);
+                open.Enqueue(next, cost + heuristic);
             }
         }
 
-        if (!found.HasValue)
+        if (!nodeInfo.ContainsKey(target))
             return originalCells.ToList();
 
-        return ReconstructChannelPath(found.Value, previous);
+        return ReconstructChannelPath(target, nodeInfo);
     }
     internal double? ChannelStepCost(
         GridPoint current,
@@ -211,17 +224,17 @@ internal sealed class ChannelPathTracer
     }
 
     internal static List<GridPoint> ReconstructChannelPath(
-        ChannelSearchNode found,
-        IReadOnlyDictionary<ChannelSearchNode, ChannelSearchNode> previous)
+        GridPoint foundCell,
+        IReadOnlyDictionary<GridPoint, ChannelNodeInfo> nodeInfo)
     {
         var path = new List<GridPoint>();
-        var current = found;
+        var current = foundCell;
         while (true)
         {
-            path.Add(current.Cell);
-            if (!previous.TryGetValue(current, out var parent))
+            path.Add(current);
+            if (!nodeInfo.TryGetValue(current, out var info) || !info.HasParent)
                 break;
-            current = parent;
+            current = info.Parent;
         }
 
         path.Reverse();
@@ -542,32 +555,37 @@ internal sealed class ChannelPathTracer
         var width = mask.Width;
         var start = segment[0];
         var target = segment[^1];
-        var open = new PriorityQueue<ChannelSearchNode, double>();
-        var first = new ChannelSearchNode(start, -1, 0, -1, 0);
-        var bestCosts = new Dictionary<ChannelSearchNode, double> { [first] = 0.0 };
-        var previous = new Dictionary<ChannelSearchNode, ChannelSearchNode>();
-        open.Enqueue(first, Distance(start, target, width));
-        ChannelSearchNode? found = null;
+        var open = new PriorityQueue<GridPoint, double>();
+        var nodeInfo = new Dictionary<GridPoint, ChannelNodeInfo>
+        {
+            [start] = new ChannelNodeInfo { Cost = 0.0, HasParent = false, PreviousDirection = -1, StraightRunLength = 0, DiagonalRunDirection = -1, DiagonalRunLength = 0 }
+        };
+        var closed = new HashSet<GridPoint>();
+        open.Enqueue(start, Distance(start, target, width));
         var expansions = 0;
         var maxExpansions = Math.Clamp(segment.Count * radius * 96, 1800, 18000);
 
         while (open.Count > 0 && expansions++ < maxExpansions)
         {
-            var node = open.Dequeue();
-            var baseCost = bestCosts[node];
-            if (node.Cell == target)
-            {
-                found = node;
+            var currentCell = open.Dequeue();
+            if (!nodeInfo.TryGetValue(currentCell, out var currentInfo))
+                continue;
+            if (!closed.Add(currentCell))
+                continue;
+
+            var baseCost = currentInfo.Cost;
+            if (currentCell == target)
                 break;
-            }
 
             for (var direction = 0; direction < Directions.Length; direction++)
             {
-                var moved = Move(node.Cell, direction, width, mask.Height);
+                var moved = Move(currentCell, direction, width, mask.Height);
                 if (!moved.HasValue)
                     continue;
 
                 var next = moved.Value;
+                if (closed.Contains(next))
+                    continue;
                 if (next != target && !IsRenderableRiverLand(next, mask, topology, lakeIds))
                     continue;
 
@@ -576,8 +594,8 @@ internal sealed class ChannelPathTracer
                     continue;
 
                 var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
-                var straightRun = direction == node.PreviousDirection ? node.StraightRunLength + 1 : 1;
-                var diagonalRun = isDiagonal && direction == node.DiagonalRunDirection ? node.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
+                var straightRun = direction == currentInfo.PreviousDirection ? currentInfo.StraightRunLength + 1 : 1;
+                var diagonalRun = isDiagonal && direction == currentInfo.DiagonalRunDirection ? currentInfo.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
                 var nearTarget = Distance(next, target, width) <= 2.01;
                 if (!nearTarget && straightRun > 5)
                     continue;
@@ -587,15 +605,15 @@ internal sealed class ChannelPathTracer
                     continue;
                 if (!nearTarget && isDiagonal && direction == forbiddenStraightDirection && diagonalRun >= 3)
                     continue;
-                if (!nearTarget && IsBacktrackLikeTurn(node.PreviousDirection, direction))
+                if (!nearTarget && IsBacktrackLikeTurn(currentInfo.PreviousDirection, direction))
                     continue;
 
                 var stepCost = ChannelStepCost(
-                    node.Cell,
+                    currentCell,
                     next,
                     target,
                     direction,
-                    node.PreviousDirection,
+                    currentInfo.PreviousDirection,
                     straightRun,
                     isDiagonal ? direction : -1,
                     diagonalRun,
@@ -611,18 +629,28 @@ internal sealed class ChannelPathTracer
                 if (!stepCost.HasValue)
                     continue;
 
-                var nextNode = new ChannelSearchNode(next, direction, straightRun, isDiagonal ? direction : -1, diagonalRun);
                 var cost = baseCost + stepCost.Value;
-                if (bestCosts.TryGetValue(nextNode, out var oldCost) && oldCost <= cost)
+                if (nodeInfo.TryGetValue(next, out var oldInfo) && oldInfo.Cost <= cost)
                     continue;
 
-                bestCosts[nextNode] = cost;
-                previous[nextNode] = node;
-                open.Enqueue(nextNode, cost + Distance(next, target, width) * 2.2 + pathDistance * 0.8);
+                nodeInfo[next] = new ChannelNodeInfo
+                {
+                    Cost = cost,
+                    Parent = currentCell,
+                    HasParent = true,
+                    PreviousDirection = direction,
+                    StraightRunLength = straightRun,
+                    DiagonalRunDirection = isDiagonal ? direction : -1,
+                    DiagonalRunLength = diagonalRun
+                };
+                open.Enqueue(next, cost + Distance(next, target, width) * 2.2 + pathDistance * 0.8);
             }
         }
 
-        return found.HasValue ? ReconstructChannelPath(found.Value, previous) : segment.ToList();
+        if (!nodeInfo.ContainsKey(target))
+            return segment.ToList();
+
+        return ReconstructChannelPath(target, nodeInfo);
     }
     internal static IReadOnlyList<StraightRun> DetectLongStraightRuns(IReadOnlyList<GridPoint> cells, int minRun)
     {
@@ -838,5 +866,14 @@ internal sealed class ChannelPathTracer
 
     internal readonly record struct StraightRun(int Start, int Length, int Direction);
 
-    internal readonly record struct ChannelSearchNode(GridPoint Cell, int PreviousDirection, int StraightRunLength, int DiagonalRunDirection, int DiagonalRunLength);
+    internal struct ChannelNodeInfo
+    {
+        public double Cost;
+        public GridPoint Parent;
+        public bool HasParent;
+        public int PreviousDirection;
+        public int StraightRunLength;
+        public int DiagonalRunDirection;
+        public int DiagonalRunLength;
+    }
 }

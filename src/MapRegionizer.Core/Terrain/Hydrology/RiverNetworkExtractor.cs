@@ -20,8 +20,9 @@ internal sealed class RiverNetworkExtractor
         int[] basinIds,
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
-        LandComponentMap landComponents) =>
-        _sourceSelector.SelectRiverCells(context.Mask, context.Elevation, context.Topology, context.GeneratedLakes, accumulation, flowDirections, basinIds, allowedRiverBasins, lakeIds, landComponents, context.Options);
+        LandComponentMap landComponents,
+        List<int>[]? upstreamCache = null) =>
+        _sourceSelector.SelectRiverCells(context.Mask, context.Elevation, context.Topology, context.GeneratedLakes, accumulation, flowDirections, basinIds, allowedRiverBasins, lakeIds, landComponents, context.Options, upstreamCache);
 
     public void EnsureInlandSeaInflowRiverCells(
         HydrologyGenerationContext context,
@@ -30,8 +31,10 @@ internal sealed class RiverNetworkExtractor
         int[] basinIds,
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
-        byte[] riverCells) =>
-        ForcedLongRiverPlanner.EnsureInlandSeaInflowRiverCells(context.Mask, context.Topology, context.WaterSurfaces, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells, context.Options);
+        byte[] riverCells,
+        List<int>[]? upstreamCache = null,
+        int[]? upstreamDepthsCache = null) =>
+        ForcedLongRiverPlanner.EnsureInlandSeaInflowRiverCells(context.Mask, context.Topology, context.WaterSurfaces, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells, context.Options, upstreamCache, upstreamDepthsCache);
 
     public IReadOnlyDictionary<int, IReadOnlyList<int>> BuildForcedLongRiverPaths(
         HydrologyGenerationContext context,
@@ -41,8 +44,10 @@ internal sealed class RiverNetworkExtractor
         IReadOnlyList<DrainageBasin> basins,
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
-        byte[] riverCells) =>
-        ForcedLongRiverPlanner.BuildForcedLongRiverPaths(context.Mask, context.Topology, flowDirections, accumulation, basinIds, basins, allowedRiverBasins, lakeIds, riverCells, context.Options);
+        byte[] riverCells,
+        List<int>[]? upstreamCache = null,
+        int[]? upstreamDepthsCache = null) =>
+        ForcedLongRiverPlanner.BuildForcedLongRiverPaths(context.Mask, context.Topology, flowDirections, accumulation, basinIds, basins, allowedRiverBasins, lakeIds, riverCells, context.Options, upstreamCache, upstreamDepthsCache);
 
     public void MarkForcedLongRiverCells(IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths, byte[] riverCells, int[] lakeIds) =>
         ForcedLongRiverPlanner.MarkForcedLongRiverCells(forcedLongPaths, riverCells, lakeIds);
@@ -55,8 +60,10 @@ internal sealed class RiverNetworkExtractor
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
         byte[] riverCells,
-        IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths) =>
-        MajorTributaryInjector.AddMajorRiverTributaryCells(context.Mask, context.Topology, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths, context.Options);
+        IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths,
+        List<int>[]? upstreamCache = null,
+        int[]? upstreamDepthsCache = null) =>
+        MajorTributaryInjector.AddMajorRiverTributaryCells(context.Mask, context.Topology, flowDirections, accumulation, basinIds, allowedRiverBasins, lakeIds, riverCells, forcedLongPaths, context.Options, upstreamCache, upstreamDepthsCache);
 
     public RiverTopologyGraph BuildTopology(int[] flowDirections, byte[] riverCells, int[] lakeIds, int width, int height) =>
         RiverTopologyGraph.Build(width, height, flowDirections, riverCells, lakeIds);

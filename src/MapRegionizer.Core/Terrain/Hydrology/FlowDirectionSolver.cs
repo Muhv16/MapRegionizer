@@ -30,7 +30,8 @@ internal sealed class FlowDirectionSolver
     {
         var width = mask.Width;
         var height = mask.Height;
-        var directions = Enumerable.Repeat(-1, width * height).ToArray();
+        var directions = new int[width * height];
+        Array.Fill(directions, -1);
         var outletCells = outlets.Where(o => o.HasOutlet && o.OutletCell.HasValue).Select(o => o.OutletCell!.Value).ToHashSet();
 
         for (var y = 0; y < height; y++)
@@ -149,12 +150,21 @@ internal sealed class FlowDirectionSolver
         var width = mask.Width;
         var height = mask.Height;
         var visibleFloor = Math.Clamp(Math.Sqrt(width * height) * 0.032 / Math.Max(0.35, options.RiverDensity), 12.0, 42.0);
-        var candidates = Enumerable.Range(0, flowDirections.Length)
-            .Where(i => accumulation[i] >= visibleFloor)
-            .Where(i => IsRenderableRiverLand(new GridPoint(i % width, i / width), mask, topology, lakeIds))
-            .OrderByDescending(i => accumulation[i])
-            .Take(Math.Clamp(flowDirections.Length / 180, 900, 2400))
-            .ToList();
+        var candidates = new List<int>();
+        for (var i = 0; i < flowDirections.Length; i++)
+        {
+            if (accumulation[i] >= visibleFloor)
+            {
+                var point = new GridPoint(i % width, i / width);
+                if (IsRenderableRiverLand(point, mask, topology, lakeIds))
+                    candidates.Add(i);
+            }
+        }
+
+        candidates.Sort((a, b) => accumulation[b].CompareTo(accumulation[a]));
+        var maxCandidates = Math.Clamp(flowDirections.Length / 180, 900, 2400);
+        if (candidates.Count > maxCandidates)
+            candidates.RemoveRange(maxCandidates, candidates.Count - maxCandidates);
         var changed = false;
         var attemptedRuns = new HashSet<long>();
         var maxChanges = Math.Clamp(flowDirections.Length / 4200, 48, 160);
@@ -313,34 +323,43 @@ internal sealed class FlowDirectionSolver
         var width = mask.Width;
         var startPoint = new GridPoint(start % width, start / width);
         var targetPoint = new GridPoint(target % width, target / width);
-        var open = new PriorityQueue<FlowSearchNode, double>();
-        var first = new FlowSearchNode(start, -1, 0, -1, 0);
-        var bestCosts = new Dictionary<FlowSearchNode, double> { [first] = 0.0 };
-        var previous = new Dictionary<FlowSearchNode, FlowSearchNode>();
-        open.Enqueue(first, Distance(startPoint, targetPoint, width));
-        FlowSearchNode? found = null;
+        var open = new PriorityQueue<int, double>();
+        var nodeInfo = new Dictionary<int, FlowNodeInfo>
+        {
+            [start] = new FlowNodeInfo { Cost = 0.0, ParentIndex = -1, PreviousDirection = -1, StraightRunLength = 0, DiagonalRunDirection = -1, DiagonalRunLength = 0 }
+        };
+        var closed = new HashSet<int>();
+        open.Enqueue(start, Distance(startPoint, targetPoint, width));
+        var foundIndex = -1;
         var maxExpansions = Math.Clamp(segmentPoints.Count * radius * 130, 2400, 64000);
         var expansions = 0;
 
         while (open.Count > 0 && expansions++ < maxExpansions)
         {
-            var node = open.Dequeue();
-            var baseCost = bestCosts[node];
-            if (node.Index == target)
+            var currentIndex = open.Dequeue();
+            if (!nodeInfo.TryGetValue(currentIndex, out var currentInfo))
+                continue;
+            if (!closed.Add(currentIndex))
+                continue;
+
+            var baseCost = currentInfo.Cost;
+            if (currentIndex == target)
             {
-                found = node;
+                foundIndex = currentIndex;
                 break;
             }
 
-            var current = new GridPoint(node.Index % width, node.Index / width);
+            var currentPoint = new GridPoint(currentIndex % width, currentIndex / width);
             for (var direction = 0; direction < Directions.Length; direction++)
             {
-                var moved = Move(current, direction, width, mask.Height);
+                var moved = Move(currentPoint, direction, width, mask.Height);
                 if (!moved.HasValue)
                     continue;
 
                 var nextPoint = moved.Value;
                 var next = nextPoint.Y * width + nextPoint.X;
+                if (closed.Contains(next))
+                    continue;
                 if (next != target && !IsRenderableRiverLand(nextPoint, mask, topology, lakeIds))
                     continue;
 
@@ -349,8 +368,8 @@ internal sealed class FlowDirectionSolver
                     continue;
 
                 var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
-                var straightRun = direction == node.PreviousDirection ? node.StraightRunLength + 1 : 1;
-                var diagonalRun = isDiagonal && direction == node.DiagonalRunDirection ? node.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
+                var straightRun = direction == currentInfo.PreviousDirection ? currentInfo.StraightRunLength + 1 : 1;
+                var diagonalRun = isDiagonal && direction == currentInfo.DiagonalRunDirection ? currentInfo.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
                 var nearTarget = Distance(nextPoint, targetPoint, width) <= 2.01;
                 if (!nearTarget && straightRun > 5)
                     continue;
@@ -360,15 +379,15 @@ internal sealed class FlowDirectionSolver
                     continue;
                 if (!nearTarget && isDiagonal && direction == forbiddenDirection && diagonalRun >= 3)
                     continue;
-                if (!nearTarget && IsBacktrackLikeTurn(node.PreviousDirection, direction))
+                if (!nearTarget && IsBacktrackLikeTurn(currentInfo.PreviousDirection, direction))
                     continue;
 
                 var stepCost = FlowRegularizationStepCost(
-                    current,
+                    currentPoint,
                     nextPoint,
                     targetPoint,
                     direction,
-                    node.PreviousDirection,
+                    currentInfo.PreviousDirection,
                     straightRun,
                     diagonalRun,
                     pathDistance,
@@ -379,19 +398,26 @@ internal sealed class FlowDirectionSolver
                 if (!stepCost.HasValue)
                     continue;
 
-                var nextNode = new FlowSearchNode(next, direction, straightRun, isDiagonal ? direction : -1, diagonalRun);
                 var cost = baseCost + stepCost.Value;
-                if (bestCosts.TryGetValue(nextNode, out var oldCost) && oldCost <= cost)
+                if (nodeInfo.TryGetValue(next, out var oldInfo) && oldInfo.Cost <= cost)
                     continue;
 
-                bestCosts[nextNode] = cost;
-                previous[nextNode] = node;
+                nodeInfo[next] = new FlowNodeInfo
+                {
+                    Cost = cost,
+                    ParentIndex = currentIndex,
+                    PreviousDirection = direction,
+                    StraightRunLength = straightRun,
+                    DiagonalRunDirection = isDiagonal ? direction : -1,
+                    DiagonalRunLength = diagonalRun
+                };
+
                 var heuristic = Distance(nextPoint, targetPoint, width) * 2.6 + pathDistance * 0.75;
-                open.Enqueue(nextNode, cost + heuristic);
+                open.Enqueue(next, cost + heuristic);
             }
         }
 
-        return found.HasValue ? ReconstructFlowPath(found.Value, previous) : [];
+        return foundIndex >= 0 ? ReconstructFlowPath(foundIndex, nodeInfo) : [];
     }
 
     private double? FlowRegularizationStepCost(
@@ -475,18 +501,16 @@ internal sealed class FlowDirectionSolver
         return true;
     }
 
-    private static List<int> ReconstructFlowPath(
-        FlowSearchNode found,
-        IReadOnlyDictionary<FlowSearchNode, FlowSearchNode> previous)
+    private static List<int> ReconstructFlowPath(int foundIndex, IReadOnlyDictionary<int, FlowNodeInfo> nodeInfo)
     {
         var path = new List<int>();
-        var current = found;
-        while (true)
+        var current = foundIndex;
+        while (current >= 0)
         {
-            path.Add(current.Index);
-            if (!previous.TryGetValue(current, out var parent))
+            path.Add(current);
+            if (!nodeInfo.TryGetValue(current, out var info) || info.ParentIndex < 0)
                 break;
-            current = parent;
+            current = info.ParentIndex;
         }
 
         path.Reverse();
@@ -700,5 +724,13 @@ internal sealed class FlowDirectionSolver
 
     private readonly record struct StraightRun(int Start, int Length, int Direction);
 
-    private readonly record struct FlowSearchNode(int Index, int PreviousDirection, int StraightRunLength, int DiagonalRunDirection, int DiagonalRunLength);
+    private struct FlowNodeInfo
+    {
+        public double Cost;
+        public int ParentIndex;
+        public int PreviousDirection;
+        public int StraightRunLength;
+        public int DiagonalRunDirection;
+        public int DiagonalRunLength;
+    }
 }

@@ -77,7 +77,12 @@ internal static class VisibleRiverCrossingRepairer
 
     private static IEnumerable<RiverContact> EnumerateInvalidContacts(IReadOnlyList<RiverSegment> rivers, int width)
     {
-        var segments = rivers.SelectMany(r => BuildSegments(r, width)).ToList();
+        var segments = new List<RiverPolylineSegment>();
+        foreach (var river in rivers)
+        {
+            foreach (var segment in BuildSegments(river, width))
+                segments.Add(segment);
+        }
         for (var i = 0; i < segments.Count; i++)
         {
             var first = segments[i];

@@ -34,7 +34,8 @@ internal sealed class RiverTopologyGraph
     public static RiverTopologyGraph Build(int width, int height, int[] flowDirections, byte[] riverCells, int[] lakeIds)
     {
         var cells = riverCells.ToArray();
-        var downstream = Enumerable.Repeat(-1, cells.Length).ToArray();
+        var downstream = new int[cells.Length];
+        Array.Fill(downstream, -1);
         for (var index = 0; index < cells.Length; index++)
         {
             if (cells[index] == 0 || lakeIds[index] > 0)

@@ -28,7 +28,8 @@ internal sealed class RiverSourceSelector
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
         LandComponentMap landComponents,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        List<int>[]? upstreamCache = null)
     {
         var width = mask.Width;
         var height = mask.Height;
@@ -39,7 +40,7 @@ internal sealed class RiverSourceSelector
         var baseThreshold = Math.Clamp(Math.Sqrt(width * height) * 0.22, 18.0, 96.0) / Math.Max(0.1, options.RiverDensity * options.TributaryDensity);
         var componentThresholds = BuildComponentRiverThresholds(mask, generatedLakes, accumulation, flowDirections, landComponents, baseThreshold);
         var mountainSources = BuildMountainSourceBudget(mask, elevation, generatedLakes, landComponents, options);
-        var upstream = BuildUpstreamLists(flowDirections, width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
         var candidates = new List<RiverSourceCandidate>();
         var bucketSize = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) / 30.0), 14, 44);
         const int desiredVisibleLength = 6;

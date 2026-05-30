@@ -20,15 +20,17 @@ internal sealed class ForcedLongRiverPlanner
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
         byte[] riverCells,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        List<int>[]? upstreamCache = null,
+        int[]? upstreamDepthsCache = null)
     {
         if (options.RiverDensity <= 0)
             return;
 
         var width = mask.Width;
         var height = mask.Height;
-        var upstream = BuildUpstreamLists(flowDirections, width, height);
-        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
 
         foreach (var body in waterSurfaces.Bodies
                      .Where(b => b.Kind == WaterBodyKind.InlandSea)
@@ -134,7 +136,9 @@ internal sealed class ForcedLongRiverPlanner
         HashSet<int> allowedRiverBasins,
         int[] lakeIds,
         byte[] riverCells,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        List<int>[]? upstreamCache = null,
+        int[]? upstreamDepthsCache = null)
     {
         var result = new Dictionary<int, IReadOnlyList<int>>();
         if (options.LongRiverCountMultiplier <= 0 || options.RiverDensity <= 0)
@@ -145,8 +149,8 @@ internal sealed class ForcedLongRiverPlanner
         var areaRoot = Math.Sqrt(width * height);
         var targetCount = Math.Clamp((int)Math.Round(areaRoot * 0.026 * options.LongRiverCountMultiplier * Math.Max(0.2, options.RiverDensity)), 2, 48);
         var minLength = Math.Clamp((int)Math.Round(areaRoot * 0.032), 20, 82);
-        var upstream = BuildUpstreamLists(flowDirections, width, height);
-        var upstreamDepths = BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
+        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
         var basinById = basins.ToDictionary(b => b.Id);
 
         var candidates = Enumerable.Range(0, flowDirections.Length)

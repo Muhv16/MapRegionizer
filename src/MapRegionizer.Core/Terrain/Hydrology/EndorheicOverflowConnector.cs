@@ -1,3 +1,4 @@
+using System.Buffers;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
@@ -28,10 +29,11 @@ internal sealed class EndorheicOverflowConnector
         int[] basinIds,
         IReadOnlyList<DrainageBasin> basins,
         IReadOnlyDictionary<int, EndorheicRiverPolicy> endorheicPolicies,
-        IReadOnlyList<LakeOutlet> outlets)
+        IReadOnlyList<LakeOutlet> outlets,
+        HashSet<int>? outletLakeIdsCache = null)
     {
         var width = mask.Width;
-        var outletLakeIds = outlets
+        var outletLakeIds = outletLakeIdsCache ?? outlets
             .Where(o => o.HasOutlet)
             .Select(o => o.LakeId.Value)
             .ToHashSet();
@@ -114,83 +116,101 @@ internal sealed class EndorheicOverflowConnector
             1800.0,
             30000.0);
 
-        var costs = Enumerable.Repeat(double.PositiveInfinity, width * height).ToArray();
-        var steps = Enumerable.Repeat(int.MaxValue, width * height).ToArray();
-        var previous = Enumerable.Repeat(-1, width * height).ToArray();
+        var costsPool = ArrayPool<double>.Shared.Rent(width * height);
+        var stepsPool = ArrayPool<int>.Shared.Rent(width * height);
+        var previousPool = ArrayPool<int>.Shared.Rent(width * height);
+        var spillHeightsPool = ArrayPool<double>.Shared.Rent(width * height);
 
-        // Track the maximum spill height along the path.
-        var spillHeights = Enumerable.Repeat(double.PositiveInfinity, width * height).ToArray();
-
-        var queue = new PriorityQueue<int, double>();
-        costs[start] = 0.0;
-        steps[start] = 0;
-        spillHeights[start] = startHeight;
-        queue.Enqueue(start, 0.0);
-
-        while (queue.Count > 0)
+        try
         {
-            queue.TryDequeue(out var current, out var currentPriority);
-            if (currentPriority > costs[current] + 0.0001)
-                continue;
+            Array.Fill(costsPool, double.PositiveInfinity, 0, width * height);
+            Array.Fill(stepsPool, int.MaxValue, 0, width * height);
+            Array.Fill(previousPool, -1, 0, width * height);
+            Array.Fill(spillHeightsPool, double.PositiveInfinity, 0, width * height);
 
-            if (current != start &&
-                IsOverflowTarget(current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
+            var costs = costsPool;
+            var steps = stepsPool;
+            var previous = previousPool;
+            var spillHeights = spillHeightsPool;
+
+            var queue = new PriorityQueue<int, double>();
+            costs[start] = 0.0;
+            steps[start] = 0;
+            spillHeights[start] = startHeight;
+            queue.Enqueue(start, 0.0);
+
+            while (queue.Count > 0)
             {
-                return ReconstructPath(current, previous);
+                queue.TryDequeue(out var current, out var currentPriority);
+                if (currentPriority > costs[current] + 0.0001)
+                    continue;
+
+                if (current != start &&
+                    IsOverflowTarget(current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
+                {
+                    return ReconstructPath(current, previous);
+                }
+
+                if (steps[current] >= maxSteps || costs[current] > maxCost)
+                    continue;
+
+                var currentPoint = new GridPoint(current % width, current / width);
+                foreach (var neighbor in Neighbors8(currentPoint, width, height))
+                {
+                    var next = neighbor.Y * width + neighbor.X;
+                    if (!CanTraverseOverflowCell(next, current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
+                        continue;
+
+                    var newSpillHeight = Math.Max(spillHeights[current], hydro[next]);
+                    var totalBarrier = Math.Max(0.0, newSpillHeight - startHeight);
+                    if (totalBarrier > maxBarrier)
+                        continue;
+
+                    var edgeCost = ScoreOverflowStepBySpill(
+                        current,
+                        next,
+                        spillHeights[current],
+                        newSpillHeight,
+                        startHeight,
+                        mask,
+                        elevation,
+                        topology,
+                        hydro,
+                        lakeIds,
+                        outletLakeIds,
+                        width);
+
+                    var newCost = costs[current] + edgeCost;
+                    var newSteps = steps[current] + 1;
+
+                    if (newSteps > maxSteps || newCost > maxCost)
+                        continue;
+
+                    var better =
+                        newCost < costs[next] - 0.0001 ||
+                        Math.Abs(newCost - costs[next]) < 0.0001 && newSpillHeight < spillHeights[next];
+
+                    if (!better)
+                        continue;
+
+                    costs[next] = newCost;
+                    steps[next] = newSteps;
+                    spillHeights[next] = newSpillHeight;
+                    previous[next] = current;
+
+                    queue.Enqueue(next, newCost);
+                }
             }
 
-            if (steps[current] >= maxSteps || costs[current] > maxCost)
-                continue;
-
-            var currentPoint = new GridPoint(current % width, current / width);
-            foreach (var neighbor in Neighbors8(currentPoint, width, height))
-            {
-                var next = neighbor.Y * width + neighbor.X;
-                if (!CanTraverseOverflowCell(next, current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
-                    continue;
-
-                var newSpillHeight = Math.Max(spillHeights[current], hydro[next]);
-                var totalBarrier = Math.Max(0.0, newSpillHeight - startHeight);
-                if (totalBarrier > maxBarrier)
-                    continue;
-
-                var edgeCost = ScoreOverflowStepBySpill(
-                    current,
-                    next,
-                    spillHeights[current],
-                    newSpillHeight,
-                    startHeight,
-                    mask,
-                    elevation,
-                    topology,
-                    hydro,
-                    lakeIds,
-                    outletLakeIds,
-                    width);
-
-                var newCost = costs[current] + edgeCost;
-                var newSteps = steps[current] + 1;
-
-                if (newSteps > maxSteps || newCost > maxCost)
-                    continue;
-
-                var better =
-                    newCost < costs[next] - 0.0001 ||
-                    Math.Abs(newCost - costs[next]) < 0.0001 && newSpillHeight < spillHeights[next];
-
-                if (!better)
-                    continue;
-
-                costs[next] = newCost;
-                steps[next] = newSteps;
-                spillHeights[next] = newSpillHeight;
-                previous[next] = current;
-
-                queue.Enqueue(next, newCost);
-            }
+            return [];
         }
-
-        return [];
+        finally
+        {
+            ArrayPool<double>.Shared.Return(costsPool);
+            ArrayPool<int>.Shared.Return(stepsPool);
+            ArrayPool<int>.Shared.Return(previousPool);
+            ArrayPool<double>.Shared.Return(spillHeightsPool);
+        }
     }
 
     internal double ScoreOverflowStepBySpill(
