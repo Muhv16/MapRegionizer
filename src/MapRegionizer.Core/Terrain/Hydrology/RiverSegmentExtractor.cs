@@ -48,16 +48,24 @@ internal sealed class RiverSegmentExtractor
         }
 
         var orderById = new Dictionary<int, int>();
+        var orderState = new Dictionary<int, byte>();
         int RiverOrder(int id)
         {
             if (orderById.TryGetValue(id, out var cached))
                 return cached;
+            if (orderState.GetValueOrDefault(id) == 1)
+                return 1;
+            orderState[id] = 1;
             if (!childrenById.TryGetValue(id, out var children) || children.Count == 0)
+            {
+                orderState[id] = 2;
                 return orderById[id] = 1;
+            }
 
             var childOrders = children.Select(RiverOrder).OrderDescending().ToList();
             var max = childOrders[0];
             var order = childOrders.Count(o => o == max) >= 2 ? max + 1 : max;
+            orderState[id] = 2;
             return orderById[id] = Math.Clamp(order, 1, 9);
         }
 
@@ -167,6 +175,7 @@ internal sealed class RiverSegmentExtractor
         var componentById = landComponents.Components.ToDictionary(c => c.Id);
         var nextRiverId = 1;
         var outletLakeIds = outlets.Where(o => o.HasOutlet).Select(o => o.LakeId.Value).ToHashSet();
+        var usedChannelCells = new int[riverTopology.CellsSpan.Length];
 
         foreach (var (mouthIndex, forcedPath) in forcedLongPaths.OrderByDescending(p => p.Value.Count))
             TryAddRiverFromMouth(mouthIndex, isTributary: false, forcedPath, forceLong: true);
@@ -257,17 +266,27 @@ internal sealed class RiverSegmentExtractor
             if (!forceLong && cells.Count <= dynamicShortLimit && accumulation[mouthIndex] < 120.0 && !segmentEndsInConfluence)
                 return false;
 
+            var discharge = accumulation[mouthIndex];
+            var meanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
+            GridPoint? renderOutlet = segmentOutletIndex == mouthIndex ? null : segmentOutlet;
+            cells = _channelPathTracer.BuildChannelPath(mask, elevation, topology, lakeIds, cells, renderOutlet, usedChannelCells, discharge, meanSlope, options);
+            if (cells.Count < 2)
+                return false;
+
+            source = cells[0];
+            dryMouthCell = cells[^1];
+            if (target.Kind == DrainageTargetKind.EndorheicDryBasin && cells.Count < minLength && !EndsInWater(dryMouthCell, mask, topology, lakeIds))
+                return false;
+
             var componentId = landComponents.ComponentIds[source.Y * width + source.X];
             if (!CanAddRiverForComponent(componentId, componentById, componentCounts, options))
                 return false;
 
-            var discharge = accumulation[mouthIndex];
-            var meanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
+            meanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
             var targetIsClosedLake = IsClosedLakeTarget(target, outletLakeIds);
             var kind = ClassifyRiver(elevation, cells, target.Kind, targetIsClosedLake, discharge, meanSlope);
             var mouthKind = ClassifyMouth(elevation, terminal, target.Kind, discharge, meanSlope, options);
             var riverMouth = segmentOutlet;
-            GridPoint? renderOutlet = segmentOutletIndex == mouthIndex ? null : segmentOutlet;
             var river = new RiverSegment(
                 nextRiverId++,
                 cells,
@@ -286,6 +305,8 @@ internal sealed class RiverSegmentExtractor
 
             foreach (var index in path)
                 visited[index] = true;
+            foreach (var cell in cells)
+                usedChannelCells[cell.Y * width + cell.X]++;
             if (componentId > 0)
                 componentCounts[componentId] = componentCounts.GetValueOrDefault(componentId) + 1;
 
@@ -359,23 +380,34 @@ internal sealed class RiverSegmentExtractor
         var path = new List<int>();
         var current = mouthIndex;
         var guard = 0;
+        var previousDirection = -1;
+        var straightRunLength = 0;
+        var diagonalRunDirection = -1;
+        var diagonalRunLength = 0;
         while (current >= 0 && current < upstream.Length && guard++ < upstream.Length)
         {
             if (visited[current] && current != mouthIndex)
                 break;
 
             path.Add(current);
-            var next = upstream[current]
+            var next = SelectShapeAwareUpstream(
+                upstream[current]
                 .Where(i => !visited[i])
                 .Where(i => riverTopology.Contains(i) && lakeIds[i] <= 0)
-                .Where(i => accumulation[i] >= minSourceAccumulation)
-                .OrderByDescending(i => preferDepth ? upstreamDepths[i] : accumulation[i])
-                .ThenByDescending(i => preferDepth ? accumulation[i] : upstreamDepths[i])
-                .ThenBy(i => Math.Abs((i % width) - (current % width)))
-                .FirstOrDefault(-1);
+                .Where(i => accumulation[i] >= minSourceAccumulation),
+                current,
+                upstreamDepths,
+                accumulation,
+                width,
+                preferDepth,
+                previousDirection,
+                straightRunLength,
+                diagonalRunDirection,
+                diagonalRunLength);
             if (next < 0)
                 break;
 
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
             current = next;
         }
 

@@ -97,6 +97,8 @@ internal sealed class ChannelPathTracer
                     continue;
                 if (!nearTarget && isDiagonal && diagonalRun > 4)
                     continue;
+                if (!nearTarget && IsBacktrackLikeTurn(node.PreviousDirection, direction))
+                    continue;
 
                 var stepCost = ChannelStepCost(
                     node.Cell,
@@ -517,6 +519,8 @@ internal sealed class ChannelPathTracer
                     continue;
                 if (!nearTarget && isDiagonal && direction == forbiddenStraightDirection && diagonalRun >= 3)
                     continue;
+                if (!nearTarget && IsBacktrackLikeTurn(node.PreviousDirection, direction))
+                    continue;
 
                 var stepCost = ChannelStepCost(
                     node.Cell,
@@ -624,6 +628,15 @@ internal sealed class ChannelPathTracer
             3 => 4.4,
             _ => 8.5
         };
+    }
+
+    internal static bool IsBacktrackLikeTurn(int previousDirection, int direction)
+    {
+        if (previousDirection < 0 || direction < 0)
+            return false;
+
+        var delta = Math.Abs(direction - previousDirection);
+        return Math.Min(delta, Directions.Length - delta) >= 4;
     }
 
     internal double ChannelCurlBias(GridPoint point, int direction, double strength)

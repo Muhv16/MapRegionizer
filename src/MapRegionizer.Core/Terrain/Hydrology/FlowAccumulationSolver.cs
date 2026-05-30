@@ -184,23 +184,35 @@ internal sealed class FlowAccumulationSolver
         var path = new List<int>();
         var current = mouthIndex;
         var seen = new HashSet<int>();
+        var previousDirection = -1;
+        var straightRunLength = 0;
+        var diagonalRunDirection = -1;
+        var diagonalRunLength = 0;
         while (current >= 0 && current < upstream.Length && seen.Add(current))
         {
             path.Add(current);
-            var next = upstream[current]
+            var next = SelectShapeAwareUpstream(
+                upstream[current]
                 .Where(i => lakeIds[i] <= 0)
                 .Where(i =>
                 {
                     var point = new GridPoint(i % width, i / width);
                     return IsRenderableRiverLand(point, mask, topology, lakeIds);
-                })
-                .OrderByDescending(i => upstreamDepths[i])
-                .ThenByDescending(i => ScoreLongRiverUpstreamStep(i, current, accumulation, width))
-                .FirstOrDefault(-1);
+                }),
+                current,
+                upstreamDepths,
+                accumulation,
+                width,
+                preferDepth: true,
+                previousDirection,
+                straightRunLength,
+                diagonalRunDirection,
+                diagonalRunLength);
 
             if (next < 0)
                 break;
 
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
             current = next;
         }
 
@@ -211,6 +223,107 @@ internal sealed class FlowAccumulationSolver
     {
         var sameColumnPenalty = Math.Abs((upstreamIndex % width) - (currentIndex % width)) == 0 ? 0.06 : 0.0;
         return accumulation[upstreamIndex] + HashUnit(upstreamIndex % width, upstreamIndex / width, 7717) * 0.05 - sameColumnPenalty;
+    }
+
+    internal static int SelectShapeAwareUpstream(
+        IEnumerable<int> candidates,
+        int currentIndex,
+        int[] upstreamDepths,
+        double[] accumulation,
+        int width,
+        bool preferDepth,
+        int previousDirection,
+        int straightRunLength,
+        int diagonalRunDirection,
+        int diagonalRunLength)
+    {
+        var list = candidates.ToList();
+        if (list.Count == 0)
+            return -1;
+
+        if (preferDepth)
+        {
+            var maxDepth = list.Max(i => upstreamDepths[i]);
+            list = list.Where(i => upstreamDepths[i] >= maxDepth - 3).ToList();
+        }
+        else
+        {
+            var maxAccumulation = list.Max(i => accumulation[i]);
+            list = list.Where(i => accumulation[i] >= maxAccumulation * 0.82).ToList();
+        }
+
+        return list
+            .OrderByDescending(i => ShapeAwareUpstreamScore(i, currentIndex, upstreamDepths, accumulation, width, preferDepth, previousDirection, straightRunLength, diagonalRunDirection, diagonalRunLength))
+            .FirstOrDefault(-1);
+    }
+
+    internal static double ShapeAwareUpstreamScore(
+        int upstreamIndex,
+        int currentIndex,
+        int[] upstreamDepths,
+        double[] accumulation,
+        int width,
+        bool preferDepth,
+        int previousDirection,
+        int straightRunLength,
+        int diagonalRunDirection,
+        int diagonalRunLength)
+    {
+        var direction = DirectionBetween(upstreamIndex, currentIndex, width);
+        var isDiagonal = direction >= 0 && Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
+        var nextStraightRun = direction == previousDirection ? straightRunLength + 1 : 1;
+        var nextDiagonalRun = isDiagonal && direction == diagonalRunDirection ? diagonalRunLength + 1 : isDiagonal ? 1 : 0;
+        var turnDelta = previousDirection < 0 || direction < 0 ? 1 : Math.Abs(direction - previousDirection);
+        turnDelta = Math.Min(turnDelta, Directions.Length - turnDelta);
+        var turnScore = turnDelta switch
+        {
+            0 => -8.0,
+            1 => 10.0,
+            2 => 3.0,
+            3 => -18.0,
+            _ => -32.0
+        };
+        var straightPenalty = nextStraightRun >= 3 ? Math.Pow(nextStraightRun - 2, 2.0) * 26.0 : 0.0;
+        var diagonalPenalty = nextDiagonalRun >= 3 ? Math.Pow(nextDiagonalRun - 2, 2.0) * 34.0 : 0.0;
+        if (nextStraightRun >= 6)
+            straightPenalty += 700.0;
+        if (nextDiagonalRun >= 5)
+            diagonalPenalty += 900.0;
+
+        var depthScore = upstreamDepths[upstreamIndex] * (preferDepth ? 130.0 : 22.0);
+        var accumulationScore = Math.Log(Math.Max(1.0, accumulation[upstreamIndex])) * (preferDepth ? 18.0 : 44.0);
+        var sameColumnPenalty = Math.Abs((upstreamIndex % width) - (currentIndex % width)) == 0 ? 6.0 : 0.0;
+        return depthScore
+               + accumulationScore
+               + turnScore
+               - straightPenalty
+               - diagonalPenalty
+               - sameColumnPenalty
+               + HashUnit(upstreamIndex % width, upstreamIndex / width, 7717) * 3.0;
+    }
+
+    internal static void UpdateShapeState(
+        int upstreamIndex,
+        int currentIndex,
+        int width,
+        ref int previousDirection,
+        ref int straightRunLength,
+        ref int diagonalRunDirection,
+        ref int diagonalRunLength)
+    {
+        var direction = DirectionBetween(upstreamIndex, currentIndex, width);
+        var isDiagonal = direction >= 0 && Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
+        straightRunLength = direction == previousDirection ? straightRunLength + 1 : 1;
+        diagonalRunLength = isDiagonal && direction == diagonalRunDirection ? diagonalRunLength + 1 : isDiagonal ? 1 : 0;
+        diagonalRunDirection = isDiagonal ? direction : -1;
+        previousDirection = direction;
+    }
+
+    internal static int DirectionBetween(int from, int to, int width)
+    {
+        var fromPoint = new GridPoint(from % width, from / width);
+        var toPoint = new GridPoint(to % width, to / width);
+        return DirectionIndex(fromPoint, toPoint, width);
     }
 
     internal static List<int>[] BuildUpstreamLists(int[] flowDirections, int width, int height)
@@ -241,23 +354,34 @@ internal sealed class FlowAccumulationSolver
         var path = new List<int>();
         var current = mouthIndex;
         var guard = 0;
+        var previousDirection = -1;
+        var straightRunLength = 0;
+        var diagonalRunDirection = -1;
+        var diagonalRunLength = 0;
         while (current >= 0 && current < upstream.Length && guard++ < upstream.Length)
         {
             if (visited[current] && current != mouthIndex)
                 break;
 
             path.Add(current);
-            var next = upstream[current]
+            var next = SelectShapeAwareUpstream(
+                upstream[current]
                 .Where(i => !visited[i])
                 .Where(i => riverCells[i] != 0 && lakeIds[i] <= 0)
-                .Where(i => accumulation[i] >= minSourceAccumulation)
-                .OrderByDescending(i => preferDepth ? upstreamDepths[i] : accumulation[i])
-                .ThenByDescending(i => preferDepth ? accumulation[i] : upstreamDepths[i])
-                .ThenBy(i => Math.Abs((i % width) - (current % width)))
-                .FirstOrDefault(-1);
+                .Where(i => accumulation[i] >= minSourceAccumulation),
+                current,
+                upstreamDepths,
+                accumulation,
+                width,
+                preferDepth,
+                previousDirection,
+                straightRunLength,
+                diagonalRunDirection,
+                diagonalRunLength);
             if (next < 0)
                 break;
 
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
             current = next;
         }
 

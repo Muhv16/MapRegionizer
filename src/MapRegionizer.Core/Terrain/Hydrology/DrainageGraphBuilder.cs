@@ -38,6 +38,13 @@ internal sealed class DrainageGraphBuilder
         _flowDirections.ResolveInvalidDryTerminals(context.Mask, context.Elevation, context.Topology, context.GeneratedLakes, hydroSurface, lakeIds, flowDirections, context.Options);
         FlowDirectionSolver.BreakCycles(flowDirections, context.Width, context.Height);
         var accumulation = FlowAccumulationSolver.AccumulateFlow(flowDirections, localRunoff, context.Width, context.Height);
+        if (_flowDirections.RegularizeLongStraightRuns(context.Mask, context.Elevation, context.Topology, hydroSurface, lakeIds, flowDirections, accumulation, context.Options))
+        {
+            _flowDirections.ResolveInvalidDryTerminals(context.Mask, context.Elevation, context.Topology, context.GeneratedLakes, hydroSurface, lakeIds, flowDirections, context.Options);
+            FlowDirectionSolver.BreakCycles(flowDirections, context.Width, context.Height);
+            accumulation = FlowAccumulationSolver.AccumulateFlow(flowDirections, localRunoff, context.Width, context.Height);
+        }
+
         return new HydrologyFlowState(flowDirections, accumulation);
     }
 }

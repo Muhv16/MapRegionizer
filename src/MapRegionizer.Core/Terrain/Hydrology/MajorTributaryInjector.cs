@@ -120,6 +120,10 @@ internal sealed class MajorTributaryInjector
         var path = new List<int>();
         var current = mouthIndex;
         var seen = new HashSet<int>();
+        var previousDirection = -1;
+        var straightRunLength = 0;
+        var diagonalRunDirection = -1;
+        var diagonalRunLength = 0;
         while (current >= 0 && current < upstream.Length && seen.Add(current))
         {
             if (blockedMainstem.Contains(current) || lakeIds[current] > 0)
@@ -130,20 +134,28 @@ internal sealed class MajorTributaryInjector
                 break;
 
             path.Add(current);
-            var next = upstream[current]
+            var next = SelectShapeAwareUpstream(
+                upstream[current]
                 .Where(i => !blockedMainstem.Contains(i))
                 .Where(i => riverCells[i] == 0 && lakeIds[i] <= 0)
                 .Where(i =>
                 {
                     var upstreamPoint = new GridPoint(i % width, i / width);
                     return IsRenderableRiverLand(upstreamPoint, mask, topology, lakeIds);
-                })
-                .OrderByDescending(i => upstreamDepths[i])
-                .ThenByDescending(i => accumulation[i])
-                .FirstOrDefault(-1);
+                }),
+                current,
+                upstreamDepths,
+                accumulation,
+                width,
+                preferDepth: true,
+                previousDirection,
+                straightRunLength,
+                diagonalRunDirection,
+                diagonalRunLength);
 
             if (next < 0)
                 break;
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
             current = next;
         }
 
