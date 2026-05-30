@@ -67,8 +67,15 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             Environment.Exit(0);
         }
 
+        var normalized = NormalizeName(name);
+        if (normalized == "debug")
+        {
+            options.Debug = true;
+            continue;
+        }
+
         var value = ReadValue(args, ref index, name);
-        switch (NormalizeName(name))
+        switch (normalized)
         {
             case "config":
                 options = LoadConfig(value);
@@ -374,4 +381,5 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --tectonic-json-mode <mode>      Summary, CompactDiagnostic, Diagnostic.");
     Console.WriteLine("  --elevation-json-mode <mode>     Summary, Diagnostic.");
     Console.WriteLine("  --climate-json-mode <mode>       Summary, Diagnostic.");
+    Console.WriteLine("  --debug                          Print memory diagnostics per stage.");
 }

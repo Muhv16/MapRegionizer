@@ -126,6 +126,7 @@ public sealed class MapGenerationRunOptions
     public TectonicPlateJsonExportMode TectonicJsonMode { get; set; } = TectonicPlateJsonExportMode.Summary;
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
     public ClimateJsonExportMode ClimateJsonMode { get; set; } = ClimateJsonExportMode.Summary;
+    public bool Debug { get; set; }
 
     public MapGenerationOptions ToGenerationOptions()
     {
@@ -133,6 +134,7 @@ public sealed class MapGenerationRunOptions
         {
             PixelSize = PixelSize,
             Seed = Seed,
+            Debug = Debug,
             ProjectionMode = ProjectionMode,
             ShapeExtraction = new ShapeExtractionOptions
             {
@@ -281,6 +283,7 @@ public sealed class MapGenerationRunOptions
             MaskPath = MaskPath,
             OutputDirectory = OutputDirectory,
             GenerationOptions = ToGenerationOptions(),
+            Debug = Debug,
             TectonicJsonMode = TectonicJsonMode,
             ElevationJsonMode = ElevationJsonMode,
             ClimateJsonMode = ClimateJsonMode

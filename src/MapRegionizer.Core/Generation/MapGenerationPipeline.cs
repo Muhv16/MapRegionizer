@@ -15,8 +15,28 @@ public sealed class MapGenerationPipeline
 
     public void RunFull(MapGenerationContext context)
     {
-        foreach (var stage in _stages)
-            ExecuteStageIfRequired(context, stage);
+        if (context.Options.Debug)
+        {
+            var totalStages = _stages.Count;
+            var stageNumber = 0;
+            var prevSnapshot = MemorySnapshot.Capture();
+            Console.Error.WriteLine($"[MEM] Pipeline start: managed {prevSnapshot.ManagedBytes / (1024.0 * 1024.0):F1}M, WS {prevSnapshot.WorkingSetBytes / (1024.0 * 1024.0):F1}M");
+
+            foreach (var stage in _stages)
+            {
+                stageNumber++;
+                var before = MemorySnapshot.Capture();
+                ExecuteStageIfRequired(context, stage);
+                var after = MemorySnapshot.Capture();
+                var delta = after.DeltaFrom(before);
+                Console.Error.WriteLine($"[MEM] Stage {stageNumber,2}/{totalStages}: {stage.Id,-30} | {delta.Format(after.ManagedBytes, after.WorkingSetBytes)}");
+            }
+        }
+        else
+        {
+            foreach (var stage in _stages)
+                ExecuteStageIfRequired(context, stage);
+        }
     }
 
     public void RunUntil(MapGenerationContext context, MapDataKey target)

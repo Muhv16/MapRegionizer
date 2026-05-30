@@ -20,9 +20,11 @@ public sealed class MapGenerationRunner
         var outputDirectory = Path.GetFullPath(options.OutputDirectory);
         Directory.CreateDirectory(outputDirectory);
 
+        if (options.Debug)
+            return RunWithDiagnostics(options, maskPath, outputDirectory);
+
         var mask = ImageMaskReader.Read(maskPath);
         var map = new MapGenerator().Generate(mask, options.GenerationOptions);
-
         return MapGenerationArtifactWriter.Write(
             map,
             maskPath,
@@ -31,6 +33,42 @@ public sealed class MapGenerationRunner
             options.TectonicJsonMode,
             options.ElevationJsonMode,
             options.ClimateJsonMode);
+    }
+
+    private static MapGenerationRunResult RunWithDiagnostics(
+        MapGenerationRequestOptions options,
+        string maskPath,
+        string outputDirectory)
+    {
+        var baseline = MemorySnapshot.Capture();
+        WriteMemLine("baseline", baseline, baseline);
+
+        var afterMask = MemorySnapshot.Capture();
+        var mask = ImageMaskReader.Read(maskPath);
+        WriteMemLine("load mask", afterMask, MemorySnapshot.Capture());
+
+        var afterGen = MemorySnapshot.Capture();
+        var map = new MapGenerator().Generate(mask, options.GenerationOptions);
+        WriteMemLine("generation", afterGen, MemorySnapshot.Capture());
+
+        var afterArtifacts = MemorySnapshot.Capture();
+        var result = MapGenerationArtifactWriter.Write(
+            map,
+            maskPath,
+            outputDirectory,
+            options.GenerationOptions,
+            options.TectonicJsonMode,
+            options.ElevationJsonMode,
+            options.ClimateJsonMode);
+        WriteMemLine("artifacts", afterArtifacts, MemorySnapshot.Capture());
+
+        return result;
+    }
+
+    private static void WriteMemLine(string label, MemorySnapshot before, MemorySnapshot after)
+    {
+        var delta = after.DeltaFrom(before);
+        Console.Error.WriteLine($"[MEM] {label,-20} | {delta.Format(after.ManagedBytes, after.WorkingSetBytes)}");
     }
 
     private static void ValidateRunOptions(MapGenerationRequestOptions options)

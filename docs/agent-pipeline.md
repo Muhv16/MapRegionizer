@@ -117,7 +117,45 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --allow-river-carving <bool>
 --tectonic-json-mode Summary|CompactDiagnostic|Diagnostic
 --elevation-json-mode Summary|Diagnostic
+--debug                          # print per-stage & per-phase memory diagnostics (stderr)
 ```
+
+## Debug Memory Diagnostics
+
+Pass `--debug` to print per-stage and per-phase managed-heap and working-set deltas to stderr:
+
+```powershell
+dotnet run --project src\MapRegionizer.Cli -- generate `
+  --mask artifacts\test-source\s1.png `
+  --out artifacts\agent-run `
+  --seed 42 `
+  --debug
+```
+
+Output (stderr):
+
+```
+[MEM] baseline             |      +0,0M managed,     +0,0M WS  | total:    0,1M /   17,7M
+[MEM] load mask            |      +3,1M managed,    +15,7M WS  | total:    3,2M /   35,1M
+[MEM] Stage  1/18: extractLandmasses              |      +0,2M managed,    +13,7M WS  | total:    3,3M /   49,7M
+...
+[MEM] Stage  5/18: generateCrustFields            |     +32,8M managed,    +41,9M WS  | total:   41,2M /  129,4M
+...
+[MEM] Stage 11/18: generateElevation              |     +69,5M managed,   +389,0M WS  | total:  206,3M /  569,3M
+[MEM] Stage 13/18: generateLakeLevels             |     +69,5M managed,    +27,4M WS  | total:  279,0M /  596,7M
+[MEM] Stage 14/18: generateHydrology              |     +43,7M managed,   +358,4M WS  | total:  322,7M /  955,2M
+[MEM] Stage 15/18: generateClimate                |    +114,1M managed,    +25,2M WS  | total:  436,7M /  980,4M
+...
+[MEM] generation           |    +363,7M managed,   +685,1M WS  | total:  366,8M /  720,1M
+[MEM] artifacts            |     +17,9M managed,   -174,4M WS  | total:  384,7M /  545,8M
+```
+
+- **managed** — bytes allocated on the .NET managed heap (`GC.GetTotalMemory`). Persistent growth here indicates objects held across stages.
+- **WS** — process working set (`Environment.WorkingSet`). OS-managed; negative values mean pages were trimmed/reclaimed.
+- **total** — cumulative managed / WS after the stage. Use this to identify the peak memory footprint.
+- **Phases**: `load mask` (image I/O), `generation` (the 18-stage pipeline), `artifacts` (image rendering + JSON/GeoJSON writes).
+
+The most allocation-heavy stages are a good place to start optimising. On the `s1.png` smoke case at default resolution, `generateClimate`, `generateElevation`, `generateLakeLevels`, and `generateHydrology` typically account for the bulk of managed allocations.
 
 The Avalonia client uses the same `MapGenerationRunner`, so CLI checks exercise the same generation and export path as the UI button.
 

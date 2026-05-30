@@ -4,6 +4,7 @@ public sealed class MapGenerationOptions
 {
     public double PixelSize { get; init; } = 1;
     public int? Seed { get; init; }
+    public bool Debug { get; init; }
     public ShapeExtractionOptions ShapeExtraction { get; init; } = new();
     public WaterBodyClassificationOptions WaterBodies { get; init; } = new();
     public RegionGenerationOptions Regions { get; init; } = new();
