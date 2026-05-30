@@ -38,7 +38,12 @@ internal sealed class ChannelPathTracer
 
         path = RerouteLongStraightRuns(mask, elevation, topology, lakeIds, path, usedChannelCells, discharge, meanSlope, options);
         path = SmoothAlternatingZigZags(path, mask.Width);
-        return path.Count >= 2 ? path : originalCells.ToList();
+        path = RepairSelfIntersections(mask, elevation, topology, lakeIds, path, originalCells, usedChannelCells, discharge, meanSlope, options);
+        if (path.Count >= 2 && RiverPathGeometryValidator.IsSimpleCellPath(path, mask.Width))
+            return path;
+
+        var original = originalCells.ToList();
+        return RiverPathGeometryValidator.IsSimpleCellPath(original, mask.Width) ? original : [];
     }
 
     internal List<GridPoint> TraceChannelPath(
@@ -262,6 +267,69 @@ internal sealed class ChannelPathTracer
 
         return result;
     }
+
+    internal List<GridPoint> RepairSelfIntersections(
+        MapMask mask,
+        ElevationMap elevation,
+        WaterBodyTopology topology,
+        int[] lakeIds,
+        IReadOnlyList<GridPoint> cells,
+        IReadOnlyList<GridPoint> originalCells,
+        int[] usedChannelCells,
+        double discharge,
+        double meanSlope,
+        HydrologyGenerationOptions options)
+    {
+        var result = RemoveDuplicateCellLoops(cells);
+        for (var pass = 0; pass < 4; pass++)
+        {
+            result = RemoveDuplicateCellLoops(result);
+            if (RiverPathGeometryValidator.IsSimpleCellPath(result, mask.Width))
+                return result;
+
+            if (!RiverPathGeometryValidator.TryFindCellSelfIntersection(result, mask.Width, out var crossing))
+                break;
+
+            var anchorStart = Math.Max(0, crossing.FirstIndex - 2);
+            var anchorEnd = Math.Min(result.Count - 1, crossing.SecondIndex + 3);
+            if (anchorEnd - anchorStart < 2)
+                break;
+
+            var segment = result.Skip(anchorStart).Take(anchorEnd - anchorStart + 1).ToList();
+            var forbiddenDirection = DirectionIndex(result[crossing.FirstIndex], result[crossing.FirstIndex + 1], mask.Width);
+            var rerouted = FindLocalChannelPath(mask, elevation, topology, lakeIds, segment, usedChannelCells, discharge, meanSlope, options, forbiddenDirection);
+            rerouted = RemoveDuplicateCellLoops(rerouted);
+            if (rerouted.Count <= 2 || rerouted.SequenceEqual(segment) || !RiverPathGeometryValidator.IsSimpleCellPath(rerouted, mask.Width))
+                break;
+
+            result.RemoveRange(anchorStart, anchorEnd - anchorStart + 1);
+            result.InsertRange(anchorStart, rerouted);
+        }
+
+        result = RemoveDuplicateCellLoops(result);
+        if (RiverPathGeometryValidator.IsSimpleCellPath(result, mask.Width))
+            return result;
+
+        var original = originalCells.ToList();
+        return RiverPathGeometryValidator.IsSimpleCellPath(original, mask.Width) ? original : [];
+    }
+
+    internal static List<GridPoint> RemoveDuplicateCellLoops(IReadOnlyList<GridPoint> cells)
+    {
+        var result = cells.ToList();
+        for (var pass = 0; pass < 16; pass++)
+        {
+            if (!RiverPathGeometryValidator.TryFindDuplicateCellLoop(result, out var loop))
+                break;
+            if (loop.LastIndex <= loop.FirstIndex)
+                break;
+
+            result.RemoveRange(loop.FirstIndex + 1, loop.LastIndex - loop.FirstIndex);
+        }
+
+        return result;
+    }
+
     internal List<GridPoint> RerouteLongStraightRuns(
         MapMask mask,
         ElevationMap elevation,
@@ -654,28 +722,52 @@ internal sealed class ChannelPathTracer
     }
     internal List<MapPoint> BuildPolyline(ElevationMap elevation, IReadOnlyList<GridPoint> cells, GridPoint? terminal, double discharge, double meanSlope, HydrologyGenerationOptions options)
     {
+        var full = BuildPolyline(elevation, cells, terminal, discharge, meanSlope, options, bendScale: 1.0, includeSegmentBends: true);
+        if (RiverPathGeometryValidator.IsSimplePolyline(full, elevation.Width))
+            return full;
+
+        var softened = BuildPolyline(elevation, cells, terminal, discharge, meanSlope, options, bendScale: 0.35, includeSegmentBends: true);
+        if (RiverPathGeometryValidator.IsSimplePolyline(softened, elevation.Width))
+            return softened;
+
+        return BuildPolyline(elevation, cells, terminal, discharge, meanSlope, options, bendScale: 0.0, includeSegmentBends: false);
+    }
+
+    internal List<MapPoint> BuildPolyline(
+        ElevationMap elevation,
+        IReadOnlyList<GridPoint> cells,
+        GridPoint? terminal,
+        double discharge,
+        double meanSlope,
+        HydrologyGenerationOptions options,
+        double bendScale,
+        bool includeSegmentBends)
+    {
         if (cells.Count == 0)
             return [];
 
         var points = new List<MapPoint>();
         for (var i = 0; i < cells.Count; i++)
         {
-            points.Add(ToMapPoint(elevation, cells, i, discharge, meanSlope, options));
-            if (i < cells.Count - 1)
+            points.Add(ToMapPoint(elevation, cells, i, discharge, meanSlope, options, bendScale));
+            if (includeSegmentBends && i < cells.Count - 1)
             {
-                var bend = ToSegmentBendPoint(elevation, cells, i, discharge, meanSlope, options);
+                var bend = ToSegmentBendPoint(elevation, cells, i, discharge, meanSlope, options, bendScale);
                 if (bend.HasValue)
                     points.Add(bend.Value);
             }
         }
 
-        if (terminal.HasValue && terminal.Value != cells[^1])
+        if (terminal.HasValue && terminal.Value != cells[^1] && !cells.Contains(terminal.Value))
             points.Add(new MapPoint(terminal.Value.X + 0.5, terminal.Value.Y + 0.5));
 
         return points;
     }
 
     internal MapPoint? ToSegmentBendPoint(ElevationMap elevation, IReadOnlyList<GridPoint> cells, int index, double discharge, double meanSlope, HydrologyGenerationOptions options)
+        => ToSegmentBendPoint(elevation, cells, index, discharge, meanSlope, options, bendScale: 1.0);
+
+    internal MapPoint? ToSegmentBendPoint(ElevationMap elevation, IReadOnlyList<GridPoint> cells, int index, double discharge, double meanSlope, HydrologyGenerationOptions options, double bendScale)
     {
         var current = cells[index];
         var next = cells[index + 1];
@@ -695,7 +787,7 @@ internal sealed class ChannelPathTracer
         var slopeFactor = Math.Clamp(1.0 - meanSlope / 30.0, 0.18, 1.0);
         var dischargeFactor = Math.Clamp(discharge / 260.0, 0.25, 1.0);
         var cartographicFloor = cells.Count > 24 ? 0.72 : 0.56;
-        var strength = Math.Clamp(cartographicFloor + options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.18, 0.0, 0.86);
+        var strength = Math.Clamp(cartographicFloor + options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.18, 0.0, 0.86) * Math.Clamp(bendScale, 0.0, 1.0);
         if (strength <= 0.01)
             return null;
 
@@ -710,6 +802,9 @@ internal sealed class ChannelPathTracer
     }
 
     internal MapPoint ToMapPoint(ElevationMap elevation, IReadOnlyList<GridPoint> cells, int index, double discharge, double meanSlope, HydrologyGenerationOptions options)
+        => ToMapPoint(elevation, cells, index, discharge, meanSlope, options, bendScale: 1.0);
+
+    internal MapPoint ToMapPoint(ElevationMap elevation, IReadOnlyList<GridPoint> cells, int index, double discharge, double meanSlope, HydrologyGenerationOptions options, double bendScale)
     {
         var cell = cells[index];
         var x = cell.X + 0.5;
@@ -721,7 +816,7 @@ internal sealed class ChannelPathTracer
         var plain = terrain is TerrainClassKind.AlluvialPlain or TerrainClassKind.InteriorLowland or TerrainClassKind.CoastalPlain or TerrainClassKind.SedimentaryBasin or TerrainClassKind.DeltaCandidate ? 1.0 : 0.25;
         var slopeFactor = Math.Clamp(1.0 - meanSlope / 18.0, 0, 1);
         var dischargeFactor = Math.Clamp(discharge / 260.0, 0, 1);
-        var strength = options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.58;
+        var strength = options.MeanderStrength * plain * slopeFactor * dischargeFactor * 0.58 * Math.Clamp(bendScale, 0.0, 1.0);
         if (strength <= 0.01)
             return new MapPoint(x, y);
 

@@ -254,6 +254,9 @@ public static class RiverJsonWriter
         var expectedEndorheic = hydrology.Rivers.Count(r => r.Kind == RiverKind.Endorheic);
         var crossingRiverEdges = CountCrossingRiverEdges(hydrology);
         var polylineCrossings = CountPolylineCrossings(hydrology.Rivers, hydrology.Width);
+        var duplicateRiverCells = hydrology.Rivers.Sum(r => CountDuplicateCells(r.Cells));
+        var selfCrossingRivers = hydrology.Rivers.Count(r => CountDuplicateCells(r.Cells) > 0 || HasCellSelfCrossing(r.Cells, hydrology.Width));
+        var selfCrossingPolylines = hydrology.Rivers.Count(r => HasPolylineSelfCrossing(r.Polyline, hydrology.Width));
         var detached = hydrology.Rivers.Count(r =>
             r.TargetKind != DrainageTargetKind.Ocean &&
             r.TargetKind != DrainageTargetKind.Lake &&
@@ -273,7 +276,10 @@ public static class RiverJsonWriter
             sharpTurns,
             backtrackTurns,
             crossingRiverEdges,
-            polylineCrossings);
+            polylineCrossings,
+            selfCrossingRivers,
+            selfCrossingPolylines,
+            duplicateRiverCells);
     }
 
     private static bool IsMajorRiver(RiverSegment river, RiverJsonExportOptions options, int shortLimit) =>
@@ -354,6 +360,57 @@ public static class RiverJsonWriter
         return count;
     }
 
+    private static int CountDuplicateCells(IReadOnlyList<GridPoint> cells) =>
+        cells.GroupBy(c => c).Sum(g => Math.Max(0, g.Count() - 1));
+
+    private static bool HasCellSelfCrossing(IReadOnlyList<GridPoint> cells, int width)
+    {
+        for (var i = 0; i < cells.Count - 1; i++)
+        {
+            var first = CellCenterSegment(cells[i], cells[i + 1], width);
+            if (!first.HasValue)
+                continue;
+
+            for (var j = i + 2; j < cells.Count - 1; j++)
+            {
+                var second = CellCenterSegment(cells[j], cells[j + 1], width);
+                if (!second.HasValue)
+                    continue;
+                if (SegmentsIntersect(first.Value.A, first.Value.B, second.Value.A, second.Value.B, 0.000001))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasPolylineSelfCrossing(IReadOnlyList<MapPoint> polyline, int width)
+    {
+        for (var i = 0; i < polyline.Count - 1; i++)
+        {
+            if (Math.Abs(polyline[i + 1].X - polyline[i].X) > width / 2.0)
+                continue;
+
+            for (var j = i + 2; j < polyline.Count - 1; j++)
+            {
+                if (Math.Abs(polyline[j + 1].X - polyline[j].X) > width / 2.0)
+                    continue;
+                if (SegmentsIntersect(polyline[i], polyline[i + 1], polyline[j], polyline[j + 1], 0.000001))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static (MapPoint A, MapPoint B)? CellCenterSegment(GridPoint a, GridPoint b, int width)
+    {
+        if (Math.Abs(WrappedDeltaX(b.X - a.X, width)) > 1)
+            return null;
+
+        return (new MapPoint(a.X + 0.5, a.Y + 0.5), new MapPoint(b.X + 0.5, b.Y + 0.5));
+    }
+
     private static IEnumerable<RiverPolylineSegment> BuildPolylineSegments(RiverSegment river, int width)
     {
         for (var i = 0; i < river.Polyline.Count - 1; i++)
@@ -420,6 +477,31 @@ public static class RiverJsonWriter
 
         point = default;
         return false;
+    }
+
+    private static bool SegmentsIntersect(MapPoint a, MapPoint b, MapPoint c, MapPoint d, double tolerance)
+    {
+        if (Math.Max(Math.Min(a.X, b.X), Math.Min(c.X, d.X)) > Math.Min(Math.Max(a.X, b.X), Math.Max(c.X, d.X)) + tolerance ||
+            Math.Max(Math.Min(a.Y, b.Y), Math.Min(c.Y, d.Y)) > Math.Min(Math.Max(a.Y, b.Y), Math.Max(c.Y, d.Y)) + tolerance)
+        {
+            return false;
+        }
+
+        var denominator = (a.X - b.X) * (c.Y - d.Y) - (a.Y - b.Y) * (c.X - d.X);
+        if (Math.Abs(denominator) > GeometryEpsilon)
+        {
+            var px = ((a.X * b.Y - a.Y * b.X) * (c.X - d.X) - (a.X - b.X) * (c.X * d.Y - c.Y * d.X)) / denominator;
+            var py = ((a.X * b.Y - a.Y * b.X) * (c.Y - d.Y) - (a.Y - b.Y) * (c.X * d.Y - c.Y * d.X)) / denominator;
+            return SegmentParameter(a, b, px, py) >= -GeometryEpsilon &&
+                   SegmentParameter(a, b, px, py) <= 1.0 + GeometryEpsilon &&
+                   SegmentParameter(c, d, px, py) >= -GeometryEpsilon &&
+                   SegmentParameter(c, d, px, py) <= 1.0 + GeometryEpsilon;
+        }
+
+        return DistanceToSegment(a, c, d) <= tolerance ||
+               DistanceToSegment(b, c, d) <= tolerance ||
+               DistanceToSegment(c, a, b) <= tolerance ||
+               DistanceToSegment(d, a, b) <= tolerance;
     }
 
     private static double SegmentParameter(MapPoint a, MapPoint b, double x, double y) =>
@@ -648,7 +730,10 @@ public static class RiverJsonWriter
         int SharpTurnCount,
         int BacktrackLikeTurnCount,
         int CrossingRiverEdgeCount,
-        int PolylineCrossingCount);
+        int PolylineCrossingCount,
+        int SelfCrossingRiverCount,
+        int SelfCrossingPolylineCount,
+        int DuplicateRiverCellCount);
 
     private sealed record RiverDto(
         int Id,

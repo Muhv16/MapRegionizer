@@ -270,6 +270,13 @@ internal sealed class RiverSegmentExtractor
             var meanSlope = ComputeMeanSlope(elevation, cells, terminal, target.Kind);
             GridPoint? renderOutlet = segmentOutletIndex == mouthIndex ? null : segmentOutlet;
             cells = _channelPathTracer.BuildChannelPath(mask, elevation, topology, lakeIds, cells, renderOutlet, usedChannelCells, discharge, meanSlope, options);
+            if (renderOutlet.HasValue)
+            {
+                var outletCellIndex = cells.IndexOf(renderOutlet.Value);
+                if (outletCellIndex >= 0 && outletCellIndex < cells.Count - 1)
+                    cells = cells.Take(outletCellIndex + 1).ToList();
+            }
+
             if (cells.Count < 2)
                 return false;
 
