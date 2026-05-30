@@ -161,11 +161,6 @@
                             <NumericUpDown Value="{Binding MeanderStrength}" Minimum="0" Maximum="1" FormatString="N2"/>
                         </views:SettingsRow.Value>
                     </views:SettingsRow>
-                    <views:SettingsRow Label="{Binding L[ChannelCurvatureStrength]}">
-                        <views:SettingsRow.Value>
-                            <NumericUpDown Value="{Binding ChannelCurvatureStrength}" Minimum="0" Maximum="2" FormatString="N2"/>
-                        </views:SettingsRow.Value>
-                    </views:SettingsRow>
                     <CheckBox Content="{Binding L[GenerateSmallLakes]}" IsChecked="{Binding GenerateSmallLakes}"/>
                     <CheckBox Content="{Binding L[PreserveRiverCoastline]}" IsChecked="{Binding PreserveRiverCoastline}"/>
                     <CheckBox Content="{Binding L[AllowRiverCarving]}" IsChecked="{Binding AllowRiverCarving}"/>

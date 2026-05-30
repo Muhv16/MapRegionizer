@@ -112,7 +112,6 @@ public sealed class MainViewModel : ReactiveObject
     private double _lakeOutletInflowForceMultiplier = 0.45;
     private double _endorheicBasinChance = 0.22;
     private double _deltaFrequency = 0.8;
-    private double _channelCurvatureStrength = 1.0;
     private double _meanderStrength = 0.65;
     private double _lakeOutletStrictness = 0.35;
     private bool _preserveRiverCoastline = true;
@@ -484,7 +483,6 @@ public sealed class MainViewModel : ReactiveObject
     public double LakeOutletInflowForceMultiplier { get => _lakeOutletInflowForceMultiplier; set => SetOption(ref _lakeOutletInflowForceMultiplier, value, MapDataKeys.Hydrology); }
     public double EndorheicBasinChance { get => _endorheicBasinChance; set => SetOption(ref _endorheicBasinChance, value, MapDataKeys.Hydrology); }
     public double DeltaFrequency { get => _deltaFrequency; set => SetOption(ref _deltaFrequency, value, MapDataKeys.Hydrology); }
-    public double ChannelCurvatureStrength { get => _channelCurvatureStrength; set => SetOption(ref _channelCurvatureStrength, value, MapDataKeys.Hydrology); }
     public double MeanderStrength { get => _meanderStrength; set => SetOption(ref _meanderStrength, value, MapDataKeys.Hydrology); }
     public double LakeOutletStrictness { get => _lakeOutletStrictness; set => SetOption(ref _lakeOutletStrictness, value, MapDataKeys.Hydrology); }
     public bool PreserveRiverCoastline { get => _preserveRiverCoastline; set => SetOption(ref _preserveRiverCoastline, value, MapDataKeys.Hydrology); }
@@ -1201,7 +1199,6 @@ public sealed class MainViewModel : ReactiveObject
                 MajorRiverTributaryMultiplier = MajorRiverTributaryMultiplier,
                 LakeOutletInflowForceMultiplier = LakeOutletInflowForceMultiplier,
                 EndorheicBasinChance = EndorheicBasinChance,
-                ChannelCurvatureStrength = ChannelCurvatureStrength,
                 DeltaFrequency = DeltaFrequency,
                 MeanderStrength = MeanderStrength,
                 LakeOutletStrictness = LakeOutletStrictness,
@@ -1330,7 +1327,6 @@ public sealed class MainViewModel : ReactiveObject
             MajorRiverTributaryMultiplier = options.Hydrology.MajorRiverTributaryMultiplier;
             LakeOutletInflowForceMultiplier = options.Hydrology.LakeOutletInflowForceMultiplier;
             EndorheicBasinChance = options.Hydrology.EndorheicBasinChance;
-            ChannelCurvatureStrength = options.Hydrology.ChannelCurvatureStrength;
             DeltaFrequency = options.Hydrology.DeltaFrequency;
             MeanderStrength = options.Hydrology.MeanderStrength;
             LakeOutletStrictness = options.Hydrology.LakeOutletStrictness;
