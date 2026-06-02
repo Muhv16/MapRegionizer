@@ -85,6 +85,11 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 ## Useful Options
 
 ```text
+--mask, --input, -m <path>       Source mask image (required)
+--out, --output, -o <directory>  Output artifact directory (required)
+--config <json>                  Load MapGenerationRunOptions JSON before CLI overrides
+--seed <int>                     Deterministic generation seed
+--pixel-size <number>            Pixel size in map units. Default: 1
 --target-area <uint>
 --points-multiplier <number>
 --min-area-ratio <number>
@@ -110,13 +115,19 @@ Copy-Item src\MapRegionizer.Core\bin\Debug\net10.0\MapRegionizer.Core.pdb `
 --major-river-tributary-multiplier <number>
 --lake-outlet-inflow-force-multiplier <number>
 --endorheic-basin-chance <0..1>
+--max-endorheic-basins <int>             # default 3
 --delta-frequency <number>
 --meander-strength <0..1>
 --lake-outlet-strictness <0..1>
 --preserve-river-coastline <bool>
 --allow-river-carving <bool>
+--climate-polar-latitude-margin <0..1>   # default 0.05
+--climate-equator-temperature <celsius>  # default 28
+--climate-pole-cooling <celsius>         # default 55
+--climate-lapse-rate <celsius/meter>     # default 0.0045
 --tectonic-json-mode Summary|CompactDiagnostic|Diagnostic
 --elevation-json-mode Summary|Diagnostic
+--climate-json-mode Summary|Diagnostic
 --debug                          # print per-stage & per-phase memory diagnostics (stderr)
 ```
 
