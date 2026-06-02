@@ -244,6 +244,7 @@ public static class MapGenerationArtifactWriter
                 options.Hydrology.MajorRiverTributaryMultiplier,
                 options.Hydrology.LakeOutletInflowForceMultiplier,
                 options.Hydrology.EndorheicBasinChance,
+                options.Hydrology.MaxEndorheicBasins,
                 options.Hydrology.DeltaFrequency,
                 options.Hydrology.MeanderStrength,
                 options.Hydrology.LakeOutletStrictness,

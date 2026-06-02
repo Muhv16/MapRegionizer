@@ -279,6 +279,7 @@
                     <views:SettingsRow Label="{Binding L[SmallLakeSizeMultiplier]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding SmallLakeSizeMultiplier}" Minimum="0" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
                     <views:SettingsRow Label="{Binding L[LakeSurfacePercentile]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LakeSurfacePercentile}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
                     <views:SettingsRow Label="{Binding L[EndorheicBasinChance]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding EndorheicBasinChance}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxEndorheicBasins]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxEndorheicBasins}" Minimum="0" FormatString="N0"/></views:SettingsRow.Value></views:SettingsRow>
                 </StackPanel>
 
                 <StackPanel Spacing="8" IsVisible="{Binding IsDiagnosticsSectionSelected}">

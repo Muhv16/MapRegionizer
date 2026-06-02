@@ -160,12 +160,15 @@ internal sealed class BasinDelineator
 
     internal static HashSet<int> BuildValidEndorheicBasinSet(
         IReadOnlyList<DrainageBasin> basins,
-        IReadOnlyDictionary<int, EndorheicRiverPolicy> endorheicPolicies)
+        IReadOnlyDictionary<int, EndorheicRiverPolicy> endorheicPolicies,
+        int maxCount = int.MaxValue)
     {
         return basins
             .Where(b => b.TargetKind == DrainageTargetKind.EndorheicDryBasin)
             .Where(b => endorheicPolicies.TryGetValue(b.Id, out var policy) &&
                         policy != EndorheicRiverPolicy.Suppress)
+            .OrderByDescending(b => b.TotalRunoff)
+            .Take(maxCount)
             .Select(b => b.Id)
             .ToHashSet();
     }
@@ -175,9 +178,7 @@ internal sealed class BasinDelineator
         return basins
             .Where(b =>
             b.TargetKind != DrainageTargetKind.EndorheicDryBasin ||
-            validEndorheicBasins.Contains(b.Id) ||
-            b.CellCount >= 80 ||
-            b.TotalRunoff >= 250.0)
+            validEndorheicBasins.Contains(b.Id))
         .Select(b => b.Id)
         .ToHashSet();
     }

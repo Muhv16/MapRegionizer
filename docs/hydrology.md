@@ -152,6 +152,7 @@ Current river options live in `HydrologyGenerationOptions`:
 - `MajorRiverTributaryMultiplier`
 - `LakeOutletInflowForceMultiplier`
 - `EndorheicBasinChance`
+- `MaxEndorheicBasins` (default `3`, caps total endorheic rivers — both dry-basin and closed-lake — to this many per map; the strongest by discharge are kept)
 - `DeltaFrequency`
 - `MeanderStrength`
 - `LakeOutletStrictness`

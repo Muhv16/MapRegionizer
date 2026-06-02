@@ -82,8 +82,8 @@ internal sealed class RiverNetworkExtractor
         IReadOnlyList<LakeOutlet> outlets) =>
         _segmentExtractor.ExtractRivers(context.Mask, context.Elevation, context.Topology, context.WaterSurfaces, topologyGraph, flowDirections, accumulation, basinIds, lakeIds, landComponents, validEndorheicBasins, context.Options, mouths, forcedLongPaths, outlets);
 
-    public List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height) =>
-        RiverSegmentExtractor.FinalizeVisibleRivers(rivers, width, height);
+    public List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height, int maxEndorheicCount = int.MaxValue) =>
+        RiverSegmentExtractor.FinalizeVisibleRivers(rivers, width, height, maxEndorheicCount);
 
     public List<RiverSegment> ResolveVisibleCrossings(IReadOnlyList<RiverSegment> rivers, int width) =>
         VisibleRiverCrossingRepairer.ResolvePolylineCrossings(rivers, width);

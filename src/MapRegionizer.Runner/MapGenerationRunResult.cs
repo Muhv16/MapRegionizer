@@ -77,6 +77,7 @@ public sealed record MapGenerationRunOptionSummary(
     double MajorRiverTributaryMultiplier,
     double LakeOutletInflowForceMultiplier,
     double EndorheicBasinChance,
+    int MaxEndorheicBasins,
     double DeltaFrequency,
     double MeanderStrength,
     double LakeOutletStrictness,

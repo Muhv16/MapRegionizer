@@ -90,6 +90,7 @@ public sealed class MapGenerationRunOptions
     public double MajorRiverTributaryMultiplier { get; set; } = 1.0;
     public double LakeOutletInflowForceMultiplier { get; set; } = 0.45;
     public double EndorheicBasinChance { get; set; } = 0.22;
+    public int MaxEndorheicBasins { get; set; } = 3;
     public double DeltaFrequency { get; set; } = 0.8;
     public double MeanderStrength { get; set; } = 0.65;
     public double LakeOutletStrictness { get; set; } = 0.35;
@@ -236,6 +237,7 @@ public sealed class MapGenerationRunOptions
                 MajorRiverTributaryMultiplier = MajorRiverTributaryMultiplier,
                 LakeOutletInflowForceMultiplier = LakeOutletInflowForceMultiplier,
                 EndorheicBasinChance = EndorheicBasinChance,
+                MaxEndorheicBasins = MaxEndorheicBasins,
                 DeltaFrequency = DeltaFrequency,
                 MeanderStrength = MeanderStrength,
                 LakeOutletStrictness = LakeOutletStrictness,

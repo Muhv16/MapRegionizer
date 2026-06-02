@@ -17,7 +17,7 @@ internal sealed class RiverSegmentExtractor
         _channelPathTracer = channelPathTracer;
     }
 
-    internal static List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height)
+    internal static List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height, int maxEndorheicCount = int.MaxValue)
     {
         if (rivers.Count == 0)
             return [];
@@ -30,6 +30,22 @@ internal sealed class RiverSegmentExtractor
                 continue;
 
             accepted.Add(river);
+        }
+
+        if (maxEndorheicCount < int.MaxValue && accepted.Count > 0)
+        {
+            var endorheicIds = accepted
+                .Where(r => r.Kind == RiverKind.Endorheic)
+                .OrderByDescending(r => r.Discharge)
+                .ThenBy(r => r.Id)
+                .Select(r => r.Id)
+                .ToList();
+
+            if (endorheicIds.Count > maxEndorheicCount)
+            {
+                var keep = endorheicIds.Take(maxEndorheicCount).ToHashSet();
+                accepted = accepted.Where(r => r.Kind != RiverKind.Endorheic || keep.Contains(r.Id)).ToList();
+            }
         }
 
         var byId = accepted.ToDictionary(r => r.Id);
@@ -247,8 +263,7 @@ internal sealed class RiverSegmentExtractor
             var terminal = new GridPoint(terminalIndex % width, terminalIndex / width);
             var target = ResolveTarget(terminal, mask, topology, waterSurfaces, lakeIds);
             if (target.Kind == DrainageTargetKind.EndorheicDryBasin &&
-                !validEndorheicBasins.Contains(basinIds[mouthIndex]) &&
-                accumulation[mouthIndex] < 70.0)
+                !validEndorheicBasins.Contains(basinIds[mouthIndex]))
                 return false;
 
             var minLength = target.Kind == DrainageTargetKind.EndorheicDryBasin ? 8 : 12;

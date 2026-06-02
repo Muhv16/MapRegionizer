@@ -171,6 +171,9 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "endorheic-basin-chance":
                 options.EndorheicBasinChance = ParseDouble(value, name);
                 break;
+            case "max-endorheic-basins":
+                options.MaxEndorheicBasins = ParseInt(value, name);
+                break;
             case "delta-frequency":
                 options.DeltaFrequency = ParseDouble(value, name);
                 break;
@@ -369,6 +372,7 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --major-river-tributary-multiplier <number>  Scales guaranteed tributaries along major rivers. Default: 1.");
     Console.WriteLine("  --lake-outlet-inflow-force-multiplier <number>  Scales inflow count threshold for forced shallow-lake outlets. Default: 0.45.");
     Console.WriteLine("  --endorheic-basin-chance <0..1> Preserves closed basins/lakes. Default: 0.22.");
+    Console.WriteLine("  --max-endorheic-basins <int>    Max endorheic river basins per map. Default: 3.");
     Console.WriteLine("  --delta-frequency <number>      Scales delta mouth classification. Default: 0.8.");
     Console.WriteLine("  --meander-strength <0..1>       Scales rendered river meanders. Default: 0.65.");
     Console.WriteLine("  --lake-outlet-strictness <0..1> Controls how many lakes remain closed. Default: 0.35.");

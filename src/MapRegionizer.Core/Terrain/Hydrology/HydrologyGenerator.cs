@@ -73,7 +73,7 @@ internal sealed class HydrologyGenerator
             endorheicPolicies = BasinDelineator.BuildEndorheicRiverPolicies(basinState.Basins, context.Elevation);
         }
 
-        var validEndorheicBasins = BasinDelineator.BuildValidEndorheicBasinSet(basinState.Basins, endorheicPolicies);
+        var validEndorheicBasins = BasinDelineator.BuildValidEndorheicBasinSet(basinState.Basins, endorheicPolicies, options.MaxEndorheicBasins);
         var allowedRiverBasins = BasinDelineator.BuildAllowedRiverBasinSet(basinState.Basins, validEndorheicBasins);
 
         // Build upstream cache once after flow directions stabilize.
@@ -95,9 +95,9 @@ internal sealed class HydrologyGenerator
 
         var mouths = new List<RiverMouth>();
         var riverSegments = rivers.Extract(context, riverTopology, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, lakeIds, landComponents, validEndorheicBasins, mouths, forcedLongPaths, outlets);
-        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
+        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height, options.MaxEndorheicBasins);
         riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width);
-        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height);
+        riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height, options.MaxEndorheicBasins);
         mouths.Clear();
         mouths.AddRange(riverSegments.Select(r => new RiverMouth(r.Id, r.Mouth, r.TargetKind, r.TargetId, r.MouthKind ?? RiverMouthKind.SimpleMouth, r.Discharge)));
 
