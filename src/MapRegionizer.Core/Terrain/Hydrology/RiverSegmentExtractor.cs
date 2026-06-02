@@ -257,6 +257,20 @@ internal sealed class RiverSegmentExtractor
             var dryMouthCell = cells[^1];
             var segmentOutletIndex = FindSegmentOutletIndex(mouthIndex, riverTopology, flowDirections, lakeIds, mask, topology, visited, width, height);
             var segmentOutlet = new GridPoint(segmentOutletIndex % width, segmentOutletIndex / width);
+            if (segmentOutletIndex != mouthIndex)
+            {
+                var current = mouthIndex;
+                var guard = 0;
+                while (current != segmentOutletIndex && guard++ < flowDirections.Length)
+                {
+                    var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+                    if (downstream < 0 || downstream == current)
+                        break;
+                    current = downstream;
+                    cells.Add(new GridPoint(current % width, current / width));
+                }
+                dryMouthCell = cells[^1];
+            }
             var segmentEndsInWater = segmentOutletIndex != mouthIndex && IsWaterTarget(segmentOutlet, mask, topology, lakeIds);
             var segmentEndsInConfluence = segmentOutletIndex != mouthIndex && !segmentEndsInWater;
             var terminalIndex = FindMouthTargetIndex(mouthIndex, flowDirections, lakeIds, mask, topology, width, height);
@@ -372,17 +386,45 @@ internal sealed class RiverSegmentExtractor
         int width,
         int height)
     {
+        // Walk D8 flow directions from mouthIndex until we find water.
+        // If no water found, fall back to topology confluence or mouthIndex.
+        var waterIndex = -1;
+        var confluenceIndex = -1;
+        var current = mouthIndex;
+        var guard = 0;
+        while (guard++ < flowDirections.Length)
+        {
+            var dir = flowDirections[current];
+            if (dir < 0 || dir >= 8)
+                break;
+
+            var downstream = DownstreamIndex(current, dir, width, height);
+            if (downstream < 0)
+                break;
+
+            var downstreamPoint = new GridPoint(downstream % width, downstream / width);
+            if (IsWaterTarget(downstreamPoint, mask, topology, lakeIds))
+            {
+                waterIndex = downstream;
+                break;
+            }
+
+            if (visited[downstream] && confluenceIndex < 0)
+                confluenceIndex = downstream;
+
+            current = downstream;
+        }
+
+        if (waterIndex >= 0)
+            return waterIndex;
+
+        if (confluenceIndex >= 0)
+            return confluenceIndex;
+
+        // Check topology-level confluence (may differ from D8 path)
         var topologyDownstream = riverTopology.GetDownstream(mouthIndex);
         if (topologyDownstream >= 0 && visited[topologyDownstream])
             return topologyDownstream;
-
-        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], width, height);
-        if (downstream < 0)
-            return mouthIndex;
-
-        var downstreamPoint = new GridPoint(downstream % width, downstream / width);
-        if (IsWaterTarget(downstreamPoint, mask, topology, lakeIds) || visited[downstream])
-            return downstream;
 
         return mouthIndex;
     }
