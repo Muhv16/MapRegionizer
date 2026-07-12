@@ -352,6 +352,7 @@ ASALocalRun/
 
 # Local .NET CLI home used by agent/sandbox builds
 .dotnet-home/
+.localappdata/
 
 # BeatPulse healthcheck temp database
 healthchecksdb

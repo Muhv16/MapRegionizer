@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace AvaloniaRegionizer.ViewModels;
 
@@ -12,7 +13,7 @@ public sealed class GenerationLogEntryViewModel
     }
 
     public DateTimeOffset Timestamp { get; }
-    public string TimeText => Timestamp.ToLocalTime().ToString("HH:mm:ss");
+    public string TimeText => Timestamp.ToLocalTime().ToString("HH:mm:ss", CultureInfo.CurrentCulture);
     public string Message { get; }
     public string Level { get; }
 }

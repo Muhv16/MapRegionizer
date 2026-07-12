@@ -1,0 +1,4 @@
+<Project>
+  <!-- Avalonia's build telemetry writes to a user-profile location and can fail in CI/sandboxes. -->
+  <Target Name="AvaloniaStats" />
+</Project>

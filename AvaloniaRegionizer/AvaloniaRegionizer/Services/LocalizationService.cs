@@ -302,7 +302,8 @@ public sealed class LocalizationService : ReactiveObject
             ["LegendElevation"] = "Hypsometric terrain and bathymetry.",
             ["LegendClimate"] = "Climate biomes, temperature, moisture, rainfall, habitability, agriculture, and ice.",
             ["LegendNotAvailable"] = "Run the required stage to render this layer."
-            ,["StageLandmasses"] = "Extract landmasses",
+            ,
+            ["StageLandmasses"] = "Extract landmasses",
             ["StageWaterBodies"] = "Extract water bodies",
             ["StageWaterBodyTopology"] = "Classify water bodies",
             ["StageTectonicHistory"] = "Tectonic history",
@@ -751,7 +752,8 @@ public sealed class LocalizationService : ReactiveObject
             ["LegendElevation"] = "Гипсометрический рельеф и батиметрия.",
             ["LegendClimate"] = "Биомы, температура, влажность, осадки, обитаемость, земледелие и лед.",
             ["LegendNotAvailable"] = "Запустите нужную стадию, чтобы отрисовать этот слой."
-            ,["StageLandmasses"] = "Извлечение суши",
+            ,
+            ["StageLandmasses"] = "Извлечение суши",
             ["StageWaterBodies"] = "Извлечение водоемов",
             ["StageTectonicHistory"] = "Тектоническая история",
             ["StageCrustFields"] = "Поля коры",

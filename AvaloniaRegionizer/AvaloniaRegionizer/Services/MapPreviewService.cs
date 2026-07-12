@@ -181,18 +181,18 @@ public sealed class MapPreviewService
                 });
                 break;
             case PreviewLayerKind.TectonicFeatures:
-            {
-                var plateMap = map.TectonicPlates;
-                image = plateMap is not null
-                    ? MapImageRenderer.RenderTectonicFeatures(map, new TectonicFeatureRenderOptions
-                    {
-                        Scale = renderOptions.Scale,
-                        DrawPlateBoundaries = renderOptions.DrawFeaturePlateBoundaries,
-                        PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
-                    })
-                    : RenderFeatureFields(session.TectonicFeatures ?? throw new InvalidOperationException("Tectonic features are not available."));
-                break;
-            }
+                {
+                    var plateMap = map.TectonicPlates;
+                    image = plateMap is not null
+                        ? MapImageRenderer.RenderTectonicFeatures(map, new TectonicFeatureRenderOptions
+                        {
+                            Scale = renderOptions.Scale,
+                            DrawPlateBoundaries = renderOptions.DrawFeaturePlateBoundaries,
+                            PlateBoundaryWidth = renderOptions.TectonicBoundaryWidth
+                        })
+                        : RenderFeatureFields(session.TectonicFeatures ?? throw new InvalidOperationException("Tectonic features are not available."));
+                    break;
+                }
             case PreviewLayerKind.Elevation or PreviewLayerKind.ElevationBase or PreviewLayerKind.ElevationTectonic or
                 PreviewLayerKind.ElevationRoughness or PreviewLayerKind.ElevationErosion or PreviewLayerKind.ElevationZones or
                 PreviewLayerKind.ElevationMountain or PreviewLayerKind.ElevationBasin:

@@ -1,3 +1,4 @@
+using System.Globalization;
 using MapRegionizer.Core.Domain;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -86,7 +87,7 @@ internal static class TectonicPlateRenderer
 
             var centerX = (plate.Centroid.X + 0.5) * pixelSize * options.Scale;
             var centerY = (plate.Centroid.Y + 0.5) * pixelSize * options.Scale;
-            DrawDigits(image, plate.Id.Value.ToString(), (int)Math.Round(centerX), (int)Math.Round(centerY), options);
+            DrawDigits(image, plate.Id.Value.ToString(CultureInfo.InvariantCulture), (int)Math.Round(centerX), (int)Math.Round(centerY), options);
         }
     }
 

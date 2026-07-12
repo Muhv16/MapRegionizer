@@ -81,7 +81,7 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             var separatorIndex = name.IndexOf('=');
             if (separatorIndex >= 0)
                 options.RasterizeRegions = ParseBool(name[(separatorIndex + 1)..], name);
-            else if (index < args.Length && !args[index].StartsWith("-", StringComparison.Ordinal))
+            else if (index < args.Length && !args[index].StartsWith('-'))
                 options.RasterizeRegions = ParseBool(args[index++], name);
             else
                 options.RasterizeRegions = true;

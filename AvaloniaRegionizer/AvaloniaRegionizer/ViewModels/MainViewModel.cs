@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reactive;
@@ -399,7 +400,7 @@ public sealed class MainViewModel : ReactiveObject
         set
         {
             SetOption(ref _seed, value, MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.Regions);
-            this.RaiseAndSetIfChanged(ref _seedText, value?.ToString() ?? string.Empty, nameof(SeedText));
+            this.RaiseAndSetIfChanged(ref _seedText, value?.ToString(CultureInfo.CurrentCulture) ?? string.Empty, nameof(SeedText));
             this.RaisePropertyChanged(nameof(SeedText));
         }
     }
@@ -574,7 +575,7 @@ public sealed class MainViewModel : ReactiveObject
             ]
         });
 
-        var file = result.FirstOrDefault();
+        var file = result.Count == 0 ? null : result[0];
         if (file?.Path.LocalPath is { Length: > 0 } path)
             MaskPath = path;
     }
@@ -591,7 +592,7 @@ public sealed class MainViewModel : ReactiveObject
             AllowMultiple = false
         });
 
-        var folder = result.FirstOrDefault();
+        var folder = result.Count == 0 ? null : result[0];
         if (folder?.Path.LocalPath is { Length: > 0 } path)
             OutputDirectory = path;
     }
@@ -974,7 +975,7 @@ public sealed class MainViewModel : ReactiveObject
     {
         var clipboard = GetMainWindow()?.Clipboard;
         if (clipboard is not null && Seed is not null)
-            await clipboard.SetTextAsync(Seed.Value.ToString());
+            await clipboard.SetTextAsync(Seed.Value.ToString(CultureInfo.CurrentCulture));
     }
 
     private void ApplyPreset(string preset)
@@ -1647,7 +1648,7 @@ public sealed class MainViewModel : ReactiveObject
     private void AddHistoryEntry(string? mode = null)
     {
         var title = $"{DateTime.Now:g} - {Path.GetFileName(MaskPath)}";
-        var details = $"Seed: {(Seed?.ToString() ?? "random")} | {SelectedPreviewLayer?.Name}";
+        var details = $"Seed: {(Seed?.ToString(CultureInfo.CurrentCulture) ?? "random")} | {SelectedPreviewLayer?.Name}";
         if (!string.IsNullOrWhiteSpace(mode))
             details = $"{mode} | {details}";
         History.Insert(0, new RunHistoryEntryViewModel(title, details, OutputDirectory));
