@@ -43,12 +43,13 @@ public sealed class MapGenerationContext
     public HydrologyMap? Hydrology { get; set; }
     public ClimateMap? Climate { get; set; }
     public TectonicPlateMap? TectonicPlates { get; set; }
+    public RegionRaster? RegionRaster { get; set; }
     public IReadOnlySet<MapDataKey> AvailableData => _availableData;
     public IReadOnlySet<MapDataKey> DirtyData => _dirtyData;
 
     public RegionId CreateRegionId() => new(_nextRegionId++);
 
-    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology, Climate);
+    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology, Climate, RegionRaster);
 
     public bool Has(MapDataKey key) => _availableData.Contains(key) && !_dirtyData.Contains(key);
 
@@ -88,6 +89,8 @@ public sealed class MapGenerationContext
             RawRegions.Clear();
         else if (key == MapDataKeys.Regions)
             Regions.Clear();
+        else if (key == MapDataKeys.RegionRaster)
+            RegionRaster = null;
         else if (key == MapDataKeys.TectonicHistory)
             TectonicHistory = null;
         else if (key == MapDataKeys.CrustFields)

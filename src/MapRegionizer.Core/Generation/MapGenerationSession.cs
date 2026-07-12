@@ -49,6 +49,7 @@ public sealed class MapGenerationSession
     public HydrologyMap? Hydrology => _context.Hydrology;
     public ClimateMap? Climate => _context.Climate;
     public TectonicPlateMap? TectonicPlates => _context.TectonicPlates;
+    public RegionRaster? RegionRaster => _context.RegionRaster;
 
     public bool IsAvailable(MapDataKey key) => _context.IsAvailable(key);
     public bool IsDirty(MapDataKey key) => _context.IsDirty(key);

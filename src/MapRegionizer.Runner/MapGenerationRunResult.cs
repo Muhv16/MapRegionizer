@@ -39,6 +39,8 @@ public sealed record MapGenerationArtifactPaths(
     string? LakesJson,
     string? RiversJson,
     string? ClimateJson,
+    string? RegionsBin,
+    string? RegionsSummaryJson,
     string SummaryJson);
 
 public sealed record MapGenerationRunSummary(
@@ -112,4 +114,8 @@ public sealed record MapGenerationMapSummary(
     int? ClimateWidth,
     int? ClimateHeight,
     double? MinMeanAnnualTemperature,
-    double? MaxMeanAnnualTemperature);
+    double? MaxMeanAnnualTemperature,
+    int? RegionRasterWidth,
+    int? RegionRasterHeight,
+    int? RegionRasterAssignedLandPixelCount,
+    int? RegionRasterWaterOrOutsidePixelCount);

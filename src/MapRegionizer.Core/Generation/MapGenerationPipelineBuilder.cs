@@ -29,6 +29,11 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new DistortRegionBoundariesStage());
     }
 
+    public MapGenerationPipelineBuilder AddRegionRasterization()
+    {
+        return AddStage(new RasterizeRegionsStage());
+    }
+
     public MapGenerationPipelineBuilder AddStage(IMapGenerationStage stage)
     {
         ArgumentNullException.ThrowIfNull(stage);

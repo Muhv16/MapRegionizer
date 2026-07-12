@@ -42,6 +42,8 @@ static int Run(string[] args)
         if (result.Summary.Map.MinMeanAnnualTemperature is { } minTemperature &&
             result.Summary.Map.MaxMeanAnnualTemperature is { } maxTemperature)
             Console.WriteLine($"Mean annual temperature: {minTemperature:F1}..{maxTemperature:F1} C");
+        if (result.Artifacts.RegionsBin is { } regionsBin)
+            Console.WriteLine($"Region raster: {regionsBin}");
         Console.WriteLine($"Summary: {result.Artifacts.SummaryJson}");
 
         return 0;
@@ -71,6 +73,18 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
         if (normalized == "debug")
         {
             options.Debug = true;
+            continue;
+        }
+
+        if (normalized == "rasterize-regions")
+        {
+            var separatorIndex = name.IndexOf('=');
+            if (separatorIndex >= 0)
+                options.RasterizeRegions = ParseBool(name[(separatorIndex + 1)..], name);
+            else if (index < args.Length && !args[index].StartsWith("-", StringComparison.Ordinal))
+                options.RasterizeRegions = ParseBool(args[index++], name);
+            else
+                options.RasterizeRegions = true;
             continue;
         }
 
@@ -209,6 +223,9 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
                 break;
             case "climate-json-mode":
                 options.ClimateJsonMode = ParseEnum<ClimateJsonExportMode>(value, name);
+                break;
+            case "region-raster":
+                options.RasterizeRegions = ParseBool(value, name);
                 break;
             default:
                 throw new ArgumentException($"Unknown option: {name}");
@@ -385,5 +402,6 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --tectonic-json-mode <mode>      Summary, CompactDiagnostic, Diagnostic.");
     Console.WriteLine("  --elevation-json-mode <mode>     Summary, Diagnostic.");
     Console.WriteLine("  --climate-json-mode <mode>       Summary, Diagnostic.");
+    Console.WriteLine("  --rasterize-regions [bool]       Export final region ids as regions.bin and regions.summary.json. Default: false.");
     Console.WriteLine("  --debug                          Print memory diagnostics per stage.");
 }

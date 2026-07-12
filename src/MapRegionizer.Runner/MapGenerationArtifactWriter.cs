@@ -49,6 +49,7 @@ public static class MapGenerationArtifactWriter
         var hasLakes = map.WaterSurfaces is not null || map.Elevation?.WaterSurfaces is not null;
         var hasHydrology = map.Hydrology is not null;
         var hasClimate = map.Climate is not null;
+        var hasRegionRaster = map.RegionRaster is not null;
 
         return new MapGenerationArtifactPaths(
             ResultImage: Path.Combine(outputDirectory, "result.png"),
@@ -82,6 +83,8 @@ public static class MapGenerationArtifactWriter
             LakesJson: hasLakes ? Path.Combine(outputDirectory, "lakes.json") : null,
             RiversJson: hasHydrology ? Path.Combine(outputDirectory, "rivers.json") : null,
             ClimateJson: hasClimate ? Path.Combine(outputDirectory, "climate.json") : null,
+            RegionsBin: hasRegionRaster ? Path.Combine(outputDirectory, "regions.bin") : null,
+            RegionsSummaryJson: hasRegionRaster ? Path.Combine(outputDirectory, "regions.summary.json") : null,
             SummaryJson: Path.Combine(outputDirectory, "summary.json"));
     }
 
@@ -175,6 +178,9 @@ public static class MapGenerationArtifactWriter
         GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson);
         GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson);
         GeoJsonMapWriter.WriteWaterBodiesToFile(map, artifacts.WaterBodiesGeoJson);
+
+        if (map.RegionRaster is not null)
+            RegionRasterArtifactWriter.Write(map, artifacts.RegionsBin!, artifacts.RegionsSummaryJson!);
     }
 
     private static ClimateRenderOptions CreateClimateOptions(
@@ -210,6 +216,7 @@ public static class MapGenerationArtifactWriter
     {
         var (minElevation, maxElevation) = GetElevationRange(map.Elevation);
         var (minTemperature, maxTemperature) = GetTemperatureRange(map.Climate);
+        var (assignedRegionPixels, waterOrOutsidePixels) = GetRegionRasterCounts(map.RegionRaster);
         var hydrology = map.Hydrology;
 
         return new MapGenerationRunSummary(
@@ -278,8 +285,30 @@ public static class MapGenerationArtifactWriter
                 map.Climate?.Width,
                 map.Climate?.Height,
                 minTemperature,
-                maxTemperature),
+                maxTemperature,
+                map.RegionRaster?.Width,
+                map.RegionRaster?.Height,
+                assignedRegionPixels,
+                waterOrOutsidePixels),
             artifacts);
+    }
+
+    private static (int? AssignedRegionPixels, int? WaterOrOutsidePixels) GetRegionRasterCounts(RegionRaster? raster)
+    {
+        if (raster is null)
+            return (null, null);
+
+        var assigned = 0;
+        var waterOrOutside = 0;
+        foreach (var value in raster.RegionIdsSpan)
+        {
+            if (value > 0)
+                assigned++;
+            else
+                waterOrOutside++;
+        }
+
+        return (assigned, waterOrOutside);
     }
 
     private static (double? Min, double? Max) GetElevationRange(ElevationMap? elevation)

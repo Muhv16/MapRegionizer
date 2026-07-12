@@ -128,6 +128,7 @@ public sealed class MapGenerationRunOptions
     public ElevationJsonExportMode ElevationJsonMode { get; set; } = ElevationJsonExportMode.Summary;
     public ClimateJsonExportMode ClimateJsonMode { get; set; } = ClimateJsonExportMode.Summary;
     public bool Debug { get; set; }
+    public bool RasterizeRegions { get; set; }
 
     public MapGenerationOptions ToGenerationOptions()
     {
@@ -286,6 +287,7 @@ public sealed class MapGenerationRunOptions
             OutputDirectory = OutputDirectory,
             GenerationOptions = ToGenerationOptions(),
             Debug = Debug,
+            RasterizeRegions = RasterizeRegions,
             TectonicJsonMode = TectonicJsonMode,
             ElevationJsonMode = ElevationJsonMode,
             ClimateJsonMode = ClimateJsonMode

@@ -24,7 +24,7 @@ public sealed class MapGenerationRunner
             return RunWithDiagnostics(options, maskPath, outputDirectory);
 
         var mask = ImageMaskReader.Read(maskPath);
-        var map = new MapGenerator().Generate(mask, options.GenerationOptions);
+        var map = CreateGenerator(options).Generate(mask, options.GenerationOptions);
         return MapGenerationArtifactWriter.Write(
             map,
             maskPath,
@@ -48,7 +48,7 @@ public sealed class MapGenerationRunner
         WriteMemLine("load mask", afterMask, MemorySnapshot.Capture());
 
         var afterGen = MemorySnapshot.Capture();
-        var map = new MapGenerator().Generate(mask, options.GenerationOptions);
+        var map = CreateGenerator(options).Generate(mask, options.GenerationOptions);
         WriteMemLine("generation", afterGen, MemorySnapshot.Capture());
 
         var afterArtifacts = MemorySnapshot.Capture();
@@ -63,6 +63,18 @@ public sealed class MapGenerationRunner
         WriteMemLine("artifacts", afterArtifacts, MemorySnapshot.Capture());
 
         return result;
+    }
+
+    private static MapGenerator CreateGenerator(MapGenerationRequestOptions options)
+    {
+        if (!options.RasterizeRegions)
+            return new MapGenerator();
+
+        var pipeline = MapGenerationPipelineBuilder.CreateDefault()
+            .AddRegionRasterization()
+            .Build();
+
+        return new MapGenerator(pipeline);
     }
 
     private static void WriteMemLine(string label, MemorySnapshot before, MemorySnapshot after)

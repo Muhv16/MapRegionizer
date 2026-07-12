@@ -39,6 +39,7 @@ Climate
 TectonicPlates
 RawRegions
 Regions
+RegionRaster
 ```
 
 `RawRegions` and `Regions` are intentionally separate:
@@ -47,6 +48,8 @@ Regions
 - `Regions` are final regions after post-processing, currently boundary distortion.
 
 This separation allows users to keep region generation and replace or disable later region post-processing without regenerating the raw region layout.
+
+`RegionRaster` is an optional raster view of the final `Regions`. It stores one `int32` region id per source mask cell, using `0` for water/outside cells and final `RegionId.Value` values for land pixels.
 
 ## Default Stages
 
@@ -72,6 +75,8 @@ ExtractLandmassesStage
  -> GenerateRegionsStage
  -> DistortRegionBoundariesStage
 ```
+
+`RasterizeRegionsStage` is available as an opt-in stage after `DistortRegionBoundariesStage`; it is not part of the default pipeline.
 
 Their dependencies are:
 
@@ -147,9 +152,15 @@ GenerateRegionsStage
 DistortRegionBoundariesStage
   requires: Landmasses, RawRegions
   produces: Regions
+
+RasterizeRegionsStage
+  requires: Mask, Regions
+  produces: RegionRaster
 ```
 
 If boundary distortion is disabled in options, `DistortRegionBoundariesStage` copies `RawRegions` to `Regions`.
+
+`RasterizeRegionsStage` samples each source mask cell and writes the final region id for land pixels. Water and outside-mask pixels are written as `0`. Because this stage is optional, `RunFull()` on the default pipeline does not produce `RegionRaster`; add the stage only for workflows that need a dense raster lookup or CLI binary artifact.
 
 ## Stage Contract
 
@@ -246,6 +257,20 @@ session.RunUntil(MapDataKeys.Regions);
 
 will rerun only `DistortRegionBoundariesStage`, assuming `Landmasses` and `RawRegions` are already clean.
 
+To generate the optional region raster in a custom workflow, add the stage and request `RegionRaster`:
+
+```csharp
+var pipeline = MapGenerationPipelineBuilder.CreateDefault()
+    .AddRegionRasterization()
+    .Build();
+
+var session = MapGenerationSession.Create(mask, options, pipeline);
+session.RunUntil(MapDataKeys.RegionRaster);
+var raster = session.RegionRaster;
+```
+
+The CLI enables the same opt-in stage with `--rasterize-regions`. When enabled, artifact export writes `regions.bin` as little-endian row-major `int32` cells and `regions.summary.json` with dimensions, counts, format metadata, and the region ids present in the raster.
+
 ## Custom Pipeline
 
 Create a custom pipeline by replacing a default stage:
@@ -266,6 +291,7 @@ var pipeline = new MapGenerationPipelineBuilder()
     .AddStage(new ExtractLandmassesStage())
     .AddStage(new GenerateRegionsStage())
     .AddStage(new DistortRegionBoundariesStage())
+    .AddStage(new RasterizeRegionsStage())
     .Build();
 ```
 
