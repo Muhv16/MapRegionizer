@@ -46,7 +46,7 @@ internal sealed class PixelComponentFinder
 
         while (unvisited.Count > 0)
         {
-            var start = unvisited.First();
+            var start = unvisited.OrderBy(point => point.Y).ThenBy(point => point.X).First();
             var queue = new Queue<GridPoint>();
             var component = new List<GridPoint>();
             queue.Enqueue(start);

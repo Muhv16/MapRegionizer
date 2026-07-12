@@ -102,6 +102,12 @@ or generation-stage behavior, update the corresponding documentation.
 
 Use the repository scripts rather than inventing alternate build commands.
 
+The automated test project is `tests/MapRegionizer.Core.Tests`. Its region
+generation tests validate the shared geometry contract for `RawRegions` and
+`Regions`, including coverage, holes, islands, deterministic fixed-seed output,
+boundary distortion, and non-zero-length adjacency. Extend these tests when
+changing region generation, region geometry, or boundary distortion.
+
 For normal code changes:
 
 ```powershell

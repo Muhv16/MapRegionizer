@@ -86,7 +86,10 @@ public sealed class MapGenerationContext
         else if (key == MapDataKeys.WaterBodyTopology)
             WaterBodyTopology = null;
         else if (key == MapDataKeys.RawRegions)
+        {
             RawRegions.Clear();
+            _nextRegionId = 1;
+        }
         else if (key == MapDataKeys.Regions)
             Regions.Clear();
         else if (key == MapDataKeys.RegionRaster)

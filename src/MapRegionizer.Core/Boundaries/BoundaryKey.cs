@@ -1,22 +1,20 @@
 using NetTopologySuite.Geometries;
 using System.Globalization;
+using MapRegionizer.Core.Regions;
 
 namespace MapRegionizer.Core.Boundaries;
 
 internal static class BoundaryKey
 {
-    private const int KeyDecimalPlaces = 6;
-
     public static string MakeDirected(Coordinate a, Coordinate b)
     {
-        var format = "F" + KeyDecimalPlaces.ToString(CultureInfo.InvariantCulture);
-        return $"{a.X.ToString(format, CultureInfo.InvariantCulture)}:{a.Y.ToString(format, CultureInfo.InvariantCulture)}|{b.X.ToString(format, CultureInfo.InvariantCulture)}:{b.Y.ToString(format, CultureInfo.InvariantCulture)}";
+        return $"{RegionGeometryPrecision.GetCoordinateKey(a)}|{RegionGeometryPrecision.GetCoordinateKey(b)}";
     }
 
     public static string MakeUndirected(Coordinate a, Coordinate b)
     {
-        var ordered = new[] { a, b }.OrderBy(c => c.X).ThenBy(c => c.Y).ToArray();
-        return $"{ordered[0].X.ToString(CultureInfo.InvariantCulture)},{ordered[0].Y.ToString(CultureInfo.InvariantCulture)};{ordered[1].X.ToString(CultureInfo.InvariantCulture)},{ordered[1].Y.ToString(CultureInfo.InvariantCulture)}";
+        var ordered = new[] { a, b }.OrderBy(coordinate => coordinate.X).ThenBy(coordinate => coordinate.Y).ToArray();
+        return $"{ordered[0].X.ToString("R", CultureInfo.InvariantCulture)},{ordered[0].Y.ToString("R", CultureInfo.InvariantCulture)};{ordered[1].X.ToString("R", CultureInfo.InvariantCulture)},{ordered[1].Y.ToString("R", CultureInfo.InvariantCulture)}";
     }
 
     public static Coordinate[] ParseUndirected(string key)

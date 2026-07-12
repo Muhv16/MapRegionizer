@@ -46,11 +46,25 @@ https://euromeme.ru/map
 ## Documentation
 
 * [`docs/generation-pipeline.md`](docs/generation-pipeline.md) — generation pipeline overview.
+* [`docs/regions.md`](docs/regions.md) — region geometry contract.
 * [`docs/tectonics.md`](docs/tectonics.md) — tectonics generation.
 * [`docs/elevation.md`](docs/elevation.md) — elevation generation.
 * [`docs/hydrology.md`](docs/hydrology.md) — hydrology generation.
 * [`docs/climate.md`](docs/climate.md) — climate generation.
 * [`docs/agent-pipeline.md`](docs/cli-pipeline.md) — notes on CLI and agent-assisted development.
+
+## Tests
+
+Automated tests are located in `tests/MapRegionizer.Core.Tests`. They cover the
+region-generation geometry contract for both `RawRegions` and final `Regions`,
+including landmass coverage, water holes, islands, deterministic ids and
+geometry for a fixed seed, boundary distortion, and point-only adjacency.
+
+Run the full repository verification with:
+
+```powershell
+./scripts/verify.ps1 -Full
+```
 
 ## Roadmap
 
@@ -129,11 +143,26 @@ https://euromeme.ru/map
 ## Документация
 
 * [`docs/generation-pipeline.md`](docs/generation-pipeline.md) — описание pipeline генерации.
+* [`docs/regions.md`](docs/regions.md) — геометрический контракт регионов.
 * [`docs/tectonics.md`](docs/tectonics.md) — генерация тектоники.
 * [`docs/elevation.md`](docs/elevation.md) — генерация рельефа.
 * [`docs/hydrology.md`](docs/hydrology.md) — генерация гидрологии.
 * [`docs/climate.md`](docs/climate.md) — генерация климата.
 * [`docs/cli-pipeline.md`](docs/cli-pipeline.md) — заметки по CLI и агентской разработке.
+
+## Тесты
+
+Авто-тесты расположены в `tests/MapRegionizer.Core.Tests`. Они проверяют
+геометрический контракт генерации для `RawRegions` и финальных `Regions`:
+покрытие landmass, водные отверстия, острова, детерминированность ID и
+геометрии при фиксированном seed, distortion границ и исключение соседства по
+одной точке.
+
+Полную проверку репозитория можно запустить так:
+
+```powershell
+./scripts/verify.ps1 -Full
+```
 
 ## Планы развития
 

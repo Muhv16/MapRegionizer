@@ -20,7 +20,9 @@ internal sealed class PolygonNeighborFinder
     public IReadOnlyList<Polygon> FindNeighbors(Geometry targetPolygon)
     {
         return _spatialIndex.Query(targetPolygon.EnvelopeInternal)
-            .Where(candidate => !ReferenceEquals(candidate, targetPolygon) && targetPolygon.Touches(candidate))
+            .Where(candidate => !ReferenceEquals(candidate, targetPolygon)
+                && targetPolygon.Touches(candidate)
+                && RegionGeometryContract.ShareBoundary(targetPolygon, candidate))
             .ToList();
     }
 }

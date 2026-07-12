@@ -49,6 +49,8 @@ RegionRaster
 
 This separation allows users to keep region generation and replace or disable later region post-processing without regenerating the raw region layout.
 
+Both sets obey the [region geometry contract](regions.md). In particular, the final set remains an exact partition of every landmass even after boundary distortion.
+
 `RegionRaster` is an optional raster view of the final `Regions`. It stores one `int32` region id per source mask cell, using `0` for water/outside cells and final `RegionId.Value` values for land pixels.
 
 ## Default Stages
