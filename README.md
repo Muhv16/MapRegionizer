@@ -35,7 +35,7 @@ The CLI pipeline is intended for using the generator from external applications,
 
 A desktop client based on Avalonia is available for manual work with the generator.
 
-The client source code is located in [`AvaloniaRegionizer`](AvaloniaRegionizer).
+The client source code is located in [`src/MapRegionizer.App`](src/MapRegionizer.App).
 
 ## Example
 
@@ -118,7 +118,7 @@ CLI-пайплайн подходит для использования гене
 
 Для ручной работы с генератором предусмотрен десктопный клиент на Avalonia.
 
-Исходный код клиента находится в каталоге [`AvaloniaRegionizer`](AvaloniaRegionizer).
+Исходный код клиента находится в каталоге [`src/MapRegionizer.App`](src/MapRegionizer.App).
 
 ## Пример использования
 

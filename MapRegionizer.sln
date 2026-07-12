@@ -1,11 +1,11 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.5.11723.231 stable
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AvaloniaRegionizer", "AvaloniaRegionizer\AvaloniaRegionizer\AvaloniaRegionizer.csproj", "{C667A337-6A1C-4B2B-A724-0EF08E94D2EE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapRegionizer.App", "src\MapRegionizer.App\MapRegionizer.App\MapRegionizer.App.csproj", "{C667A337-6A1C-4B2B-A724-0EF08E94D2EE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AvaloniaRegionizer.Desktop", "AvaloniaRegionizer\AvaloniaRegionizer.Desktop\AvaloniaRegionizer.Desktop.csproj", "{65A8BEA2-789B-4F48-94C8-79578C2BEC45}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapRegionizer.App.Desktop", "src\MapRegionizer.App\MapRegionizer.App.Desktop\MapRegionizer.App.Desktop.csproj", "{65A8BEA2-789B-4F48-94C8-79578C2BEC45}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
@@ -123,6 +123,8 @@ Global
 		{A0D305D9-4A1C-47CD-BD20-7DC0CAD3A110} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{3716FBDF-40E9-4422-AF76-097C7D257D71} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{A258414F-F2AD-40AB-9B3D-C911E192225A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{C667A337-6A1C-4B2B-A724-0EF08E94D2EE} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{65A8BEA2-789B-4F48-94C8-79578C2BEC45} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {307B0585-E1BE-4C04-8B22-46F03FC3700E}
