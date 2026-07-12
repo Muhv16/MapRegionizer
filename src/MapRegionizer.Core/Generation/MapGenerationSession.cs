@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Regions;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation;
@@ -34,6 +35,8 @@ public sealed class MapGenerationSession
     public IReadOnlyList<WaterBody> WaterBodies => _context.WaterBodies;
     public WaterBodyTopology? WaterBodyTopology => _context.WaterBodyTopology;
     public IReadOnlyList<MapRegion> RawRegions => _context.RawRegions;
+    public RegionDraft? RegionDraft => _context.RegionDraft;
+    public IReadOnlyList<RegionDiagnostic> RegionDiagnostics => _context.RegionDiagnostics;
     public IReadOnlyList<MapRegion> Regions => _context.Regions;
     public TectonicHistory? TectonicHistory => _context.TectonicHistory;
     public CrustFieldMap? CrustFields => _context.CrustFields;
@@ -65,5 +68,16 @@ public sealed class MapGenerationSession
     {
         _context.UpdateOptions(options);
         _pipeline.MarkDirty(_context, dirtyRoots);
+    }
+
+    /// <summary>
+    /// Uses a user/imported draft as the single source of future raw regions.
+    /// Only the region branch becomes dirty; terrain and climate remain available.
+    /// Pass <see langword="null"/> to return to automatic region drafts.
+    /// </summary>
+    public void SetRegionDraft(RegionDraft? draft)
+    {
+        _context.SetExternalRegionDraft(draft);
+        _pipeline.MarkDirty(_context, [MapDataKeys.RegionDraft]);
     }
 }

@@ -37,14 +37,16 @@ WaterSurfaces
 Hydrology
 Climate
 TectonicPlates
+RegionDraft
 RawRegions
 Regions
 RegionRaster
 ```
 
-`RawRegions` and `Regions` are intentionally separate:
+`RegionDraft`, `RawRegions`, and `Regions` are intentionally separate:
 
-- `RawRegions` are produced by the region generation stage.
+- `RegionDraft` is acquired from automatic generation or one externally supplied draft source.
+- `RawRegions` are produced only by canonicalizing that draft.
 - `Regions` are final regions after post-processing, currently boundary distortion.
 
 This separation allows users to keep region generation and replace or disable later region post-processing without regenerating the raw region layout.
@@ -75,6 +77,7 @@ ExtractLandmassesStage
  -> GenerateClimateStage
  -> AssembleTectonicPlateMapStage
  -> GenerateRegionsStage
+ -> CanonicalizeRegionDraftStage
  -> DistortRegionBoundariesStage
 ```
 
@@ -149,6 +152,10 @@ AssembleTectonicPlateMapStage
 
 GenerateRegionsStage
   requires: Landmasses
+  produces: RegionDraft
+
+CanonicalizeRegionDraftStage
+  requires: Landmasses, RegionDraft
   produces: RawRegions
 
 DistortRegionBoundariesStage
@@ -222,7 +229,7 @@ session.RunUntil(MapDataKeys.Regions);
 This ensures:
 
 ```text
-Mask -> Landmasses -> RawRegions -> Regions
+Mask -> Landmasses -> RegionDraft -> RawRegions -> Regions
 ```
 
 `WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.OrogenProvinces)`, `RunUntil(MapDataKeys.RiftProvinces)`, `RunUntil(MapDataKeys.TectonicFeatures)`, `RunUntil(MapDataKeys.BaseTerrain)`, `RunUntil(MapDataKeys.Elevation)`, `RunUntil(MapDataKeys.WaterSurfaces)`, `RunUntil(MapDataKeys.Hydrology)`, `RunUntil(MapDataKeys.Climate)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
@@ -292,6 +299,7 @@ Or build a pipeline manually:
 var pipeline = new MapGenerationPipelineBuilder()
     .AddStage(new ExtractLandmassesStage())
     .AddStage(new GenerateRegionsStage())
+    .AddStage(new CanonicalizeRegionDraftStage())
     .AddStage(new DistortRegionBoundariesStage())
     .AddStage(new RasterizeRegionsStage())
     .Build();
@@ -314,11 +322,11 @@ public sealed class MyRegionGenerationStage : IMapGenerationStage
         new HashSet<MapDataKey> { MapDataKeys.Landmasses };
 
     public IReadOnlySet<MapDataKey> Produces { get; } =
-        new HashSet<MapDataKey> { MapDataKeys.RawRegions };
+        new HashSet<MapDataKey> { MapDataKeys.RegionDraft };
 
     public void Execute(MapGenerationContext context)
     {
-        // Fill context.RawRegions.
+        // Set context.RegionDraft. CanonicalizeRegionDraftStage remains the only RawRegions producer.
     }
 }
 ```

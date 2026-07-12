@@ -41,7 +41,8 @@ public sealed record MapGenerationArtifactPaths(
     string? ClimateJson,
     string? RegionsBin,
     string? RegionsSummaryJson,
-    string SummaryJson);
+    string SummaryJson,
+    string? RegionDraftGeoJson = null);
 
 public sealed record MapGenerationRunSummary(
     DateTimeOffset GeneratedAtUtc,

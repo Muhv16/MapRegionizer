@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Regions;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation;
@@ -28,6 +29,9 @@ public sealed class MapGenerationContext
     public List<WaterBody> WaterBodies { get; } = [];
     public WaterBodyTopology? WaterBodyTopology { get; set; }
     public List<MapRegion> RawRegions { get; } = [];
+    public RegionDraft? RegionDraft { get; set; }
+    public RegionDraft? ExternalRegionDraft { get; private set; }
+    public IReadOnlyList<RegionDiagnostic> RegionDiagnostics { get; set; } = [];
     public List<MapRegion> Regions { get; } = [];
     public TectonicHistory? TectonicHistory { get; set; }
     public CrustFieldMap? CrustFields { get; set; }
@@ -48,6 +52,8 @@ public sealed class MapGenerationContext
     public IReadOnlySet<MapDataKey> DirtyData => _dirtyData;
 
     public RegionId CreateRegionId() => new(_nextRegionId++);
+
+    public void SetExternalRegionDraft(RegionDraft? draft) => ExternalRegionDraft = draft;
 
     public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology, Climate, RegionRaster);
 
@@ -88,6 +94,11 @@ public sealed class MapGenerationContext
         else if (key == MapDataKeys.RawRegions)
         {
             RawRegions.Clear();
+        }
+        else if (key == MapDataKeys.RegionDraft)
+        {
+            RegionDraft = null;
+            RegionDiagnostics = [];
             _nextRegionId = 1;
         }
         else if (key == MapDataKeys.Regions)

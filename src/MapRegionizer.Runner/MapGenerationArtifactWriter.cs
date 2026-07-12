@@ -37,9 +37,15 @@ public static class MapGenerationArtifactWriter
         WriteArtifacts(map, artifacts, outputDirectory, tectonicJsonMode, elevationJsonMode, climateJsonMode, renderOptions);
 
         var summary = BuildSummary(map, artifacts, Path.GetFullPath(maskPath), outputDirectory, options, tectonicJsonMode, elevationJsonMode, climateJsonMode);
-        File.WriteAllText(artifacts.SummaryJson, JsonSerializer.Serialize(summary, SummaryJsonOptions));
+        WriteSummary(summary);
 
         return new MapGenerationRunResult(map, artifacts, summary);
+    }
+
+    public static void WriteSummary(MapGenerationRunSummary summary)
+    {
+        ArgumentNullException.ThrowIfNull(summary);
+        File.WriteAllText(summary.Artifacts.SummaryJson, JsonSerializer.Serialize(summary, SummaryJsonOptions));
     }
 
     public static MapGenerationArtifactPaths BuildArtifactPaths(string outputDirectory, GeneratedMap map)

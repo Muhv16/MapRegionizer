@@ -129,6 +129,9 @@ public sealed class MapGenerationRunOptions
     public ClimateJsonExportMode ClimateJsonMode { get; set; } = ClimateJsonExportMode.Summary;
     public bool Debug { get; set; }
     public bool RasterizeRegions { get; set; }
+    public string? RegionDraftPath { get; set; }
+    public string? RegionDraftOutputPath { get; set; }
+    public bool? RegionDraftDistortionEnabled { get; set; }
 
     public MapGenerationOptions ToGenerationOptions()
     {
@@ -288,6 +291,9 @@ public sealed class MapGenerationRunOptions
             GenerationOptions = ToGenerationOptions(),
             Debug = Debug,
             RasterizeRegions = RasterizeRegions,
+            RegionDraftPath = RegionDraftPath,
+            RegionDraftOutputPath = RegionDraftOutputPath,
+            RegionDraftDistortionEnabled = RegionDraftDistortionEnabled,
             TectonicJsonMode = TectonicJsonMode,
             ElevationJsonMode = ElevationJsonMode,
             ClimateJsonMode = ClimateJsonMode

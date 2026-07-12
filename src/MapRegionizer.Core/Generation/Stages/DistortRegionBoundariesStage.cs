@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Boundaries;
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Regions;
 
 namespace MapRegionizer.Core.Generation.Stages;
 
@@ -11,9 +12,12 @@ public sealed class DistortRegionBoundariesStage : IMapGenerationStage
 
     public void Execute(MapGenerationContext context)
     {
+        RegionGeometryContract.EnsureSatisfied(context.Landmasses, context.RawRegions, "RawRegions before boundary distortion");
+
         if (!context.Options.Boundaries.Enabled || context.RawRegions.Count <= 1)
         {
             context.Regions.AddRange(context.RawRegions);
+            RegionGeometryContract.EnsureSatisfied(context.Landmasses, context.Regions, "Regions after boundary distortion");
             return;
         }
 
@@ -30,9 +34,37 @@ public sealed class DistortRegionBoundariesStage : IMapGenerationStage
             }
 
             var distorted = distorter.Distort(landmassRegions.Select(r => r.Shape).ToList(), landmass.Shape, context.Options.Boundaries);
-            updatedRegions.AddRange(landmassRegions.Zip(distorted, (region, shape) => region with { Shape = shape }));
+            var candidate = landmassRegions.Zip(distorted, (region, shape) => region with { Shape = shape }).ToList();
+            var violations = ValidateCandidate(landmass, candidate);
+            if (violations.Count != 0)
+            {
+                updatedRegions.AddRange(landmassRegions);
+                context.RegionDiagnostics = context.RegionDiagnostics.Concat([
+                    new RegionDiagnostic(
+                        "distortion-reverted",
+                        RegionDiagnosticSeverity.Warning,
+                        $"Boundary distortion was reverted for landmass {landmass.Id.Value}: {string.Join(" ", violations)}",
+                        LandmassId: landmass.Id)
+                ]).ToList();
+                continue;
+            }
+
+            updatedRegions.AddRange(candidate);
         }
 
         context.Regions.AddRange(updatedRegions);
+        RegionGeometryContract.EnsureSatisfied(context.Landmasses, context.Regions, "Regions after boundary distortion");
+    }
+
+    private static IReadOnlyList<string> ValidateCandidate(Landmass landmass, IReadOnlyList<MapRegion> candidate)
+    {
+        try
+        {
+            return RegionGeometryContract.Validate([landmass], candidate);
+        }
+        catch (Exception exception) when (exception is NetTopologySuite.Geometries.TopologyException or ArgumentException)
+        {
+            return [$"Distortion produced non-noded or otherwise invalid topology: {exception.Message}"];
+        }
     }
 }

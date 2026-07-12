@@ -1,4 +1,8 @@
 using MapRegionizer.Core.Generation;
+using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Regions;
+using MapRegionizer.GeoJson;
 using MapRegionizer.ImageSharp;
 
 namespace MapRegionizer.Runner;
@@ -20,61 +24,146 @@ public sealed class MapGenerationRunner
         var outputDirectory = Path.GetFullPath(options.OutputDirectory);
         Directory.CreateDirectory(outputDirectory);
 
-        if (options.Debug)
-            return RunWithDiagnostics(options, maskPath, outputDirectory);
-
         var mask = ImageMaskReader.Read(maskPath);
-        var map = CreateGenerator(options).Generate(mask, options.GenerationOptions);
-        return MapGenerationArtifactWriter.Write(
-            map,
+        var importedDocument = options.RegionDraftPath is null ? null : RegionDraftGeoJson.ReadFromFile(options.RegionDraftPath);
+        var generationOptions = WithRegionDistortion(
+            options.GenerationOptions,
+            options.RegionDraftDistortionEnabled ?? importedDocument?.ApplyBoundaryDistortion);
+        if (options.Debug)
+            return RunWithDiagnostics(options, generationOptions, importedDocument, mask, maskPath, outputDirectory);
+
+        var session = Generate(mask, generationOptions, options.RasterizeRegions, importedDocument);
+        return WriteResults(
+            session,
             maskPath,
             outputDirectory,
-            options.GenerationOptions,
-            options.TectonicJsonMode,
-            options.ElevationJsonMode,
-            options.ClimateJsonMode);
+            generationOptions,
+            options,
+            importedDocument,
+            mask);
     }
 
     private static MapGenerationRunResult RunWithDiagnostics(
         MapGenerationRequestOptions options,
+        MapGenerationOptions generationOptions,
+        RegionDraftDocument? importedDocument,
+        MapMask mask,
         string maskPath,
         string outputDirectory)
     {
         var baseline = MemorySnapshot.Capture();
         WriteMemLine("baseline", baseline, baseline);
 
-        var afterMask = MemorySnapshot.Capture();
-        var mask = ImageMaskReader.Read(maskPath);
-        WriteMemLine("load mask", afterMask, MemorySnapshot.Capture());
-
         var afterGen = MemorySnapshot.Capture();
-        var map = CreateGenerator(options).Generate(mask, options.GenerationOptions);
+        var session = Generate(mask, generationOptions, options.RasterizeRegions, importedDocument);
         WriteMemLine("generation", afterGen, MemorySnapshot.Capture());
 
         var afterArtifacts = MemorySnapshot.Capture();
-        var result = MapGenerationArtifactWriter.Write(
-            map,
+        var result = WriteResults(
+            session,
             maskPath,
             outputDirectory,
-            options.GenerationOptions,
-            options.TectonicJsonMode,
-            options.ElevationJsonMode,
-            options.ClimateJsonMode);
+            generationOptions,
+            options,
+            importedDocument,
+            mask);
         WriteMemLine("artifacts", afterArtifacts, MemorySnapshot.Capture());
 
         return result;
     }
 
-    private static MapGenerator CreateGenerator(MapGenerationRequestOptions options)
+    private static MapGenerationSession Generate(
+        MapMask mask,
+        MapGenerationOptions options,
+        bool rasterizeRegions,
+        RegionDraftDocument? importedDocument)
     {
-        if (!options.RasterizeRegions)
-            return new MapGenerator();
+        var builder = MapGenerationPipelineBuilder.CreateDefault();
+        if (rasterizeRegions)
+            builder.AddRegionRasterization();
+        var session = MapGenerationSession.Create(mask, options, builder.Build());
+        if (importedDocument is not null)
+        {
+            session.RunUntil(MapDataKeys.Landmasses);
+            RegionDraftCompatibility.EnsureCompatible(importedDocument, mask, options, session.Landmasses);
+            session.SetRegionDraft(importedDocument.Draft);
+        }
+        session.RunFull();
+        return session;
+    }
 
-        var pipeline = MapGenerationPipelineBuilder.CreateDefault()
-            .AddRegionRasterization()
-            .Build();
+    private static MapGenerationRunResult WriteResults(
+        MapGenerationSession session,
+        string maskPath,
+        string outputDirectory,
+        MapGenerationOptions generationOptions,
+        MapGenerationRequestOptions requestOptions,
+        RegionDraftDocument? importedDocument,
+        MapMask mask)
+    {
+        var result = MapGenerationArtifactWriter.Write(
+            session.CurrentMap,
+            maskPath,
+            outputDirectory,
+            generationOptions,
+            requestOptions.TectonicJsonMode,
+            requestOptions.ElevationJsonMode,
+            requestOptions.ClimateJsonMode);
+        if (string.IsNullOrWhiteSpace(requestOptions.RegionDraftOutputPath))
+            return result;
 
-        return new MapGenerator(pipeline);
+        var draftPath = Path.GetFullPath(requestOptions.RegionDraftOutputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(draftPath)!);
+        var document = RegionDraftCompatibility.CreateDocument(
+            mask,
+            generationOptions,
+            session.Landmasses,
+            CreateExportDraft(session.RawRegions, importedDocument),
+            generationOptions.Boundaries.Enabled);
+        RegionDraftGeoJson.WriteToFile(document, draftPath);
+        var artifacts = result.Artifacts with { RegionDraftGeoJson = draftPath };
+        var summary = result.Summary with { Artifacts = artifacts };
+        MapGenerationArtifactWriter.WriteSummary(summary);
+        return result with { Artifacts = artifacts, Summary = summary };
+    }
+
+    private static RegionDraft CreateExportDraft(IReadOnlyList<MapRegionizer.Core.Domain.MapRegion> regions, RegionDraftDocument? importedDocument)
+    {
+        var imported = importedDocument?.Draft.Regions.Where(region => region.Id.HasValue)
+            .ToDictionary(region => region.Id!.Value) ?? [];
+        return new RegionDraft(regions.Select(region =>
+        {
+            if (imported.TryGetValue(region.Id, out var existing))
+                return existing with { Id = region.Id, LandmassId = region.LandmassId, Shape = region.Shape.Copy() };
+            return new RegionDraftRegion(region.Id, region.LandmassId, region.Shape.Copy(), RegionDraftOrigin.Generated);
+        }).ToList());
+    }
+
+    private static MapGenerationOptions WithRegionDistortion(MapGenerationOptions options, bool? enabled)
+    {
+        if (!enabled.HasValue || options.Boundaries.Enabled == enabled.Value)
+            return options;
+        return new MapGenerationOptions
+        {
+            PixelSize = options.PixelSize,
+            Seed = options.Seed,
+            Debug = options.Debug,
+            ShapeExtraction = options.ShapeExtraction,
+            WaterBodies = options.WaterBodies,
+            Regions = options.Regions,
+            ProjectionMode = options.ProjectionMode,
+            TectonicPlates = options.TectonicPlates,
+            Elevation = options.Elevation,
+            Hydrology = options.Hydrology,
+            Climate = options.Climate,
+            Boundaries = new BoundaryDistortionOptions
+            {
+                Enabled = enabled.Value,
+                Detail = options.Boundaries.Detail,
+                MaxOffset = options.Boundaries.MaxOffset,
+                MinLineLengthToCurve = options.Boundaries.MinLineLengthToCurve
+            }
+        };
     }
 
     private static void WriteMemLine(string label, MemorySnapshot before, MemorySnapshot after)
@@ -94,6 +183,8 @@ public sealed class MapGenerationRunner
         if (string.IsNullOrWhiteSpace(options.OutputDirectory))
             throw new ArgumentException("Output directory is required.", nameof(options));
 
+        if (!string.IsNullOrWhiteSpace(options.RegionDraftPath) && !File.Exists(options.RegionDraftPath))
+            throw new FileNotFoundException("Region draft file was not found.", options.RegionDraftPath);
         options.GenerationOptions.Validate();
     }
 }

@@ -26,6 +26,7 @@ public sealed class MapGenerationPipelineBuilder
             .AddStage(new GenerateClimateStage())
             .AddStage(new AssembleTectonicPlateMapStage())
             .AddStage(new GenerateRegionsStage())
+            .AddStage(new CanonicalizeRegionDraftStage())
             .AddStage(new DistortRegionBoundariesStage());
     }
 

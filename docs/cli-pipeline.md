@@ -29,6 +29,7 @@ elevation-mountain.png
 elevation-basin.png
 elevation-rivers.png
 regions.geojson
+region-draft.geojson (when requested)
 landmasses.geojson
 water-bodies.geojson
 tectonic-plates.json
@@ -39,6 +40,27 @@ summary.json
 ```
 
 `lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `rivers.json` records river summaries, visible river segments, lake outlets, mouths, and drainage basins. `summary.json` records the input mask, generation options, output paths, entity counts, elevation range, and river statistics. Prefer setting `--seed` for agent checks so repeated runs are comparable.
+
+## Editable region drafts
+
+Export the generated canonical layout to the versioned editable format:
+
+```powershell
+dotnet run --project src\MapRegionizer.Cli -- generate `
+  --mask samples\mask\small-continent.png --out artifacts\draft-export `
+  --seed 42 --write-region-draft artifacts\draft-export\region-draft.geojson
+```
+
+Import it in a compatible session. The draft's stored distortion setting is used unless overridden explicitly:
+
+```powershell
+dotnet run --project src\MapRegionizer.Cli -- generate `
+  --mask samples\mask\small-continent.png --out artifacts\draft-import `
+  --seed 42 --region-draft artifacts\draft-export\region-draft.geojson `
+  --region-distortion false
+```
+
+Import checks schema version, projection, bounds and pixel size, mask fingerprint, and landmass fingerprint before applying the draft. `regions.geojson` remains the final compatibility export; `region-draft.geojson` is for saving and re-editing.
 
 ## Verification
 

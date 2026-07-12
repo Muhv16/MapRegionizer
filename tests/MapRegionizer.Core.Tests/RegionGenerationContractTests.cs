@@ -3,6 +3,7 @@ using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
+using MapRegionizer.GeoJson;
 using NetTopologySuite.Geometries;
 using Xunit;
 
@@ -56,6 +57,118 @@ public sealed class RegionGenerationContractTests
         Assert.False(RegionGeometryContract.ShareBoundary(first, vertexNeighbor));
     }
 
+    [Fact]
+    public void ManualDraftIsCanonicalizedAndInvalidatesOnlyTheRegionBranch()
+    {
+        var pipeline = MapGenerationPipelineBuilder.CreateDefault().AddRegionRasterization().Build();
+        var session = MapGenerationSession.Create(CreateMask(), CreateOptions(distortionEnabled: false), pipeline);
+        session.RunUntil(MapDataKeys.RegionRaster);
+        var originalDraft = RegionDraft.FromRegions(session.RawRegions);
+
+        session.SetRegionDraft(originalDraft);
+
+        Assert.True(session.IsDirty(MapDataKeys.RawRegions));
+        Assert.True(session.IsDirty(MapDataKeys.Regions));
+        Assert.True(session.IsDirty(MapDataKeys.RegionRaster));
+        Assert.False(session.IsDirty(MapDataKeys.Climate));
+
+        session.RunUntil(MapDataKeys.Regions);
+        Assert.Equal(originalDraft.Regions.Select(region => region.Id), session.RawRegions.Select(region => (RegionId?)region.Id));
+        Assert.Empty(RegionGeometryContract.Validate(session.Landmasses, session.RawRegions));
+        Assert.DoesNotContain(session.RegionDiagnostics, diagnostic => diagnostic.Severity == RegionDiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void CanonicalizerAssignsStableIdsAndRejectsSubstantialGaps()
+    {
+        var factory = new GeometryFactory();
+        var landmass = new Landmass(new LandmassId(1), Square(factory, 0, 0, 2, 1));
+        var validDraft = new RegionDraft([
+            new RegionDraftRegion(null, landmass.Id, Square(factory, 0, 0, 1, 1)),
+            new RegionDraftRegion(null, landmass.Id, Square(factory, 1, 0, 1, 1))
+        ]);
+
+        var canonicalizer = new RegionCoverageCanonicalizer();
+        var valid = canonicalizer.Canonicalize([landmass], validDraft);
+        Assert.True(valid.IsSuccessful);
+        Assert.Equal([1, 2], valid.Regions.Select(region => region.Id.Value));
+
+        var gapDraft = validDraft with { Regions = [validDraft.Regions[0]] };
+        var invalid = canonicalizer.Canonicalize([landmass], gapDraft);
+        Assert.False(invalid.IsSuccessful);
+        Assert.Contains(invalid.Diagnostics, diagnostic => diagnostic.Code == "coverage-topology" && diagnostic.Message.Contains("uncovered area"));
+    }
+
+    [Fact]
+    public void CanonicalizerNodesASharedBoundaryWithDifferentVertexCounts()
+    {
+        var factory = new GeometryFactory();
+        var landmass = new Landmass(new LandmassId(1), Square(factory, 0, 0, 2, 1));
+        var draft = new RegionDraft([
+            new RegionDraftRegion(new RegionId(1), landmass.Id, Square(factory, 0, 0, 1, 1)),
+            new RegionDraftRegion(new RegionId(2), landmass.Id, factory.CreatePolygon([
+                new Coordinate(1, 0), new Coordinate(2, 0), new Coordinate(2, 1),
+                new Coordinate(1, 1), new Coordinate(1, .5), new Coordinate(1, 0)
+            ]))
+        ]);
+
+        var result = new RegionCoverageCanonicalizer().Canonicalize([landmass], draft);
+
+        Assert.True(result.IsSuccessful);
+        Assert.Empty(RegionGeometryContract.Validate([landmass], result.Regions));
+        Assert.Contains(result.Regions.Single(region => region.Id.Value == 1).Shape.Coordinates,
+            coordinate => RegionGeometryPrecision.IsEquivalent(coordinate, new Coordinate(1, .5)));
+    }
+
+    [Fact]
+    public void PortableDraftGeoJsonRoundTripsAndRejectsAnIncompatibleMask()
+    {
+        var factory = new GeometryFactory();
+        var mask = new MapMask(2, 1, new HashSet<GridPoint> { new(0, 0), new(1, 0) });
+        var options = new MapGenerationOptions { ProjectionMode = MapProjectionMode.Flat };
+        var landmass = new Landmass(new LandmassId(1), Square(factory, 0, 0, 2, 1));
+        var draft = new RegionDraft([
+            new RegionDraftRegion(new RegionId(7), landmass.Id, Square(factory, 0, 0, 1, 1), RegionDraftOrigin.Manual, "West", new Dictionary<string, string> { ["culture"] = "A" }),
+            new RegionDraftRegion(new RegionId(8), landmass.Id, Square(factory, 1, 0, 1, 1), RegionDraftOrigin.GeneratedAndEdited)
+        ]);
+        var document = RegionDraftCompatibility.CreateDocument(mask, options, [landmass], draft, applyBoundaryDistortion: false);
+
+        var reloaded = RegionDraftGeoJson.Read(RegionDraftGeoJson.Write(document));
+
+        Assert.Equal(RegionDraftDocument.CurrentSchemaVersion, reloaded.SchemaVersion);
+        Assert.False(reloaded.ApplyBoundaryDistortion);
+        Assert.Equal("West", reloaded.Draft.Regions[0].Name);
+        Assert.Equal("A", reloaded.Draft.Regions[0].Metadata!["culture"]);
+        Assert.Equal(RegionDraftOrigin.GeneratedAndEdited, reloaded.Draft.Regions[1].Origin);
+        RegionDraftCompatibility.EnsureCompatible(reloaded, mask, options, [landmass]);
+
+        var incompatibleMask = mask with { LandPoints = new HashSet<GridPoint> { new(0, 0) } };
+        Assert.Throws<InvalidOperationException>(() => RegionDraftCompatibility.EnsureCompatible(reloaded, incompatibleMask, options, [landmass]));
+    }
+
+    [Fact]
+    public void TopologyMovesAnInteriorVertexForEveryIncidentFaceAndProtectsCoast()
+    {
+        var factory = new GeometryFactory();
+        var landmass = new Landmass(new LandmassId(1), Square(factory, 0, 0, 2, 2));
+        var regions = new[]
+        {
+            new MapRegion(new RegionId(1), landmass.Id, Square(factory, 0, 0, 1, 1)),
+            new MapRegion(new RegionId(2), landmass.Id, Square(factory, 1, 0, 1, 1)),
+            new MapRegion(new RegionId(3), landmass.Id, Square(factory, 0, 1, 1, 1)),
+            new MapRegion(new RegionId(4), landmass.Id, Square(factory, 1, 1, 1, 1))
+        };
+        var topology = RegionTopology.Create([landmass], regions);
+        var interior = Assert.Single(topology.Vertices, vertex => !vertex.IsCoastal);
+        var coast = topology.Vertices.First(vertex => vertex.IsCoastal);
+
+        Assert.True(topology.TryMoveVertex(interior.Id, new MapPoint(1.1, 1.1), out var movedDraft, out _));
+        Assert.NotNull(movedDraft);
+        Assert.True(new RegionCoverageCanonicalizer().Canonicalize([landmass], movedDraft!).IsSuccessful);
+        Assert.False(topology.TryMoveVertex(coast.Id, new MapPoint(0.2, 0.2), out _, out var diagnostic));
+        Assert.Equal("protected-coast", diagnostic!.Code);
+    }
+
     private static MapGenerationSession Generate(MapMask mask, MapGenerationOptions options)
     {
         var session = MapGenerationSession.Create(mask, options);
@@ -104,13 +217,15 @@ public sealed class RegionGenerationContractTests
         return new MapMask(70, 50, land);
     }
 
-    private static Polygon Square(GeometryFactory factory, double x, double y)
+    private static Polygon Square(GeometryFactory factory, double x, double y) => Square(factory, x, y, 1, 1);
+
+    private static Polygon Square(GeometryFactory factory, double x, double y, double width, double height)
     {
         return factory.CreatePolygon([
             new Coordinate(x, y),
-            new Coordinate(x + 1, y),
-            new Coordinate(x + 1, y + 1),
-            new Coordinate(x, y + 1),
+            new Coordinate(x + width, y),
+            new Coordinate(x + width, y + height),
+            new Coordinate(x, y + height),
             new Coordinate(x, y)
         ]);
     }

@@ -227,6 +227,15 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "region-raster":
                 options.RasterizeRegions = ParseBool(value, name);
                 break;
+            case "region-draft":
+                options.RegionDraftPath = value;
+                break;
+            case "write-region-draft":
+                options.RegionDraftOutputPath = value;
+                break;
+            case "region-distortion":
+                options.RegionDraftDistortionEnabled = ParseBool(value, name);
+                break;
             default:
                 throw new ArgumentException($"Unknown option: {name}");
         }
@@ -403,5 +412,8 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --elevation-json-mode <mode>     Summary, Diagnostic.");
     Console.WriteLine("  --climate-json-mode <mode>       Summary, Diagnostic.");
     Console.WriteLine("  --rasterize-regions [bool]       Export final region ids as regions.bin and regions.summary.json. Default: false.");
+    Console.WriteLine("  --region-draft <geojson>         Import a compatible editable region draft.");
+    Console.WriteLine("  --write-region-draft <geojson>   Export canonical raw regions as an editable draft.");
+    Console.WriteLine("  --region-distortion <bool>       Override the draft's boundary-distortion setting.");
     Console.WriteLine("  --debug                          Print memory diagnostics per stage.");
 }

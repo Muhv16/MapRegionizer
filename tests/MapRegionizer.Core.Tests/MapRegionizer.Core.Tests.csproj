@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MapRegionizer.Core\MapRegionizer.Core.csproj" />
+    <ProjectReference Include="..\..\src\MapRegionizer.GeoJson\MapRegionizer.GeoJson.csproj" />
   </ItemGroup>
 
 </Project>
