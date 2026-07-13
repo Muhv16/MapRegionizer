@@ -52,6 +52,22 @@ public sealed class RegionTopology
         if (violations.Count != 0)
             throw new ArgumentException($"A topology requires a canonical coverage: {string.Join(" ", violations)}", nameof(regions));
 
+        return CreateVerifiedCoverage(regions);
+    }
+
+    /// <summary>
+    /// Creates editor topology from a coverage that has just passed
+    /// <see cref="RegionCoverageCanonicalizer"/>. It avoids a second complete
+    /// coverage validation, which is costly for detailed manually edited borders.
+    /// </summary>
+    public static RegionTopology CreateFromVerifiedCoverage(IReadOnlyList<MapRegion> regions)
+    {
+        ArgumentNullException.ThrowIfNull(regions);
+        return CreateVerifiedCoverage(regions);
+    }
+
+    private static RegionTopology CreateVerifiedCoverage(IReadOnlyList<MapRegion> regions)
+    {
         var verticesByKey = new Dictionary<string, RegionTopologyVertex>(StringComparer.Ordinal);
         var edgeFaces = new Dictionary<string, List<RegionId>>(StringComparer.Ordinal);
         var edgeEndpoints = new Dictionary<string, (string Start, string End)>();
@@ -140,12 +156,117 @@ public sealed class RegionTopology
 
     public RegionDraft ToDraft() => RegionDraft.FromRegions(_regions);
 
+    public bool TryInsertVertex(int edgeId, MapPoint position, out RegionDraft? draft, out RegionDiagnostic? diagnostic)
+    {
+        var edge = Edges.SingleOrDefault(candidate => candidate.Id == edgeId);
+        if (edge is null || edge.IsCoastal)
+        {
+            draft = null;
+            diagnostic = new RegionDiagnostic("protected-coast", RegionDiagnosticSeverity.Error, "Coastal edges cannot be edited.");
+            return false;
+        }
+
+        var start = Vertices.Single(vertex => vertex.Id == edge.StartVertexId).Position;
+        var end = Vertices.Single(vertex => vertex.Id == edge.EndVertexId).Position;
+        var segment = new LineSegment(new Coordinate(start.X, start.Y), new Coordinate(end.X, end.Y));
+        if (!IsStrictlyOnSegment(segment, new Coordinate(position.X, position.Y)))
+        {
+            draft = null;
+            diagnostic = new RegionDiagnostic("vertex-not-on-edge", RegionDiagnosticSeverity.Error, "The new vertex must lie on the selected shared edge.");
+            return false;
+        }
+
+        draft = new RegionDraft(_regions.Select(region => new RegionDraftRegion(
+            region.Id, region.LandmassId, InsertVertex(region.Shape, segment, position), RegionDraftOrigin.GeneratedAndEdited)).ToList());
+        diagnostic = null;
+        return true;
+    }
+
+    public bool TryDeleteVertex(RegionTopologyVertexId vertexId, out RegionDraft? draft, out RegionDiagnostic? diagnostic)
+    {
+        var vertex = Vertices.SingleOrDefault(candidate => candidate.Id == vertexId);
+        var incident = Edges.Where(edge => edge.StartVertexId == vertexId || edge.EndVertexId == vertexId).ToList();
+        if (vertex is null || vertex.IsCoastal || incident.Count != 2 || !incident[0].FaceIds.SequenceEqual(incident[1].FaceIds))
+        {
+            draft = null;
+            diagnostic = new RegionDiagnostic("vertex-not-removable", RegionDiagnosticSeverity.Error, "Only a degree-two internal shared-edge vertex can be removed.");
+            return false;
+        }
+
+        var firstOther = incident[0].StartVertexId == vertexId ? incident[0].EndVertexId : incident[0].StartVertexId;
+        var secondOther = incident[1].StartVertexId == vertexId ? incident[1].EndVertexId : incident[1].StartVertexId;
+        var first = Vertices.Single(candidate => candidate.Id == firstOther).Position;
+        var second = Vertices.Single(candidate => candidate.Id == secondOther).Position;
+        if (new LineSegment(new Coordinate(first.X, first.Y), new Coordinate(second.X, second.Y)).Distance(new Coordinate(vertex.Position.X, vertex.Position.Y)) > RegionGeometryPrecision.LengthTolerance)
+        {
+            draft = null;
+            diagnostic = new RegionDiagnostic("vertex-not-collinear", RegionDiagnosticSeverity.Error, "Removing this vertex would alter a boundary; move it or keep it instead.");
+            return false;
+        }
+
+        var key = RegionGeometryPrecision.GetCoordinateKey(new Coordinate(vertex.Position.X, vertex.Position.Y));
+        draft = new RegionDraft(_regions.Select(region => new RegionDraftRegion(region.Id, region.LandmassId, RemoveVertex(region.Shape, key), RegionDraftOrigin.GeneratedAndEdited)).ToList());
+        diagnostic = null;
+        return true;
+    }
+
     private static Polygon Move(Polygon polygon, string oldKey, MapPoint position)
     {
         var shell = MoveRing(polygon.ExteriorRing, oldKey, position, polygon.Factory);
         var holes = Enumerable.Range(0, polygon.NumInteriorRings)
             .Select(index => MoveRing(polygon.GetInteriorRingN(index), oldKey, position, polygon.Factory)).ToArray();
         return polygon.Factory.CreatePolygon(shell, holes);
+    }
+
+    private static Polygon InsertVertex(Polygon polygon, LineSegment target, MapPoint position)
+    {
+        var shell = InsertVertex(polygon.ExteriorRing, target, position, polygon.Factory);
+        var holes = Enumerable.Range(0, polygon.NumInteriorRings)
+            .Select(index => InsertVertex(polygon.GetInteriorRingN(index), target, position, polygon.Factory)).ToArray();
+        return polygon.Factory.CreatePolygon(shell, holes);
+    }
+
+    private static Polygon RemoveVertex(Polygon polygon, string key)
+    {
+        var shell = RemoveVertex(polygon.ExteriorRing, key, polygon.Factory);
+        var holes = Enumerable.Range(0, polygon.NumInteriorRings).Select(index => RemoveVertex(polygon.GetInteriorRingN(index), key, polygon.Factory)).ToArray();
+        return polygon.Factory.CreatePolygon(shell, holes);
+    }
+
+    private static LinearRing RemoveVertex(LineString ring, string key, GeometryFactory factory)
+    {
+        var coordinates = ring.Coordinates.Take(ring.NumPoints - 1)
+            .Where(coordinate => RegionGeometryPrecision.GetCoordinateKey(coordinate) != key).Select(coordinate => coordinate.Copy()).ToList();
+        if (coordinates.Count < 3)
+            return factory.CreateLinearRing(ring.Coordinates);
+        coordinates.Add(coordinates[0].Copy());
+        return factory.CreateLinearRing(coordinates.ToArray());
+    }
+
+    private static LinearRing InsertVertex(LineString ring, LineSegment target, MapPoint position, GeometryFactory factory)
+    {
+        var coordinates = new List<Coordinate>();
+        for (var index = 0; index < ring.NumPoints - 1; index++)
+        {
+            var start = ring.GetCoordinateN(index);
+            var end = ring.GetCoordinateN(index + 1);
+            coordinates.Add(start.Copy());
+            if (IsSameUndirectedSegment(start, end, target) && IsStrictlyOnSegment(new LineSegment(start, end), new Coordinate(position.X, position.Y)))
+                coordinates.Add(new Coordinate(position.X, position.Y));
+        }
+        coordinates.Add(coordinates[0].Copy());
+        return factory.CreateLinearRing(coordinates.ToArray());
+    }
+
+    private static bool IsSameUndirectedSegment(Coordinate start, Coordinate end, LineSegment target) =>
+        (RegionGeometryPrecision.IsEquivalent(start, target.P0) && RegionGeometryPrecision.IsEquivalent(end, target.P1)) ||
+        (RegionGeometryPrecision.IsEquivalent(start, target.P1) && RegionGeometryPrecision.IsEquivalent(end, target.P0));
+
+    private static bool IsStrictlyOnSegment(LineSegment segment, Coordinate coordinate)
+    {
+        var projection = segment.ProjectionFactor(coordinate);
+        return projection > RegionGeometryPrecision.LengthTolerance && projection < 1 - RegionGeometryPrecision.LengthTolerance &&
+            segment.Distance(coordinate) <= RegionGeometryPrecision.LengthTolerance;
     }
 
     private static LinearRing MoveRing(LineString ring, string oldKey, MapPoint position, GeometryFactory factory)

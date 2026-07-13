@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+             x:Class="MapRegionizer.App.Views.BottomInspectorView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+    <Border Classes="panel" Padding="8">
+        <TabControl SelectedIndex="{Binding SelectedInspectorIndex}">
+            <TabItem Header="{Binding L[LayerProperties]}">
+                <Grid ColumnDefinitions="2*,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="18" RowSpacing="6" Margin="4">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding SelectedLayerName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding PreviewLegend}" TextWrapping="Wrap" Opacity="0.75"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="3">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Width="8" Height="8" Fill="{Binding SelectedLayerStatusBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedLayerStatusText}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding SelectedLayerDataKeyText}" Opacity="0.72"/>
+                        <TextBlock Text="{Binding CurrentPreviewSizeText}" Opacity="0.72"/>
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="{Binding L[ExportPreview]}" Command="{Binding ExportPreviewCommand}" IsEnabled="{Binding HasPreview}" MinWidth="132"/>
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="{Binding StatusMessage}" TextWrapping="Wrap" Opacity="0.85"/>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="{Binding L[Statistics]}">
+                <ScrollViewer Margin="4">
+                    <TextBlock Text="{Binding Statistics}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" Opacity="0.86"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="{Binding L[GenerationLog]}">
+                <ScrollViewer Margin="4">
+                    <StackPanel Spacing="3">
+                        <ItemsControl ItemsSource="{Binding GenerationLog}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="72,*" ColumnSpacing="8">
+                                        <TextBlock Text="{Binding TimeText}" FontFamily="Consolas" FontSize="12" Opacity="0.65"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Message}" TextWrapping="Wrap"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding L[NoGenerationLog]}" Opacity="0.6" IsVisible="{Binding !HasGenerationLog}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="{Binding L[Thumbnails]}">
+                <ListBox ItemsSource="{Binding PreviewLayers}" SelectedItem="{Binding SelectedPreviewLayer}" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Width="158" MinHeight="58" Margin="3" Padding="8" BorderThickness="1" BorderBrush="{Binding DataContext.SoftBorder, RelativeSource={RelativeSource AncestorType=UserControl}}" CornerRadius="6">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" MaxLines="2"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="5" Opacity="0.72">
+                                        <Ellipse Width="7" Height="7" Fill="#22C55E" IsVisible="{Binding IsAvailable}" VerticalAlignment="Center"/>
+                                        <Ellipse Width="7" Height="7" Fill="#64748B" IsVisible="{Binding !IsAvailable}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding RequiredKey}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </TabItem>
+        </TabControl>
+    </Border>
+</UserControl>

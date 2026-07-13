@@ -31,6 +31,8 @@ public sealed class MapGenerationSession
     }
 
     public GeneratedMap CurrentMap => _context.ToGeneratedMap();
+    public MapMask Mask => _context.Mask;
+    public MapGenerationOptions Options => _context.Options;
     public IReadOnlyList<Landmass> Landmasses => _context.Landmasses;
     public IReadOnlyList<WaterBody> WaterBodies => _context.WaterBodies;
     public WaterBodyTopology? WaterBodyTopology => _context.WaterBodyTopology;

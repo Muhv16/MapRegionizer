@@ -1,0 +1,79 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+             xmlns:views="clr-namespace:MapRegionizer.App.Views"
+             mc:Ignorable="d"
+             d:DesignWidth="1440"
+             d:DesignHeight="860"
+             x:Class="MapRegionizer.App.Views.MainView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+
+    <UserControl.Styles>
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="{Binding PanelBackground}"/>
+            <Setter Property="BorderBrush" Value="{Binding SoftBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="MinWidth" Value="132"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+        <Style Selector="Button.preset">
+            <Setter Property="MinHeight" Value="52"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.sectionTitle">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{Binding PrimaryText}"/>
+        </Style>
+        <Style Selector="TextBlock.navGroup">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{Binding SecondaryText}"/>
+            <Setter Property="Margin" Value="0,6,0,0"/>
+        </Style>
+        <Style Selector="NumericUpDown">
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid Background="{Binding AppBackground}" RowDefinitions="Auto,*,Auto" Margin="10" RowSpacing="10">
+        <views:ProjectToolbarView Grid.Row="0"/>
+
+        <Grid Grid.Row="1" ColumnDefinitions="190,430,*,330" ColumnSpacing="10">
+            <views:SettingsSidebarView Grid.Column="0"/>
+            <views:SettingsPanelView Grid.Column="1"/>
+
+            <Grid Grid.Column="2" RowDefinitions="*,210" RowSpacing="10">
+                <views:MapPreviewView Grid.Row="0"/>
+                <views:BottomInspectorView Grid.Row="1"/>
+            </Grid>
+
+            <views:LayerPanelView Grid.Column="3"/>
+        </Grid>
+
+        <Border Grid.Row="2" Classes="panel" Padding="10,7">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <TextBlock Text="{Binding StatusMessage}" Foreground="{Binding PrimaryText}" TextWrapping="Wrap"/>
+                <TextBlock Grid.Column="1" Text="{Binding ValidationMessage}" Foreground="#EF4444" IsVisible="{Binding HasValidationMessage}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

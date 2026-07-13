@@ -1,0 +1,60 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:MapRegionizer.App.Views"
+        xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+        x:Class="MapRegionizer.App.Views.RegionEditorWindow"
+        x:DataType="vm:RegionEditorViewModel"
+        x:CompileBindings="False"
+        Title="Редактор регионов" Width="1500" Height="960" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10">
+    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+      <ComboBox Width="135" SelectedItem="{Binding SelectedTool}" ItemsSource="{Binding Tools}"/>
+      <Button Grid.Column="1" Content="Undo" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}"/>
+      <Button Grid.Column="2" Content="Redo" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"/>
+      <Button Grid.Column="3" Content="Объединить" Command="{Binding MergeCommand}"/>
+      <Button Grid.Column="4" Content="Удалить регион" Command="{Binding DeleteRegionCommand}"/>
+      <CheckBox Grid.Column="6" Content="Применить distortion" IsChecked="{Binding ApplyBoundaryDistortion}" VerticalAlignment="Center"/>
+      <CheckBox Grid.Column="7" Content="Предпросмотр" IsChecked="{Binding ShowDistortionPreview}" VerticalAlignment="Center"/>
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="250,*,280" ColumnSpacing="10">
+      <Border BorderBrush="#475569" BorderThickness="1" Padding="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Регионы" FontWeight="Bold"/>
+          <ListBox ItemsSource="{Binding Regions}" SelectedItem="{Binding SelectedRegion}" Height="420">
+            <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock Text="Название"/>
+          <TextBox Text="{Binding SelectedRegionName, Mode=TwoWay}"/>
+          <TextBlock Text="Фон" FontWeight="Bold" Margin="0,12,0,0"/>
+          <CheckBox Content="Показывать" IsChecked="{Binding IsBackgroundVisible}"/>
+          <CheckBox Content="Заблокировать" IsChecked="{Binding IsBackgroundLocked}"/>
+          <TextBlock Text="Прозрачность"/><Slider Minimum="0" Maximum="1" Value="{Binding BackgroundOpacity}"/>
+          <TextBlock Text="Масштаб"/><NumericUpDown Minimum="0.1" Value="{Binding BackgroundScale}"/>
+          <TextBlock Text="Смещение X / Y"/><StackPanel Orientation="Horizontal" Spacing="4"><NumericUpDown Width="100" Value="{Binding BackgroundOffsetX}"/><NumericUpDown Width="100" Value="{Binding BackgroundOffsetY}"/></StackPanel>
+          <TextBlock Text="Поворот"/><NumericUpDown Value="{Binding BackgroundRotation}" Minimum="-180" Maximum="180"/>
+        </StackPanel>
+      </Border>
+      <views:RegionEditorCanvas Grid.Column="1"/>
+      <Border Grid.Column="2" BorderBrush="#475569" BorderThickness="1" Padding="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Диагностика" FontWeight="Bold"/>
+          <TextBox Text="{Binding Diagnostics}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" Height="360"/>
+          <TextBlock Text="Инструменты" FontWeight="Bold"/>
+          <TextBlock Text="Split: укажите направление двумя точками; линия сама пересечёт границу региона." TextWrapping="Wrap"/>
+          <TextBlock Text="Объединить: выберите исходный регион, нажмите кнопку и выберите второй регион." TextWrapping="Wrap"/>
+          <TextBlock Text="Move vertex: перетащите внутреннюю вершину в новое положение." TextWrapping="Wrap"/>
+          <TextBlock Text="Add vertex: щёлкните по внутренней общей границе." TextWrapping="Wrap"/>
+          <TextBlock Text="Delete vertex: удаляет только коллинеарную вершину общей границы." TextWrapping="Wrap"/>
+          <Button Content="Загрузить черновик" Click="LoadDraftClick"/>
+          <Button Content="Сохранить черновик" Click="SaveDraftClick"/>
+          <Button Content="Загрузить фон" Click="LoadBackgroundClick"/>
+          <Button Content="Вписать фон" Command="{Binding FitBackgroundCommand}"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Отмена" Click="CancelClick"/>
+      <Button Content="Применить к карте" Click="ApplyClick" Background="#2563EB" Foreground="White"/>
+    </StackPanel>
+  </Grid>
+</Window>

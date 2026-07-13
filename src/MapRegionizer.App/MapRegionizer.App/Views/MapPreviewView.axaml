@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+             x:Class="MapRegionizer.App.Views.MapPreviewView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+    <Border Background="{Binding CanvasBackground}" BorderBrush="{Binding SoftBorder}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+        <Grid>
+            <Image Source="{Binding CurrentPreview}" Stretch="Uniform"/>
+            <TextBlock Text="{Binding L[NoPreview]}"
+                       FontSize="20"
+                       Foreground="{Binding SecondaryText}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       IsVisible="{Binding !HasPreview}"/>
+            <Border HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Margin="10"
+                    Background="{Binding CanvasFooterBackground}"
+                    CornerRadius="4"
+                    Padding="8,5"
+                    IsVisible="{Binding HasPreview}">
+                <TextBlock Text="{Binding PreviewTitle}" Foreground="{Binding CanvasFooterText}" TextTrimming="CharacterEllipsis" MaxWidth="420"/>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

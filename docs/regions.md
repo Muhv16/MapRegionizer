@@ -57,6 +57,17 @@ Positive, unique IDs supplied by a draft are retained. Missing IDs are allocated
 
 Version `1.0` accepts imports only when schema version, projection mode, bounds/pixel size, logical source-mask fingerprint, and landmass-geometry fingerprint all match. A failed check stops the import before the draft is applied; transferring edits to a changed coastline is deliberately a later explicit operation.
 
+## Desktop editor
+
+The desktop App opens manual editing in a separate large `RegionEditorWindow`, keeping the main generation workspace available behind it. The editor operates on `RegionTopology`/`RegionDraft`, not independent neighbouring polygons. A split uses two points as a direction: the editor extends that line and derives the actual cut from its intersections with the selected region boundary, so neither click has to land on the boundary. After the first point, the provisional line follows the cursor. Merge is deliberately two-step: select the retained region, press **Merge**, then select its neighbouring target. The editor also provides face rename, shared-vertex move, shared-edge vertex insertion, delete-with-reassignment to the first deterministic neighbour, undo/redo, structured diagnostics, optional distortion preview, and independent draft save/load.
+
+There are two entry points in the Regions settings:
+
+- **Open region editor** starts from automatic canonical `RawRegions`; the user may choose whether the completed draft will be distorted.
+- **Edit visible result** starts from current final `Regions`, marks them `GeneratedAndEdited`, and forces distortion off, preventing a second pass over a user-confirmed outline.
+
+A background image is an editor-only visual layer. Its visibility, lock, opacity, scale, offset, and rotation are editor state and never alter the mask, landmasses, or portable draft document. Saving a draft also writes a `<draft>.editor.json` sidecar with these values and a relative background-image path when possible.
+
 ## Validation
 
 The Core test suite covers a deterministic map with a water hole and a separate island both before and after distortion. It verifies the full contract, deterministic ids/geometry for a fixed seed, the disabled-distortion path, and the point-touch adjacency rule.

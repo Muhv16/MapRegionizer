@@ -1,0 +1,511 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+             xmlns:views="clr-namespace:MapRegionizer.App.Views"
+             x:Class="MapRegionizer.App.Views.SettingsPanelView"
+             x:DataType="vm:MainViewModel"
+             x:CompileBindings="False">
+    <Border Classes="panel" Padding="12">
+        <ScrollViewer>
+            <StackPanel Spacing="10">
+                <TextBlock Text="{Binding SelectedSettingsSection.Title}" Classes="sectionTitle"/>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsInputOutputSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[Mask]}">
+                        <views:SettingsRow.Value>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <TextBox Text="{Binding MaskPath}" PlaceholderText="{Binding L[Mask]}" ToolTip.Tip="{Binding MaskPath}"/>
+                                <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseMaskCommand}" MinWidth="76"/>
+                            </Grid>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Output]}">
+                        <views:SettingsRow.Value>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <TextBox Text="{Binding OutputDirectory}" PlaceholderText="{Binding L[Output]}" ToolTip.Tip="{Binding OutputDirectory}"/>
+                                <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseOutputCommand}" MinWidth="76"/>
+                            </Grid>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Language]}">
+                        <views:SettingsRow.Value>
+                            <ComboBox ItemsSource="{Binding LanguageOptions}" SelectedItem="{Binding SelectedLanguage}"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Theme]}">
+                        <views:SettingsRow.Value>
+                            <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsGenerationSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[Seed]}" Tip="{Binding L[HelpSeed]}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="6">
+                                <TextBox Text="{Binding SeedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="{Binding L[Seed]}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="{Binding L[Randomize]}" Command="{Binding RandomizeSeedCommand}"/>
+                                    <Button Content="{Binding L[Copy]}" Command="{Binding CopySeedCommand}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Projection]}" Tip="{Binding L[HelpProjection]}">
+                        <views:SettingsRow.Value>
+                            <ComboBox ItemsSource="{Binding ProjectionModes}" SelectedItem="{Binding ProjectionMode}"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[PixelSize]}" Tip="{Binding L[HelpPixelSize]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding PixelSize}" Minimum="0.01" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[SimplifyTolerance]}" Tip="{Binding L[HelpSimplifyTolerance]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding SimplifyTolerance}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <Button Content="{Binding L[RunRegionsOnly]}" Command="{Binding RunRegionsOnlyCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsQualityProfileSectionSelected}">
+                    <UniformGrid Columns="2" Rows="2">
+                        <Button Classes="preset" Command="{Binding ApplyFastPresetCommand}" Margin="0,0,6,6">
+                            <TextBlock Text="{Binding L[FastPreview]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Button>
+                        <Button Classes="preset" Command="{Binding ApplyBalancedPresetCommand}" Margin="0,0,0,6">
+                            <TextBlock Text="{Binding L[Balanced]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Button>
+                        <Button Classes="preset" Command="{Binding ApplyDetailedPresetCommand}" Margin="0,0,6,0">
+                            <TextBlock Text="{Binding L[Detailed]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Button>
+                        <Button Classes="preset" Command="{Binding ApplyDiagnosticPresetCommand}">
+                            <TextBlock Text="{Binding L[DiagnosticExport]}" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Button>
+                    </UniformGrid>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsMaskSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[OceanSeaMinAreaRatio]}" Tip="{Binding L[HelpOceanSeaMinAreaRatio]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding OceanSeaMinAreaRatio}" Minimum="0" Maximum="1" FormatString="N3"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[InlandSeaMinAreaRatio]}" Tip="{Binding L[HelpInlandSeaMinAreaRatio]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding InlandSeaMinAreaRatio}" Minimum="0" Maximum="1" FormatString="N3"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[OceanSeaNearOceanDistance]}" Tip="{Binding L[HelpOceanSeaNearOceanDistance]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding OceanSeaNearOceanMaxDistanceCells}" Minimum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <CheckBox Content="{Binding L[PreserveOceanCoastline]}" IsChecked="{Binding PreserveOceanCoastline}" ToolTip.Tip="{Binding L[HelpPreserveOceanCoastline]}"/>
+                    <CheckBox Content="{Binding L[PreserveInlandWaterMask]}" IsChecked="{Binding PreserveInlandWaterMask}" ToolTip.Tip="{Binding L[HelpPreserveInlandWaterMask]}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsReliefSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[ReliefScale]}" Tip="{Binding L[HelpReliefScale]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ReliefScale}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Mountaininess]}" Tip="{Binding L[HelpMountaininess]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding Mountaininess}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Roughness]}" Tip="{Binding L[HelpRoughness]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding Roughness}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[SeaDepthScale]}" Tip="{Binding L[HelpSeaDepthScale]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding SeaDepthScale}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxElevation]}" Tip="{Binding L[HelpMaxElevation]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MaxElevationMeters}" Minimum="1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinOceanDepth]}" Tip="{Binding L[HelpMinOceanDepth]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MinOceanDepthMeters}" Maximum="-1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinLandElevation]}" Tip="{Binding L[HelpMinLandElevation]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MinLandElevationMeters}" Minimum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxSeaElevation]}" Tip="{Binding L[HelpMaxSeaElevation]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MaxSeaElevationMeters}" Maximum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ElevationShelfWidthFactor]}" Tip="{Binding L[HelpElevationShelfWidthFactor]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ElevationShelfWidthFactor}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[VolcanismInfluence]}" Tip="{Binding L[HelpVolcanismInfluence]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding VolcanismInfluence}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[SmallIslandReliefFactor]}" Tip="{Binding L[HelpSmallIslandReliefFactor]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding SmallIslandReliefFactor}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[RiftInfluence]}" Tip="{Binding L[HelpRiftInfluence]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding RiftInfluence}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <CheckBox Content="{Binding L[PreserveCoastline]}" IsChecked="{Binding PreserveMaskCoastline}" ToolTip.Tip="{Binding L[HelpPreserveCoastline]}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsWaterRiversSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[RiverDensity]}" Tip="{Binding L[HelpRiverDensity]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding RiverDensity}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MajorRiverCountMultiplier]}" Tip="{Binding L[HelpMajorRiverCountMultiplier]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MajorRiverCountMultiplier}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[TributaryDensity]}" Tip="{Binding L[HelpTributaryDensity]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding TributaryDensity}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MeanderStrength]}" Tip="{Binding L[HelpMeanderStrength]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MeanderStrength}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MountainRiverDensity]}" Tip="{Binding L[HelpMountainRiverDensity]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MountainRiverDensity}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxMountainSourcesPerCluster]}" Tip="{Binding L[HelpMaxMountainSourcesPerCluster]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MaxMountainSourcesPerCluster}" Minimum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinMountainSourceSpacing]}" Tip="{Binding L[HelpMinMountainSourceSpacing]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MinMountainSourceSpacing}" Minimum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LongRiverCountMultiplier]}" Tip="{Binding L[HelpLongRiverCountMultiplier]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding LongRiverCountMultiplier}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MajorRiverTributaryMultiplier]}" Tip="{Binding L[HelpMajorRiverTributaryMultiplier]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MajorRiverTributaryMultiplier}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeOutletInflowForceMultiplier]}" Tip="{Binding L[HelpLakeOutletInflowForceMultiplier]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding LakeOutletInflowForceMultiplier}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[DeltaFrequency]}" Tip="{Binding L[HelpDeltaFrequency]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding DeltaFrequency}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeOutletStrictness]}" Tip="{Binding L[HelpLakeOutletStrictness]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding LakeOutletStrictness}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <CheckBox Content="{Binding L[GenerateSmallLakes]}" IsChecked="{Binding GenerateSmallLakes}" ToolTip.Tip="{Binding L[HelpGenerateSmallLakes]}"/>
+                    <CheckBox Content="{Binding L[PreserveRiverCoastline]}" IsChecked="{Binding PreserveRiverCoastline}" ToolTip.Tip="{Binding L[HelpPreserveRiverCoastline]}"/>
+                    <CheckBox Content="{Binding L[AllowRiverCarving]}" IsChecked="{Binding AllowRiverCarving}" ToolTip.Tip="{Binding L[HelpAllowRiverCarving]}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsClimateSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[ClimatePolarLatitudeMargin]}" Tip="{Binding L[HelpClimatePolarLatitudeMargin]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimatePolarLatitudeMargin}" Minimum="0" Maximum="0.99" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateEquatorTemperature]}" Tip="{Binding L[HelpClimateEquatorTemperature]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateEquatorTemperatureCelsius}" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimatePoleCooling]}" Tip="{Binding L[HelpClimatePoleCooling]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimatePoleCoolingCelsius}" Minimum="0" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateLapseRate]}" Tip="{Binding L[HelpClimateLapseRate]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateLapseRateCelsiusPerMeter}" Minimum="0" Increment="0.0001" FormatString="N4"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateOrographicStrength]}" Tip="{Binding L[HelpClimateOrographicStrength]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateOrographicStrength}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateLatitudeCurveExponent]}" Tip="{Binding L[HelpClimateLatitudeCurveExponent]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateLatitudeCurveExponent}" Minimum="0.01" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateBaseSeasonalityCelsius]}" Tip="{Binding L[HelpClimateBaseSeasonalityCelsius]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateBaseSeasonalityCelsius}" Minimum="0" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateLatitudeSeasonalityCelsius]}" Tip="{Binding L[HelpClimateLatitudeSeasonalityCelsius]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateLatitudeSeasonalityCelsius}" Minimum="0" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateContinentalSeasonalityCelsius]}" Tip="{Binding L[HelpClimateContinentalSeasonalityCelsius]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateContinentalSeasonalityCelsius}" Minimum="0" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateContinentalSummerBoostCelsius]}" Tip="{Binding L[HelpClimateContinentalSummerBoostCelsius]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateContinentalSummerBoostCelsius}" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateContinentalWinterPenaltyCelsius]}" Tip="{Binding L[HelpClimateContinentalWinterPenaltyCelsius]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateContinentalWinterPenaltyCelsius}" Minimum="0" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateContinentalityDistanceCells]}" Tip="{Binding L[HelpClimateContinentalityDistanceCells]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateContinentalityDistanceCells}" Minimum="1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateLargeLakeMinCellCount]}" Tip="{Binding L[HelpClimateLargeLakeMinCellCount]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateLargeLakeMinCellCount}" Minimum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateOceanEvaporation]}" Tip="{Binding L[HelpClimateOceanEvaporation]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateOceanEvaporation}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateLakeEvaporation]}" Tip="{Binding L[HelpClimateLakeEvaporation]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateLakeEvaporation}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateLandEvapotranspiration]}" Tip="{Binding L[HelpClimateLandEvapotranspiration]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateLandEvapotranspiration}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateMoistureRetention]}" Tip="{Binding L[HelpClimateMoistureRetention]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateMoistureRetention}" Minimum="0" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateBaseRainfallEfficiency]}" Tip="{Binding L[HelpClimateBaseRainfallEfficiency]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateBaseRainfallEfficiency}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateDescentDrying]}" Tip="{Binding L[HelpClimateDescentDrying]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateDescentDrying}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateContinentalDrying]}" Tip="{Binding L[HelpClimateContinentalDrying]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateContinentalDrying}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateMonsoonRainStrength]}" Tip="{Binding L[HelpClimateMonsoonRainStrength]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateMonsoonRainStrength}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateDrySeasonStrength]}" Tip="{Binding L[HelpClimateDrySeasonStrength]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateDrySeasonStrength}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateMonsoonOceanDistanceCells]}" Tip="{Binding L[HelpClimateMonsoonOceanDistanceCells]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateMonsoonOceanDistanceCells}" Minimum="1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateMonsoonCoastProbeCells]}" Tip="{Binding L[HelpClimateMonsoonCoastProbeCells]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateMonsoonCoastProbeCells}" Minimum="0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsBiomesSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[ClimateRiverMoistureBonus]}" Tip="{Binding L[HelpClimateRiverMoistureBonus]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateRiverMoistureBonus}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateRiverAgricultureBonus]}" Tip="{Binding L[HelpClimateRiverAgricultureBonus]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateRiverAgricultureBonus}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateSnowMeltThreshold]}" Tip="{Binding L[HelpClimateSnowMeltThreshold]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateSnowMeltThresholdCelsius}" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateSnowPrecipitationScale]}" Tip="{Binding L[HelpClimateSnowPrecipitationScale]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ClimateSnowPrecipitationScale}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsRegionsSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[RegionSize]}" Tip="{Binding L[HelpRegionSize]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding TargetArea, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[PointsMultiplier]}" Tip="{Binding L[HelpPointsMultiplier]}">
+                        <views:SettingsRow.Value>
+                            <Grid ColumnDefinitions="100,104" ColumnSpacing="8">
+                                <Slider Value="{Binding PointsMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.5" Maximum="8" TickFrequency="0.1"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding PointsMultiplier, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" FormatString="N2"/>
+                            </Grid>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinAreaRatio]}" Tip="{Binding L[HelpMinAreaRatio]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MinAreaRatio}" Minimum="0.01" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxAreaRatio]}" Tip="{Binding L[HelpMaxAreaRatio]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MaxAreaRatio}" Minimum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <CheckBox Content="{Binding L[DistortionEnabled]}" IsChecked="{Binding BoundaryDistortionEnabled}" ToolTip.Tip="{Binding L[HelpDistortionEnabled]}"/>
+                    <Button Content="Открыть редактор регионов" Command="{Binding OpenRegionEditorCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                    <Button Content="Редактировать видимый результат (без повторного distortion)" Command="{Binding OpenVisibleRegionEditorCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                    <views:SettingsRow Label="{Binding L[BoundaryDetail]}" Tip="{Binding L[HelpBoundaryDetail]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding BoundaryDetail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxOffset]}" Tip="{Binding L[HelpMaxOffset]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MaxOffset}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinLineLengthToCurve]}" Tip="{Binding L[HelpMinLineLengthToCurve]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding MinLineLengthToCurve}" Minimum="0" FormatString="N1"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsExportSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[ExportScale]}" Tip="{Binding L[HelpExportScale]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ExportScale, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ExportRegionBorderWidth]}" Tip="{Binding L[HelpExportRegionBorderWidth]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ExportRegionBorderWidth}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ExportTectonicBoundaryWidth]}" Tip="{Binding L[HelpExportTectonicBoundaryWidth]}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding ExportTectonicBoundaryWidth}" Minimum="0" FormatString="N2"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <CheckBox Content="{Binding L[ExportElevationHillshade]}" IsChecked="{Binding ExportDrawElevationHillshade}" ToolTip.Tip="{Binding L[HelpExportElevationHillshade]}"/>
+                    <CheckBox Content="{Binding L[ExportClimateHillshade]}" IsChecked="{Binding ExportDrawClimateHillshade}" ToolTip.Tip="{Binding L[HelpExportClimateHillshade]}"/>
+                    <CheckBox Content="{Binding L[ExportClimateRivers]}" IsChecked="{Binding ExportDrawClimateRivers}" ToolTip.Tip="{Binding L[HelpExportClimateRivers]}"/>
+                    <Button Content="{Binding L[ExportPreview]}" Command="{Binding ExportPreviewCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsTectonicsSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[PlateCount]}" Tip="{Binding L[HelpPlateCount]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding PlateCount}" Minimum="1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[HotspotCount]}" Tip="{Binding L[HelpHotspotCount]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding HotspotCount}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ContinentalSeedRatio]}" Tip="{Binding L[HelpContinentalSeedRatio]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding ContinentalSeedRatio}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[BoundaryNoise]}" Tip="{Binding L[HelpBoundaryNoise]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding BoundaryNoise}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[BoundaryNoiseScale]}" Tip="{Binding L[HelpBoundaryNoiseScale]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding BoundaryNoiseScale}" Minimum="0" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LandWaterTransitionPenalty]}" Tip="{Binding L[HelpLandWaterTransitionPenalty]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LandWaterTransitionPenalty}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Activity]}" Tip="{Binding L[HelpActivity]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding Activity}" Minimum="0" Maximum="2" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[EarthLikeFactor]}" Tip="{Binding L[HelpEarthLikeFactor]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding EarthLikeFactor}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[HistoryDepth]}" Tip="{Binding L[HelpHistoryDepth]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding HistoryDepth}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MicroplateRatio]}" Tip="{Binding L[HelpMicroplateRatio]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MicroplateRatio}" Minimum="0" Maximum="1" FormatString="N3"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinMicroplateAreaRatio]}" Tip="{Binding L[HelpMinMicroplateAreaRatio]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MinMicroplateAreaRatio}" Minimum="0" Maximum="1" FormatString="N4" Increment="0.0001"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxMicroplateAreaRatio]}" Tip="{Binding L[HelpMaxMicroplateAreaRatio]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxMicroplateAreaRatio}" Minimum="0" Maximum="1" FormatString="N4" Increment="0.0001"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinBoundarySegmentLength]}" Tip="{Binding L[HelpMinBoundarySegmentLength]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MinBoundarySegmentLength}" Minimum="1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ActiveMarginRatio]}" Tip="{Binding L[HelpActiveMarginRatio]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding ActiveMarginRatio}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ShelfWidthFactor]}" Tip="{Binding L[HelpShelfWidthFactor]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding TectonicShelfWidthFactor}" Minimum="0" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[RiftChance]}" Tip="{Binding L[HelpRiftChance]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding RiftChance}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ValidationCycles]}" Tip="{Binding L[HelpValidationCycles]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxValidationCycles}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinPlateSize]}" Tip="{Binding L[HelpMinPlateSize]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MinPlateSize}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinPlateSizeRatio]}" Tip="{Binding L[HelpMinPlateSizeRatio]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MinPlateSizeRatio}" Minimum="0" Maximum="1" FormatString="N4" Increment="0.0001"/></views:SettingsRow.Value></views:SettingsRow>
+                    <CheckBox Content="{Binding L[ValidateGeometry]}" IsChecked="{Binding ValidateGeometry}" ToolTip.Tip="{Binding L[HelpValidateGeometry]}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsErosionSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[Erosion]}" Tip="{Binding L[HelpErosion]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding Erosion}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[SmallLakeCountMultiplier]}" Tip="{Binding L[HelpSmallLakeCountMultiplier]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding SmallLakeCountMultiplier}" Minimum="0" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[SmallLakeScatterMultiplier]}" Tip="{Binding L[HelpSmallLakeScatterMultiplier]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding SmallLakeScatterMultiplier}" Minimum="0" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[SmallLakeSizeMultiplier]}" Tip="{Binding L[HelpSmallLakeSizeMultiplier]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding SmallLakeSizeMultiplier}" Minimum="0" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeSurfacePercentile]}" Tip="{Binding L[HelpLakeSurfacePercentile]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LakeSurfacePercentile}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[EndorheicBasinChance]}" Tip="{Binding L[HelpEndorheicBasinChance]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding EndorheicBasinChance}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxEndorheicBasins]}" Tip="{Binding L[HelpMaxEndorheicBasins]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxEndorheicBasins}" Minimum="0" FormatString="N0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <CheckBox Content="{Binding L[AllowLakeExpansion]}" IsChecked="{Binding AllowLakeExpansion}" ToolTip.Tip="{Binding L[HelpAllowLakeExpansion]}"/>
+                    <CheckBox Content="{Binding L[AllowLakeDrainage]}" IsChecked="{Binding AllowLakeDrainage}" ToolTip.Tip="{Binding L[HelpAllowLakeDrainage]}"/>
+                    <views:SettingsRow Label="{Binding L[MinLakeSurfaceMarginMeters]}" Tip="{Binding L[HelpMinLakeSurfaceMarginMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MinLakeSurfaceMarginMeters}" Minimum="0" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxLakeSurfaceMarginMeters]}" Tip="{Binding L[HelpMaxLakeSurfaceMarginMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxLakeSurfaceMarginMeters}" Minimum="0" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MinLakeDepthMeters]}" Tip="{Binding L[HelpMinLakeDepthMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MinLakeDepthMeters}" Minimum="0.1" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxLakeDepthMeters]}" Tip="{Binding L[HelpMaxLakeDepthMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxLakeDepthMeters}" Minimum="0.1" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxRiftLakeDepthMeters]}" Tip="{Binding L[HelpMaxRiftLakeDepthMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxRiftLakeDepthMeters}" Minimum="0.1" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MaxInlandSeaDepthMeters]}" Tip="{Binding L[HelpMaxInlandSeaDepthMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MaxInlandSeaDepthMeters}" Minimum="0.1" FormatString="N1"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MountainLakeElevationMeters]}" Tip="{Binding L[HelpMountainLakeElevationMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MountainLakeElevationMeters}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[PlateauLakeElevationMeters]}" Tip="{Binding L[HelpPlateauLakeElevationMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding PlateauLakeElevationMeters}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[MountainLakeReliefMeters]}" Tip="{Binding L[HelpMountainLakeReliefMeters]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding MountainLakeReliefMeters}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeTectonicFaultThreshold]}" Tip="{Binding L[HelpLakeTectonicFaultThreshold]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LakeTectonicFaultThreshold}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeVolcanicInfluenceThreshold]}" Tip="{Binding L[HelpLakeVolcanicInfluenceThreshold]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LakeVolcanicInfluenceThreshold}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[PlainLakeKarstChance]}" Tip="{Binding L[HelpPlainLakeKarstChance]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding PlainLakeKarstChance}" Minimum="0" Maximum="1" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeDepthRandomnessMin]}" Tip="{Binding L[HelpLakeDepthRandomnessMin]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LakeDepthRandomnessMin}" Minimum="0.01" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LakeDepthRandomnessMax]}" Tip="{Binding L[HelpLakeDepthRandomnessMax]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LakeDepthRandomnessMax}" Minimum="0.01" FormatString="N2"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[LargeLakeDepressionMinCellCount]}" Tip="{Binding L[HelpLargeLakeDepressionMinCellCount]}"><views:SettingsRow.Value><NumericUpDown Value="{Binding LargeLakeDepressionMinCellCount}" Minimum="0"/></views:SettingsRow.Value></views:SettingsRow>
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding IsDiagnosticsSectionSelected}">
+                    <views:SettingsRow Label="{Binding L[TectonicJson]}" Tip="{Binding L[HelpTectonicJson]}"><views:SettingsRow.Value><ComboBox ItemsSource="{Binding TectonicJsonModes}" SelectedItem="{Binding TectonicJsonMode}"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ElevationJson]}" Tip="{Binding L[HelpElevationJson]}"><views:SettingsRow.Value><ComboBox ItemsSource="{Binding ElevationJsonModes}" SelectedItem="{Binding ElevationJsonMode}"/></views:SettingsRow.Value></views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[ClimateJson]}" Tip="{Binding L[HelpClimateJson]}"><views:SettingsRow.Value><ComboBox ItemsSource="{Binding ClimateJsonModes}" SelectedItem="{Binding ClimateJsonMode}"/></views:SettingsRow.Value></views:SettingsRow>
+                    <TextBlock Text="{Binding ValidationMessage}" Foreground="#EF4444" TextWrapping="Wrap" IsVisible="{Binding HasValidationMessage}"/>
+                    <TextBlock Text="{Binding ArtifactSummary}" TextWrapping="Wrap" Opacity="0.8" IsVisible="{Binding HasArtifacts}"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Index.Strtree;
 using NetTopologySuite.Precision;
 
 namespace MapRegionizer.Core.Regions;
@@ -140,11 +141,17 @@ public sealed class RegionCoverageCanonicalizer
             .GroupBy(RegionGeometryPrecision.GetCoordinateKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First().Copy(), StringComparer.Ordinal);
         var segments = regions.SelectMany(region => GetSegments(region.Shape)).ToList();
+        var segmentIndex = new STRtree<int>();
+        for (var index = 0; index < segments.Count; index++)
+            segmentIndex.Insert(new Envelope(segments[index].P0, segments[index].P1), index);
+        segmentIndex.Build();
+
         for (var firstIndex = 0; firstIndex < segments.Count; firstIndex++)
         {
-            for (var secondIndex = firstIndex + 1; secondIndex < segments.Count; secondIndex++)
+            var first = segments[firstIndex];
+            foreach (var secondIndex in segmentIndex.Query(new Envelope(first.P0, first.P1)).Where(index => index > firstIndex))
             {
-                var intersection = segments[firstIndex].Intersection(segments[secondIndex]);
+                var intersection = first.Intersection(segments[secondIndex]);
                 if (intersection is not null)
                     nodes.TryAdd(RegionGeometryPrecision.GetCoordinateKey(intersection), intersection);
             }

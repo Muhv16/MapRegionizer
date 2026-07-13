@@ -147,6 +147,37 @@ public sealed class RegionGenerationContractTests
     }
 
     [Fact]
+    public void DraftEditorSplitAndMergePreserveDeterministicIdsAndCoverage()
+    {
+        var factory = new GeometryFactory();
+        var landmass = new Landmass(new LandmassId(1), Square(factory, 0, 0, 2, 2));
+        var draft = new RegionDraft([new RegionDraftRegion(new RegionId(10), landmass.Id, landmass.Shape)]);
+        var cut = factory.CreateLineString([new Coordinate(1, 0), new Coordinate(1, 2)]);
+
+        Assert.True(RegionDraftEditor.TrySplit(draft, new RegionId(10), cut, out var split, out _));
+        var canonical = new RegionCoverageCanonicalizer().Canonicalize([landmass], split!);
+        Assert.True(canonical.IsSuccessful);
+        Assert.Equal([10, 11], canonical.Regions.Select(region => region.Id.Value).Order());
+
+        Assert.True(RegionDraftEditor.TryMerge(split!, new RegionId(10), new RegionId(11), out var merged, out _));
+        var mergedCanonical = new RegionCoverageCanonicalizer().Canonicalize([landmass], merged!);
+        Assert.True(mergedCanonical.IsSuccessful);
+        Assert.Single(mergedCanonical.Regions);
+    }
+
+    [Fact]
+    public void DraftEditorSplitUsesBoundaryIntersectionsForArbitraryUserPoints()
+    {
+        var factory = new GeometryFactory();
+        var landmass = new Landmass(new LandmassId(1), Square(factory, 0, 0, 2, 2));
+        var draft = new RegionDraft([new RegionDraftRegion(new RegionId(10), landmass.Id, landmass.Shape)]);
+        var cut = factory.CreateLineString([new Coordinate(1.05, .04), new Coordinate(.96, 1.97)]);
+
+        Assert.True(RegionDraftEditor.TrySplit(draft, new RegionId(10), cut, .1, out var split, out _));
+        Assert.True(new RegionCoverageCanonicalizer().Canonicalize([landmass], split!).IsSuccessful);
+    }
+
+    [Fact]
     public void TopologyMovesAnInteriorVertexForEveryIncidentFaceAndProtectsCoast()
     {
         var factory = new GeometryFactory();
