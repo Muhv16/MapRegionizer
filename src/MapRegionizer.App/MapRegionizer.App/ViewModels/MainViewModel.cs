@@ -198,6 +198,7 @@ public sealed class MainViewModel : ReactiveObject
         RunRegionsOnlyCommand = ReactiveCommand.CreateFromTask(RunRegionsOnlyAsync);
         OpenRegionEditorCommand = ReactiveCommand.CreateFromTask(() => OpenRegionEditorAsync(frozenVisibleRegions: false));
         OpenVisibleRegionEditorCommand = ReactiveCommand.CreateFromTask(() => OpenRegionEditorAsync(frozenVisibleRegions: true));
+        ResetAutomaticRegionsCommand = ReactiveCommand.CreateFromTask(ResetAutomaticRegionsAsync);
         ExportCommand = ReactiveCommand.CreateFromTask(ExportAsync);
         ExportPreviewCommand = ReactiveCommand.CreateFromTask(ExportPreviewAsync);
         CancelCommand = ReactiveCommand.Create(CancelGeneration);
@@ -245,6 +246,7 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> RunRegionsOnlyCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenRegionEditorCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenVisibleRegionEditorCommand { get; }
+    public ReactiveCommand<Unit, Unit> ResetAutomaticRegionsCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportPreviewCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
@@ -274,6 +276,7 @@ public sealed class MainViewModel : ReactiveObject
     }
     public string PreviewLegend { get => _previewLegend; set => this.RaiseAndSetIfChanged(ref _previewLegend, value); }
     public string PreviewTitle { get => _previewTitle; set => this.RaiseAndSetIfChanged(ref _previewTitle, value); }
+    public bool HasManualRegionDraft => _workspace.Session?.UsesExternalRegionDraft == true;
     public bool IsLightTheme => string.Equals(SelectedTheme, "Light", StringComparison.OrdinalIgnoreCase);
     public string AppBackground => IsLightTheme ? "#F4F6FA" : "#101114";
     public string PanelBackground => IsLightTheme ? "#FFFFFF" : "#17191F";
@@ -405,7 +408,7 @@ public sealed class MainViewModel : ReactiveObject
         get => _seed;
         set
         {
-            SetOption(ref _seed, value, MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.Regions);
+            SetOption(ref _seed, value, MapDataKeys.RegionDraft, MapDataKeys.TectonicHistory);
             this.RaiseAndSetIfChanged(ref _seedText, value?.ToString(CultureInfo.CurrentCulture) ?? string.Empty, nameof(SeedText));
             this.RaisePropertyChanged(nameof(SeedText));
         }
@@ -433,14 +436,14 @@ public sealed class MainViewModel : ReactiveObject
         get => _targetArea;
         set
         {
-            SetOptionNamed(ref _targetArea, value, nameof(TargetArea), MapDataKeys.RawRegions);
+            SetOptionNamed(ref _targetArea, value, nameof(TargetArea), MapDataKeys.RegionDraft);
             this.RaisePropertyChanged(nameof(TargetAreaSlider));
         }
     }
     public double TargetAreaSlider { get => TargetArea; set => TargetArea = (uint)Math.Max(1, Math.Round(value)); }
-    public double PointsMultiplier { get => _pointsMultiplier; set => SetOptionNamed(ref _pointsMultiplier, value, nameof(PointsMultiplier), MapDataKeys.RawRegions); }
-    public double MinAreaRatio { get => _minAreaRatio; set => SetOptionNamed(ref _minAreaRatio, value, nameof(MinAreaRatio), MapDataKeys.RawRegions); }
-    public double MaxAreaRatio { get => _maxAreaRatio; set => SetOptionNamed(ref _maxAreaRatio, value, nameof(MaxAreaRatio), MapDataKeys.RawRegions); }
+    public double PointsMultiplier { get => _pointsMultiplier; set => SetOptionNamed(ref _pointsMultiplier, value, nameof(PointsMultiplier), MapDataKeys.RegionDraft); }
+    public double MinAreaRatio { get => _minAreaRatio; set => SetOptionNamed(ref _minAreaRatio, value, nameof(MinAreaRatio), MapDataKeys.RegionDraft); }
+    public double MaxAreaRatio { get => _maxAreaRatio; set => SetOptionNamed(ref _maxAreaRatio, value, nameof(MaxAreaRatio), MapDataKeys.RegionDraft); }
     public bool BoundaryDistortionEnabled { get => _boundaryDistortionEnabled; set => SetOption(ref _boundaryDistortionEnabled, value, MapDataKeys.Regions); }
     public double BoundaryDetail { get => _boundaryDetail; set => SetOptionNamed(ref _boundaryDetail, value, nameof(BoundaryDetail), MapDataKeys.Regions); }
     public double MaxOffset { get => _maxOffset; set => SetOption(ref _maxOffset, value, MapDataKeys.Regions); }
@@ -793,13 +796,58 @@ public sealed class MainViewModel : ReactiveObject
             SelectBestAvailableLayer(MapDataKeys.Regions);
             RefreshPreview();
             RefreshStatistics();
-            StatusMessage = "Ручные изменения регионов применены.";
+            this.RaisePropertyChanged(nameof(HasManualRegionDraft));
+            StatusMessage = L["ManualRegionsApplied"];
             AddLog(StatusMessage);
         }
         catch (Exception ex)
         {
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
             AddLog(StatusMessage, "error");
+        }
+    }
+
+    private async Task ResetAutomaticRegionsAsync()
+    {
+        if (IsGenerating || !PrepareForGeneration())
+            return;
+
+        IsGenerating = true;
+        _generationCts = new CancellationTokenSource();
+
+        try
+        {
+            var options = BuildOptions();
+            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _sessionResetRequired = false;
+            var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
+
+            session.SetRegionDraft(null);
+            await _execution.RunUntilAsync(session, MapDataKeys.Regions, _generationCts.Token);
+            RefreshStageStates();
+            RefreshLayerAvailability();
+            SelectBestAvailableLayer(MapDataKeys.Regions);
+            RefreshPreview();
+            RefreshStatistics();
+            this.RaisePropertyChanged(nameof(HasManualRegionDraft));
+            StatusMessage = L["AutomaticRegionsRestored"];
+            AddLog(StatusMessage);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = L["Ready"];
+            AddLog(L["LogGenerationCancelled"], "warning");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog(StatusMessage, "error");
+        }
+        finally
+        {
+            IsGenerating = false;
+            _generationCts?.Dispose();
+            _generationCts = null;
         }
     }
 
@@ -1099,7 +1147,7 @@ public sealed class MainViewModel : ReactiveObject
             _suppressDirty = false;
         }
 
-        MarkOptionsDirty(MapDataKeys.RawRegions, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain, MapDataKeys.GeneratedLakes, MapDataKeys.Hydrology, MapDataKeys.Climate);
+        MarkOptionsDirty(MapDataKeys.RegionDraft, MapDataKeys.TectonicHistory, MapDataKeys.BaseTerrain, MapDataKeys.GeneratedLakes, MapDataKeys.Hydrology, MapDataKeys.Climate);
         SaveSettings();
     }
 
@@ -1442,7 +1490,7 @@ public sealed class MainViewModel : ReactiveObject
         Stages.Add(CreateStage(MapStageIds.GenerateHydrology, "StageHydrology", MapDataKeys.Hydrology));
         Stages.Add(CreateStage(MapStageIds.GenerateClimate, "StageClimate", MapDataKeys.Climate));
         Stages.Add(CreateStage(MapStageIds.GenerateTectonicPlates, "StageTectonicPlates", MapDataKeys.TectonicPlates));
-        Stages.Add(CreateStage(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RawRegions));
+        Stages.Add(CreateStage(MapStageIds.GenerateRegions, "StageRawRegions", MapDataKeys.RegionDraft));
         Stages.Add(CreateStage(MapStageIds.DistortRegionBoundaries, "StageRegions", MapDataKeys.Regions));
 
         FutureStages.Add(CreateStage("resources", "Resources", null));
@@ -1591,6 +1639,8 @@ public sealed class MainViewModel : ReactiveObject
             else
                 stage.Status = GenerationStageStatus.Ready;
         }
+
+        this.RaisePropertyChanged(nameof(HasManualRegionDraft));
     }
 
     private void RefreshLayerAvailability()

@@ -409,6 +409,7 @@
                     <CheckBox Content="{Binding L[DistortionEnabled]}" IsChecked="{Binding BoundaryDistortionEnabled}" ToolTip.Tip="{Binding L[HelpDistortionEnabled]}"/>
                     <Button Content="Открыть редактор регионов" Command="{Binding OpenRegionEditorCommand}" IsEnabled="{Binding !IsGenerating}"/>
                     <Button Content="Редактировать видимый результат (без повторного distortion)" Command="{Binding OpenVisibleRegionEditorCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                    <Button Content="{Binding L[ResetAutomaticRegions]}" Command="{Binding ResetAutomaticRegionsCommand}" IsVisible="{Binding HasManualRegionDraft}" IsEnabled="{Binding !IsGenerating}"/>
                     <views:SettingsRow Label="{Binding L[BoundaryDetail]}" Tip="{Binding L[HelpBoundaryDetail]}">
                         <views:SettingsRow.Value>
                             <NumericUpDown Value="{Binding BoundaryDetail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Minimum="0.01" Maximum="1" FormatString="N2"/>

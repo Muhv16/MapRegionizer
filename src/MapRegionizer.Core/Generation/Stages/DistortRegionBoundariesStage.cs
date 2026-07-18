@@ -21,7 +21,7 @@ public sealed class DistortRegionBoundariesStage : IMapGenerationStage
             return;
         }
 
-        var distorter = new BoundaryDistorter(context.GeometryFactory, context.Random);
+        var distorter = new BoundaryDistorter(context.GeometryFactory, context.CreateStageRandom(Id));
         var updatedRegions = new List<MapRegion>();
 
         foreach (var landmass in context.Landmasses)

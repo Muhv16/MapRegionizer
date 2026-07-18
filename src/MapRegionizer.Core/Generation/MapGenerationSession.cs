@@ -24,8 +24,8 @@ public sealed class MapGenerationSession
 
         geometryFactory ??= new GeometryFactory();
         pipeline ??= MapGenerationPipelineBuilder.CreateDefault().Build();
-        var random = options.Seed.HasValue ? new Random(options.Seed.Value) : new Random();
-        var context = new MapGenerationContext(mask, options, geometryFactory, random);
+        var randomSeed = options.Seed ?? Random.Shared.Next();
+        var context = new MapGenerationContext(mask, options, geometryFactory, randomSeed);
 
         return new MapGenerationSession(context, pipeline);
     }
@@ -38,6 +38,7 @@ public sealed class MapGenerationSession
     public WaterBodyTopology? WaterBodyTopology => _context.WaterBodyTopology;
     public IReadOnlyList<MapRegion> RawRegions => _context.RawRegions;
     public RegionDraft? RegionDraft => _context.RegionDraft;
+    public bool UsesExternalRegionDraft => _context.ExternalRegionDraft is not null;
     public IReadOnlyList<RegionDiagnostic> RegionDiagnostics => _context.RegionDiagnostics;
     public IReadOnlyList<MapRegion> Regions => _context.Regions;
     public TectonicHistory? TectonicHistory => _context.TectonicHistory;

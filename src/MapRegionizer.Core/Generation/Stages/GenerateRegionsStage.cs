@@ -17,7 +17,7 @@ public sealed class GenerateRegionsStage : IMapGenerationStage
             return;
         }
 
-        var generator = new VoronoiRegionGenerator(context.GeometryFactory, context.Random);
+        var generator = new VoronoiRegionGenerator(context.GeometryFactory, context.CreateStageRandom(Id));
         var regions = new List<MapRegion>();
 
         foreach (var landmass in context.Landmasses.Where(l => l.Shape.IsValid))

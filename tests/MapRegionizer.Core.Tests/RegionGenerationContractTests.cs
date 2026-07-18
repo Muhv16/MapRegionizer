@@ -37,6 +37,51 @@ public sealed class RegionGenerationContractTests
     }
 
     [Fact]
+    public void FixedSeedProducesTheSameRegionsForFullAndRegionOnlyPipelinePaths()
+    {
+        var direct = Generate(CreateMask(), CreateOptions());
+        var full = MapGenerationSession.Create(CreateMask(), CreateOptions());
+        full.RunFull();
+
+        Assert.Equal(Signature(direct.RawRegions), Signature(full.RawRegions));
+        Assert.Equal(Signature(direct.Regions), Signature(full.Regions));
+    }
+
+    [Fact]
+    public void ChangingRegionOptionsAtTheDraftRootRegeneratesRegions()
+    {
+        var session = MapGenerationSession.Create(CreateMask(), CreateOptions(targetArea: 150));
+        session.RunUntil(MapDataKeys.RawRegions);
+        var original = Signature(session.RawRegions);
+
+        session.UpdateOptions(CreateOptions(targetArea: 900), [MapDataKeys.RegionDraft]);
+
+        Assert.True(session.IsDirty(MapDataKeys.RegionDraft));
+        Assert.True(session.IsDirty(MapDataKeys.RawRegions));
+
+        session.RunUntil(MapDataKeys.RawRegions);
+
+        Assert.NotEqual(original, Signature(session.RawRegions));
+        Assert.Empty(RegionGeometryContract.Validate(session.Landmasses, session.RawRegions));
+    }
+
+    [Fact]
+    public void ChangingSeedRegeneratesRegionsLikeANewSession()
+    {
+        var mask = CreateMask();
+        var session = MapGenerationSession.Create(mask, CreateOptions(seed: 124_578));
+        session.RunUntil(MapDataKeys.RawRegions);
+        var original = Signature(session.RawRegions);
+
+        session.UpdateOptions(CreateOptions(seed: 876_543), [MapDataKeys.RegionDraft]);
+        session.RunUntil(MapDataKeys.RawRegions);
+
+        var expected = Generate(mask, CreateOptions(seed: 876_543));
+        Assert.NotEqual(original, Signature(session.RawRegions));
+        Assert.Equal(Signature(expected.RawRegions), Signature(session.RawRegions));
+    }
+
+    [Fact]
     public void DisabledDistortionPreservesRawRegionGeometry()
     {
         var session = Generate(CreateMask(), CreateOptions(distortionEnabled: false));
@@ -76,6 +121,23 @@ public sealed class RegionGenerationContractTests
         Assert.Equal(originalDraft.Regions.Select(region => region.Id), session.RawRegions.Select(region => (RegionId?)region.Id));
         Assert.Empty(RegionGeometryContract.Validate(session.Landmasses, session.RawRegions));
         Assert.DoesNotContain(session.RegionDiagnostics, diagnostic => diagnostic.Severity == RegionDiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void ClearingManualDraftRestoresDeterministicAutomaticRegions()
+    {
+        var session = MapGenerationSession.Create(CreateMask(), CreateOptions(distortionEnabled: false));
+        session.RunUntil(MapDataKeys.RawRegions);
+        var automatic = Signature(session.RawRegions);
+
+        session.SetRegionDraft(RegionDraft.FromRegions(session.RawRegions));
+        Assert.True(session.UsesExternalRegionDraft);
+
+        session.SetRegionDraft(null);
+        session.RunUntil(MapDataKeys.RawRegions);
+
+        Assert.False(session.UsesExternalRegionDraft);
+        Assert.Equal(automatic, Signature(session.RawRegions));
     }
 
     [Fact]
@@ -207,12 +269,12 @@ public sealed class RegionGenerationContractTests
         return session;
     }
 
-    private static MapGenerationOptions CreateOptions(bool distortionEnabled = true) => new()
+    private static MapGenerationOptions CreateOptions(bool distortionEnabled = true, int seed = 124_578, uint targetArea = 150) => new()
     {
-        Seed = 124_578,
+        Seed = seed,
         Regions = new RegionGenerationOptions
         {
-            TargetArea = 150,
+            TargetArea = targetArea,
             PointsMultiplier = 2.5,
             MinAreaRatio = 0.6,
             MaxAreaRatio = 2

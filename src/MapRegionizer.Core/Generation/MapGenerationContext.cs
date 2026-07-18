@@ -8,22 +8,29 @@ namespace MapRegionizer.Core.Generation;
 public sealed class MapGenerationContext
 {
     private int _nextRegionId = 1;
+    private int _randomSeed;
+    private Random _random;
     private readonly HashSet<MapDataKey> _availableData = [MapDataKeys.Mask];
     private readonly HashSet<MapDataKey> _dirtyData = [];
 
-    public MapGenerationContext(MapMask mask, MapGenerationOptions options, GeometryFactory geometryFactory, Random random)
+    public MapGenerationContext(MapMask mask, MapGenerationOptions options, GeometryFactory geometryFactory, int randomSeed)
     {
         Mask = mask;
         Options = options;
         GeometryFactory = geometryFactory;
-        Random = random;
+        _randomSeed = randomSeed;
+        _random = new Random(randomSeed);
         Bounds = new MapBounds(mask.Width * options.PixelSize, mask.Height * options.PixelSize, options.PixelSize);
     }
 
     public MapMask Mask { get; }
     public MapGenerationOptions Options { get; private set; }
     public GeometryFactory GeometryFactory { get; }
-    public Random Random { get; }
+    /// <summary>
+    /// The legacy shared random stream. New generation stages should use
+    /// <see cref="CreateStageRandom"/> with their stable stage id.
+    /// </summary>
+    public Random Random => _random;
     public MapBounds Bounds { get; private set; }
     public List<Landmass> Landmasses { get; } = [];
     public List<WaterBody> WaterBodies { get; } = [];
@@ -53,6 +60,16 @@ public sealed class MapGenerationContext
 
     public RegionId CreateRegionId() => new(_nextRegionId++);
 
+    /// <summary>
+    /// Creates an independent deterministic random stream for one generation stage.
+    /// This keeps a stage's output stable when the pipeline is run incrementally.
+    /// </summary>
+    public Random CreateStageRandom(string stageId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(stageId);
+        return new Random(CombineSeed(_randomSeed, stageId));
+    }
+
     public void SetExternalRegionDraft(RegionDraft? draft) => ExternalRegionDraft = draft;
 
     public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology, Climate, RegionRaster);
@@ -79,8 +96,29 @@ public sealed class MapGenerationContext
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
+
+        if (Options.Seed != options.Seed)
+        {
+            _randomSeed = options.Seed ?? Random.Shared.Next();
+            _random = new Random(_randomSeed);
+        }
+
         Options = options;
         Bounds = new MapBounds(Mask.Width * options.PixelSize, Mask.Height * options.PixelSize, options.PixelSize);
+    }
+
+    private static int CombineSeed(int seed, string stageId)
+    {
+        unchecked
+        {
+            uint hash = 2166136261;
+            hash = (hash ^ (uint)seed) * 16777619;
+
+            foreach (var character in stageId)
+                hash = (hash ^ character) * 16777619;
+
+            return (int)hash;
+        }
     }
 
     public void ClearData(MapDataKey key)

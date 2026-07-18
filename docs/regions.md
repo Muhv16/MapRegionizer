@@ -9,7 +9,7 @@ An editor can run the session through `Landmasses`, call `MapGenerationSession.S
 For every valid map state:
 
 - every region is a non-empty valid `Polygon`;
-- each positive `RegionId` is unique; automatic generation assigns ids in deterministic landmass and polygon order, so the same input, options, seed, and pipeline path produce the same ids and geometry;
+- each positive `RegionId` is unique; automatic generation assigns ids in deterministic landmass and polygon order, so the same input, options, and seed produce the same ids and geometry, including when only the region branch is run;
 - every region references exactly one existing `LandmassId`;
 - for each landmass, the union of its regions equals the landmass polygon within the coordinate-precision model;
 - regions for the same landmass have no material area overlap and leave no material gaps;
@@ -65,6 +65,8 @@ There are two entry points in the Regions settings:
 
 - **Open region editor** starts from automatic canonical `RawRegions`; the user may choose whether the completed draft will be distorted.
 - **Edit visible result** starts from current final `Regions`, marks them `GeneratedAndEdited`, and forces distortion off, preventing a second pass over a user-confirmed outline.
+
+Automatic region settings (`Seed`, target area, point multiplier, and area limits) invalidate the automatic `RegionDraft` source, rather than only its canonical `RawRegions` result. The region generator and boundary-distortion stages use independent deterministic random streams, so running just the region branch produces the same automatic regions as a fresh map run with the same mask, options, and seed. A draft applied from the editor remains the active source until the user selects **Return to automatic regions**; while it is active, automatic region settings do not overwrite the confirmed edit.
 
 A background image is an editor-only visual layer. Its visibility, lock, opacity, scale, offset, and rotation are editor state and never alter the mask, landmasses, or portable draft document. Saving a draft also writes a `<draft>.editor.json` sidecar with these values and a relative background-image path when possible.
 
