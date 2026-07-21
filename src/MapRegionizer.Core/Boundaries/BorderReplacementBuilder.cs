@@ -52,7 +52,7 @@ internal sealed class BorderReplacementBuilder
 
     private LineString CurveLine(LineString line, Polygon landmass, BoundaryDistortionOptions options)
     {
-        if (line.Length < options.MinLineLengthToCurve)
+        if (options.MaxOffset <= 0 || line.Length < options.MinLineLengthToCurve)
             return line;
 
         var pointCount = (int)Math.Round(line.Length * options.Detail, MidpointRounding.ToEven);
@@ -70,8 +70,18 @@ internal sealed class BorderReplacementBuilder
 
         for (var i = 0; i < intermediatePoints.Count; i++)
         {
-            intermediatePoints[i].X += xOffsets[i] * direction;
-            intermediatePoints[i].Y += yOffsets[i] * direction;
+            var xOffset = xOffsets[i] * direction;
+            var yOffset = yOffsets[i] * direction;
+            var length = Math.Sqrt(xOffset * xOffset + yOffset * yOffset);
+            if (length > options.MaxOffset)
+            {
+                var scale = options.MaxOffset / length;
+                xOffset *= scale;
+                yOffset *= scale;
+            }
+
+            intermediatePoints[i].X += xOffset;
+            intermediatePoints[i].Y += yOffset;
             coordinates.Insert(i + 1, intermediatePoints[i]);
         }
 
@@ -94,7 +104,7 @@ internal sealed class BorderReplacementBuilder
         if (pointCount <= 3)
         {
             for (var i = 0; i < pointCount; i++)
-                result[i] = _random.Next(-1, 2);
+                result[i] = _random.Next(-1, 2) * maxOffset;
             return result;
         }
 
@@ -109,7 +119,7 @@ internal sealed class BorderReplacementBuilder
             if (pointCount > 9 && Math.Abs(distance) > 1)
                 value += (_random.NextDouble() - 0.5) * 0.2;
 
-            result[i] = Math.Max(value, 0.1);
+            result[i] = Math.Clamp(value, 0, maxOffset);
         }
 
         if (evenLength)

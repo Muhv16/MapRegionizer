@@ -91,6 +91,55 @@ public sealed class RegionGenerationContractTests
     }
 
     [Fact]
+    public void ZeroMaxOffsetPreservesRawRegionGeometry()
+    {
+        var session = Generate(CreateMask(), CreateOptions(maxOffset: 0));
+
+        Assert.Equal(Signature(session.RawRegions), Signature(session.Regions));
+        Assert.DoesNotContain(session.RegionDiagnostics, diagnostic => diagnostic.Code is "distortion-reverted" or "distortion-reduced");
+    }
+
+    [Fact]
+    public void MaxOffsetChangesGeometryButNeverExceedsTheConfiguredDistance()
+    {
+        const double maxOffset = .75;
+        var session = Generate(CreateMask(), CreateOptions(maxOffset: maxOffset));
+        var rawBoundaries = session.RawRegions.Select(region => region.Shape.Boundary).ToArray();
+
+        Assert.NotEqual(Signature(session.RawRegions), Signature(session.Regions));
+        foreach (var coordinate in session.Regions.SelectMany(region => region.Shape.Coordinates))
+        {
+            var point = session.Regions[0].Shape.Factory.CreatePoint(coordinate);
+            var distanceToRawBoundary = rawBoundaries.Min(boundary => boundary.Distance(point));
+            Assert.InRange(distanceToRawBoundary, 0, maxOffset + 1e-6);
+        }
+    }
+
+    [Fact]
+    public void ExcessiveDistortionIsReducedBeforeItIsReverted()
+    {
+        var session = Generate(CreateMask(), CreateOptions(boundaryDetail: 1, maxOffset: 20, minLineLengthToCurve: 0));
+
+        Assert.Empty(RegionGeometryContract.Validate(session.Landmasses, session.Regions));
+        Assert.NotEqual(Signature(session.RawRegions), Signature(session.Regions));
+        Assert.Contains(session.RegionDiagnostics, diagnostic => diagnostic.Code == "distortion-reduced");
+        Assert.DoesNotContain(session.RegionDiagnostics, diagnostic => diagnostic.Code == "distortion-reverted");
+    }
+
+    [Fact]
+    public void RegeneratingRegionsReplacesPreviousDistortionDiagnostics()
+    {
+        var session = Generate(CreateMask(), CreateOptions(boundaryDetail: 1, maxOffset: 100_000, minLineLengthToCurve: 0));
+        Assert.Contains(session.RegionDiagnostics, diagnostic => diagnostic.Code == "distortion-reverted");
+
+        session.UpdateOptions(CreateOptions(maxOffset: 0), [MapDataKeys.Regions]);
+        session.RunUntil(MapDataKeys.Regions);
+
+        Assert.Equal(Signature(session.RawRegions), Signature(session.Regions));
+        Assert.DoesNotContain(session.RegionDiagnostics, diagnostic => diagnostic.Code is "distortion-reverted" or "distortion-reduced");
+    }
+
+    [Fact]
     public void AdjacencyRequiresSharedBoundaryWithNonZeroLength()
     {
         var factory = new GeometryFactory();
@@ -269,24 +318,30 @@ public sealed class RegionGenerationContractTests
         return session;
     }
 
-    private static MapGenerationOptions CreateOptions(bool distortionEnabled = true, int seed = 124_578, uint targetArea = 150) => new()
-    {
-        Seed = seed,
-        Regions = new RegionGenerationOptions
+    private static MapGenerationOptions CreateOptions(
+        bool distortionEnabled = true,
+        int seed = 124_578,
+        uint targetArea = 150,
+        double boundaryDetail = .2,
+        double maxOffset = 1.5,
+        double minLineLengthToCurve = 5) => new()
         {
-            TargetArea = targetArea,
-            PointsMultiplier = 2.5,
-            MinAreaRatio = 0.6,
-            MaxAreaRatio = 2
-        },
-        Boundaries = new BoundaryDistortionOptions
-        {
-            Enabled = distortionEnabled,
-            Detail = 0.2,
-            MaxOffset = 1.5,
-            MinLineLengthToCurve = 5
-        }
-    };
+            Seed = seed,
+            Regions = new RegionGenerationOptions
+            {
+                TargetArea = targetArea,
+                PointsMultiplier = 2.5,
+                MinAreaRatio = 0.6,
+                MaxAreaRatio = 2
+            },
+            Boundaries = new BoundaryDistortionOptions
+            {
+                Enabled = distortionEnabled,
+                Detail = boundaryDetail,
+                MaxOffset = maxOffset,
+                MinLineLengthToCurve = minLineLengthToCurve
+            }
+        };
 
     private static MapMask CreateMask()
     {

@@ -49,7 +49,7 @@ Positive, unique IDs supplied by a draft are retained. Missing IDs are allocated
 
 ## Boundary distortion safety
 
-`DistortRegionBoundariesStage` accepts only canonical `RawRegions`. It validates the candidate result for every landmass with the same geometry contract used by drafts. If a deformation causes an invalid polygon, an overlap, a gap, a broken shared edge, or a coastline violation, that landmass keeps its original raw boundaries and a `distortion-reverted` warning is added to `RegionDiagnostics`. The final `Regions` collection is always validated before it is exposed to rasterization or export.
+`DistortRegionBoundariesStage` accepts only canonical `RawRegions`. It validates the candidate result for every landmass with the same geometry contract used by drafts. `MaxOffset` is a strict upper bound on the distance an inserted boundary point can move; a value of `0` preserves raw geometry exactly. If the requested deformation violates the contract, the stage retries with deterministically reduced offset and detail, adding a `distortion-reduced` diagnostic if that succeeds. If every safe attempt causes an invalid polygon, an overlap, a gap, a broken shared edge, or a coastline violation, that landmass keeps its original raw boundaries and a `distortion-reverted` warning is added to `RegionDiagnostics`. The final `Regions` collection is always validated before it is exposed to rasterization or export.
 
 ## Portable editable GeoJSON
 
@@ -68,7 +68,7 @@ There are two entry points in the Regions settings:
 
 Automatic region settings (`Seed`, target area, point multiplier, and area limits) invalidate the automatic `RegionDraft` source, rather than only its canonical `RawRegions` result. The region generator and boundary-distortion stages use independent deterministic random streams, so running just the region branch produces the same automatic regions as a fresh map run with the same mask, options, and seed. A draft applied from the editor remains the active source until the user selects **Return to automatic regions**; while it is active, automatic region settings do not overwrite the confirmed edit.
 
-A background image is an editor-only visual layer. Its visibility, lock, opacity, scale, offset, and rotation are editor state and never alter the mask, landmasses, or portable draft document. Saving a draft also writes a `<draft>.editor.json` sidecar with these values and a relative background-image path when possible.
+A background image is an editor-only visual layer. Its visibility, lock, opacity, scale, offset, and rotation are editor state and never alter the mask, landmasses, or portable draft document. Saving a draft also writes a `<draft>.editor.json` sidecar with these values and a relative background-image path when possible. When any landmass receives a `distortion-reverted` warning, the desktop App shows that the distortion settings are too strong and provides an expandable list of the affected landmasses.
 
 ## Validation
 

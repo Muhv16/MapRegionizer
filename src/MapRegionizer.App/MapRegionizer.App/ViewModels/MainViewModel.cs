@@ -235,6 +235,7 @@ public sealed class MainViewModel : ReactiveObject
     public ObservableCollection<RunHistoryEntryViewModel> History { get; } = [];
     public ObservableCollection<SettingsSectionViewModel> SettingsSections { get; } = [];
     public ObservableCollection<GenerationLogEntryViewModel> GenerationLog { get; } = [];
+    public ObservableCollection<string> DistortionRevertedTerritories { get; } = [];
 
     public IEnumerable<SettingsSectionViewModel> ProjectSettingsSections => SettingsSections.Where(s => s.Kind == SettingsSectionKind.Project).OrderBy(s => s.Order);
     public IEnumerable<SettingsSectionViewModel> MapSettingsSections => SettingsSections.Where(s => s.Kind == SettingsSectionKind.Map).OrderBy(s => s.Order);
@@ -305,6 +306,12 @@ public sealed class MainViewModel : ReactiveObject
     public bool HasArtifacts => !string.IsNullOrWhiteSpace(ArtifactSummary);
     public bool HasValidationMessage => !string.IsNullOrWhiteSpace(ValidationMessage);
     public bool HasGenerationLog => GenerationLog.Count > 0;
+    public bool HasDistortionRevertedTerritories => DistortionRevertedTerritories.Count > 0;
+    public string DistortionRevertedWarning => L["DistortionRevertedWarning"];
+    public string DistortionRevertedTerritoriesHeader => string.Format(
+        CultureInfo.CurrentCulture,
+        L["DistortionRevertedTerritoriesHeader"],
+        DistortionRevertedTerritories.Count);
     public string SelectedLayerName => SelectedPreviewLayer?.Name ?? string.Empty;
     public string SelectedLayerStatusText => SelectedPreviewLayer?.IsAvailable == true ? L["LayerReady"] : L["LayerUnavailable"];
     public string SelectedLayerStatusBrush => SelectedPreviewLayer?.IsAvailable == true ? "#22C55E" : "#94A3B8";
@@ -1641,6 +1648,30 @@ public sealed class MainViewModel : ReactiveObject
         }
 
         this.RaisePropertyChanged(nameof(HasManualRegionDraft));
+        RefreshDistortionRevertedTerritories();
+    }
+
+    private void RefreshDistortionRevertedTerritories()
+    {
+        var landmassIds = _workspace.Session?.RegionDiagnostics
+            .Where(diagnostic => diagnostic.Code == "distortion-reverted" && diagnostic.LandmassId.HasValue)
+            .Select(diagnostic => diagnostic.LandmassId!.Value)
+            .Distinct()
+            .OrderBy(id => id.Value)
+            .ToList() ?? [];
+
+        DistortionRevertedTerritories.Clear();
+        foreach (var landmassId in landmassIds)
+        {
+            DistortionRevertedTerritories.Add(string.Format(
+                CultureInfo.CurrentCulture,
+                L["DistortionRevertedTerritory"],
+                landmassId.Value));
+        }
+
+        this.RaisePropertyChanged(nameof(HasDistortionRevertedTerritories));
+        this.RaisePropertyChanged(nameof(DistortionRevertedWarning));
+        this.RaisePropertyChanged(nameof(DistortionRevertedTerritoriesHeader));
     }
 
     private void RefreshLayerAvailability()
@@ -1932,6 +1963,7 @@ public sealed class MainViewModel : ReactiveObject
             section.RefreshLocalization();
         RefreshPreview();
         RaiseSelectedLayerDetailsChanged();
+        RefreshDistortionRevertedTerritories();
         ValidateAll();
     }
 

@@ -70,10 +70,26 @@
         </Grid>
 
         <Border Grid.Row="2" Classes="panel" Padding="10,7">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                <TextBlock Text="{Binding StatusMessage}" Foreground="{Binding PrimaryText}" TextWrapping="Wrap"/>
-                <TextBlock Grid.Column="1" Text="{Binding ValidationMessage}" Foreground="#EF4444" IsVisible="{Binding HasValidationMessage}"/>
-            </Grid>
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="{Binding PrimaryText}" TextWrapping="Wrap"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ValidationMessage}" Foreground="#EF4444" IsVisible="{Binding HasValidationMessage}"/>
+                </Grid>
+                <Border Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="4" Padding="8" IsVisible="{Binding HasDistortionRevertedTerritories}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding DistortionRevertedWarning}" Foreground="#92400E" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <Expander Header="{Binding DistortionRevertedTerritoriesHeader}">
+                            <ItemsControl ItemsSource="{Binding DistortionRevertedTerritories}" Margin="4,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Expander>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
         </Border>
     </Grid>
 </UserControl>
