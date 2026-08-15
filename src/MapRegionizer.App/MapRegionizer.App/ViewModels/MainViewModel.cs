@@ -211,6 +211,9 @@ public sealed class MainViewModel : ReactiveObject
         ApplyDetailedPresetCommand = ReactiveCommand.Create(() => ApplyPreset("detailed"));
         ApplyDiagnosticPresetCommand = ReactiveCommand.Create(() => ApplyPreset("diagnostic"));
 
+        if (Application.Current is { } application)
+            application.ActualThemeVariantChanged += OnActualThemeVariantChanged;
+
         InitializeStages();
         InitializePreviewLayers();
         InitializeSettingsSections();
@@ -278,7 +281,13 @@ public sealed class MainViewModel : ReactiveObject
     public string PreviewLegend { get => _previewLegend; set => this.RaiseAndSetIfChanged(ref _previewLegend, value); }
     public string PreviewTitle { get => _previewTitle; set => this.RaiseAndSetIfChanged(ref _previewTitle, value); }
     public bool HasManualRegionDraft => _workspace.Session?.UsesExternalRegionDraft == true;
-    public bool IsLightTheme => string.Equals(SelectedTheme, "Light", StringComparison.OrdinalIgnoreCase);
+    // The System option must use the same resolved variant as Avalonia's FluentTheme.
+    public bool IsLightTheme => SelectedTheme switch
+    {
+        "Light" => true,
+        "Dark" => false,
+        _ => Application.Current?.ActualThemeVariant == ThemeVariant.Light
+    };
     public string AppBackground => IsLightTheme ? "#F4F6FA" : "#101114";
     public string PanelBackground => IsLightTheme ? "#FFFFFF" : "#17191F";
     public string CardBackground => IsLightTheme ? "#F9FAFC" : "#20232B";
@@ -1950,6 +1959,12 @@ public sealed class MainViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(CanvasBackground));
         this.RaisePropertyChanged(nameof(CanvasFooterBackground));
         this.RaisePropertyChanged(nameof(CanvasFooterText));
+    }
+
+    private void OnActualThemeVariantChanged(object? sender, EventArgs e)
+    {
+        if (string.Equals(SelectedTheme, "System", StringComparison.OrdinalIgnoreCase))
+            RaiseThemePaletteChanged();
     }
 
     private void RefreshLocalization()
