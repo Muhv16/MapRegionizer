@@ -2,6 +2,9 @@ using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
 using MapRegionizer.Core.Spatial;
+using MapRegionizer.Core.Climate;
+using MapRegionizer.Core.Tectonics;
+using MapRegionizer.Core.Terrain;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation;
@@ -10,29 +13,67 @@ public sealed class MapGenerationSession
 {
     private readonly MapGenerationPipeline _pipeline;
     private readonly MapGenerationContext _context;
+    private readonly MapGenerationRequest _request;
 
-    private MapGenerationSession(MapGenerationContext context, MapGenerationPipeline pipeline)
+    private MapGenerationSession(MapGenerationContext context, MapGenerationPipeline pipeline, MapGenerationRequest request)
     {
         _context = context;
         _pipeline = pipeline;
+        _request = request;
     }
 
     public static MapGenerationSession Create(MapMask mask, MapGenerationOptions? options = null, MapGenerationPipeline? pipeline = null, GeometryFactory? geometryFactory = null)
     {
         ArgumentNullException.ThrowIfNull(mask);
-        options ??= new MapGenerationOptions();
-        options.Validate();
+        var request = MapGenerationRequest.Legacy(mask, options);
+        return Create(request, pipeline, geometryFactory);
+    }
+
+    public static MapGenerationSession Create(MapGenerationRequest request, MapGenerationPipeline? pipeline = null, GeometryFactory? geometryFactory = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
 
         geometryFactory ??= new GeometryFactory();
         pipeline ??= MapGenerationPipelineBuilder.CreateDefault().Build();
-        var randomSeed = options.Seed ?? Random.Shared.Next();
-        var context = new MapGenerationContext(mask, options, geometryFactory, randomSeed);
+        request.ValidateFiniteHalo(pipeline);
+        var mask = request.MaskSource?.GetMask(request.WorkingDomain.Window)
+            ?? throw new InvalidOperationException("A mask source is required to materialize the working domain.");
+        if (!mask.Window.Equals(request.WorkingDomain.Window))
+            throw new ArgumentException($"Mask source returned {mask.Window}; expected {request.WorkingDomain.Window}.", nameof(request));
 
-        return new MapGenerationSession(context, pipeline);
+        var requestedSpatial = request.Options.EffectiveSpatial;
+        var workingOptions = PrepareWorkingOptions(request, requestedSpatial);
+        var randomSeed = workingOptions.Seed ?? (request.Mode == RegionalGenerationMode.Automatic
+            ? request.WorldSeed
+            : Random.Shared.Next());
+        var context = new MapGenerationContext(
+            mask,
+            workingOptions,
+            geometryFactory,
+            randomSeed,
+            request.RequestedDomain,
+            request.WorkingDomain,
+            request.Mode,
+            request.ClimateBoundary,
+            request.HydrologyBoundary,
+            requestedSpatial);
+
+        return new MapGenerationSession(context, pipeline, request);
     }
 
     public GeneratedMap CurrentMap => _context.ToGeneratedMap();
     public MapMask Mask => _context.Mask;
+    public MapMask WorkingMask => _context.Mask;
+    public RequestedDomain RequestedDomain => _context.RequestedDomain;
+    public WorkingDomain WorkingDomain => _context.WorkingDomain;
+    public RegionalGenerationMode GenerationMode => _context.GenerationMode;
+    public int WorldSeed => _context.WorldSeed;
+    public IClimateBoundaryContext ClimateBoundary => _context.ClimateBoundary;
+    public IHydrologyBoundaryContext HydrologyBoundary => _context.HydrologyBoundary;
+    public IClimateBoundaryContext ClimateBoundaryContext => _context.ClimateBoundary;
+    public IHydrologyBoundaryContext HydrologyBoundaryContext => _context.HydrologyBoundary;
+    public TectonicWorldContext? TectonicWorldContext => _context.TectonicWorldContext;
+    public ClimateWorldContext? ClimateWorldContext => _context.ClimateWorldContext;
     public MapGenerationOptions Options => _context.Options;
     public MapSpatialContext SpatialContext => _context.SpatialContext;
     public MapSpatialReference SpatialReference => _context.SpatialReference;
@@ -75,12 +116,15 @@ public sealed class MapGenerationSession
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(dirtyRoots);
 
-        options.Validate();
-        var spatialChanged = !Equals(_context.Options.EffectiveSpatial, options.EffectiveSpatial);
-        _context.UpdateOptions(options);
+        var spatialChanged = !Equals(_context.RequestedSpatialOptions, options.EffectiveSpatial);
+        var worldSeedChanged = _context.Options.WorldSeed != options.WorldSeed || _context.Options.Seed != options.Seed;
+        var workingOptions = PrepareWorkingOptions(options, _request, options.EffectiveSpatial);
+        _context.UpdateOptions(workingOptions, options.EffectiveSpatial);
         var roots = dirtyRoots.ToHashSet();
         if (spatialChanged)
             roots.Add(MapDataKeys.SpatialContext);
+        if (worldSeedChanged)
+            roots.Add(MapDataKeys.WorldSeed);
 
         _pipeline.MarkDirty(_context, roots);
     }
@@ -94,5 +138,41 @@ public sealed class MapGenerationSession
     {
         _context.SetExternalRegionDraft(draft);
         _pipeline.MarkDirty(_context, [MapDataKeys.RegionDraft]);
+    }
+
+    private static MapGenerationOptions PrepareWorkingOptions(MapGenerationRequest request, MapSpatialOptions requestedSpatial) =>
+        PrepareWorkingOptions(request.Options, request, requestedSpatial);
+
+    private static MapGenerationOptions PrepareWorkingOptions(MapGenerationOptions options, MapGenerationRequest request, MapSpatialOptions requestedSpatial)
+    {
+        var spatial = requestedSpatial;
+        if (request.Mode != RegionalGenerationMode.Legacy &&
+            spatial.Coverage.Kind == MapCoverageKind.Regional &&
+            spatial.Topology == GridTopologyKind.CylindricalX &&
+            spatial.LegacyCompatibility == LegacyCompatibilityProfile.None)
+        {
+            spatial = spatial with { Topology = GridTopologyKind.OpenRectangular };
+        }
+
+        if (!request.RequestedDomain.Window.Equals(request.WorkingDomain.Window) && spatial.Coverage.Kind == MapCoverageKind.Regional)
+            spatial = ExpandRegionalCoverage(spatial, request.RequestedDomain, request.WorkingDomain);
+
+        return options.WithSpatial(spatial);
+    }
+
+    private static MapSpatialOptions ExpandRegionalCoverage(MapSpatialOptions spatial, RequestedDomain requested, WorkingDomain working)
+    {
+        var (offsetX, offsetY) = working.OffsetOf(requested);
+        var coverage = spatial.Coverage;
+        var lonCell = coverage.Longitude.SpanDegrees / requested.Width;
+        var latCell = coverage.LatitudeSpan / requested.Height;
+        var start = coverage.Longitude.StartLongitudeDegrees - offsetX * lonCell;
+        var span = working.Width * lonCell;
+        var north = coverage.NorthLatitude + offsetY * latCell;
+        var south = north - working.Height * latCell;
+        return spatial with
+        {
+            Coverage = MapCoverage.Regional(new LongitudeInterval(start, span), south, north)
+        };
     }
 }

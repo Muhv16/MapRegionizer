@@ -16,7 +16,8 @@ public sealed class GenerateTectonicFeaturesStage : IMapGenerationStage
         MapDataKeys.TectonicBoundaries,
         MapDataKeys.OrogenProvinces,
         MapDataKeys.RiftProvinces,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.TectonicWorldContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.TectonicFeatures };

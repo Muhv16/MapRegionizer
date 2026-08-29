@@ -9,6 +9,13 @@ public static class MapDataKeys
 {
     public static readonly MapDataKey Mask = new("mask");
     public static readonly MapDataKey SpatialContext = new("spatialContext");
+    public static readonly MapDataKey WorldSeed = new("worldSeed");
+    public static readonly MapDataKey RequestedDomain = new("requestedDomain");
+    public static readonly MapDataKey WorkingDomain = new("workingDomain");
+    public static readonly MapDataKey TectonicWorldContext = new("tectonicWorldContext");
+    public static readonly MapDataKey ClimateWorldContext = new("climateWorldContext");
+    public static readonly MapDataKey ClimateBoundaryContext = new("climateBoundaryContext");
+    public static readonly MapDataKey HydrologyBoundaryContext = new("hydrologyBoundaryContext");
     public static readonly MapDataKey Landmasses = new("landmasses");
     public static readonly MapDataKey WaterBodies = new("waterBodies");
     public static readonly MapDataKey WaterBodyTopology = new("waterBodyTopology");
@@ -42,6 +49,7 @@ public static class MapStageIds
     public const string DistortRegionBoundaries = "distortRegionBoundaries";
     public const string RasterizeRegions = "rasterizeRegions";
     public const string GenerateTectonicHistory = "generateTectonicHistory";
+    public const string GenerateTectonicWorldContext = "generateTectonicWorldContext";
     public const string GenerateCrustFields = "generateCrustFields";
     public const string GeneratePlateDomains = "generatePlateDomains";
     public const string GenerateTectonicBoundaries = "generateTectonicBoundaries";
@@ -53,5 +61,6 @@ public static class MapStageIds
     public const string GenerateLakeLevels = "generateLakeLevels";
     public const string GenerateHydrology = "generateHydrology";
     public const string GenerateClimate = "generateClimate";
+    public const string GenerateClimateWorldContext = "generateClimateWorldContext";
     public const string GenerateTectonicPlates = "generateTectonicPlates";
 }

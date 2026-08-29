@@ -2,23 +2,28 @@ using MapRegionizer.Core.Climate;
 
 namespace MapRegionizer.Core.Generation.Stages;
 
-public sealed class GenerateClimateStage : IMapGenerationStage
+public sealed class GenerateClimateStage : IMapGenerationStage, ISpatialBoundaryAwareStage
 {
     public string Id => MapStageIds.GenerateClimate;
 
     public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey>
     {
+        MapDataKeys.Mask,
         MapDataKeys.Elevation,
         MapDataKeys.WaterSurfaces,
         MapDataKeys.WaterBodyTopology,
         MapDataKeys.Hydrology,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.ClimateWorldContext,
+        MapDataKeys.ClimateBoundaryContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey>
     {
         MapDataKeys.Climate
     };
+
+    public StageBoundaryMetadata BoundaryMetadata => StageBoundaryMetadata.Propagating();
 
     public void Execute(MapGenerationContext context)
     {
@@ -28,6 +33,16 @@ public sealed class GenerateClimateStage : IMapGenerationStage
         var hydrology = context.Hydrology ?? throw new InvalidOperationException("Hydrology is required.");
         var seed = context.Options.Seed ?? 0;
         var generator = new ClimateGenerator(unchecked(seed * 397 ^ 0x5C11A7E));
-        context.Climate = generator.Generate(context.Mask, elevation, waterBodyTopology, waterSurfaces, hydrology, context.SpatialContext, context.Options.Climate);
+        context.Climate = generator.Generate(
+            context.Mask,
+            elevation,
+            waterBodyTopology,
+            waterSurfaces,
+            hydrology,
+            context.SpatialContext,
+            context.Options.Climate,
+            context.ClimateWorldContext?.Boundary ?? context.ClimateBoundary,
+            context.WorldOriginX,
+            context.WorldOriginY);
     }
 }

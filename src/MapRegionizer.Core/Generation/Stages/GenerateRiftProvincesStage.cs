@@ -12,7 +12,8 @@ public sealed class GenerateRiftProvincesStage : IMapGenerationStage
         MapDataKeys.TectonicHistory,
         MapDataKeys.CrustFields,
         MapDataKeys.TectonicBoundaries,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.TectonicWorldContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.RiftProvinces };

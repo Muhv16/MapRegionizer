@@ -58,6 +58,13 @@ public sealed class TectonicFeatureMap
 
     public double GetSedimentSupply(int x, int y) => _sedimentSupply[y * Width + x];
 
+    public ReadOnlySpan<double> UpliftSpan => _uplift;
+    public ReadOnlySpan<double> SubsidenceSpan => _subsidence;
+    public ReadOnlySpan<double> VolcanismSpan => _volcanism;
+    public ReadOnlySpan<double> SeismicitySpan => _seismicity;
+    public ReadOnlySpan<double> HeatFlowSpan => _heatFlow;
+    public ReadOnlySpan<double> SedimentSupplySpan => _sedimentSupply;
+
     private static void CrustFieldMapValidateLength<T>(T[] array, int expectedLength, string parameterName)
     {
         if (array.Length != expectedLength)

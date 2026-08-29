@@ -125,7 +125,7 @@ internal static class RiverPathGeometryValidator
             if (!topology.GetNeighbors8(a).Contains(b))
                 return null;
         }
-        else if (Math.Abs(CylindricalXTopology.WrappedDeltaX(b.X - a.X, width)) > 1)
+        else if (Math.Abs(GridTopologyMath.WrappedDeltaX(topology ?? new CylindricalXTopology(width, Math.Max(a.Y, b.Y) + 1), b.X - a.X)) > 1)
             return null;
 
         var dx = GridTopologyMath.WrappedDeltaX(topology ?? new CylindricalXTopology(width, Math.Max(a.Y, b.Y) + 1), b.X - a.X);

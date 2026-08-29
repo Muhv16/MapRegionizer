@@ -335,3 +335,19 @@ Those layers are still present in domain data and JSON. They are hidden or conve
 - Raw `uplift` and `seismicity` rasters are useful for terrain/earthquake/resource generation, but they are not always suitable for direct summary rendering.
 - Microplates are intentionally rare and validated aggressively. Small circular or isolated candidates are merged rather than shown as decorative plates.
 - Equirectangular wrapping is supported horizontally; regional/flat maps may need different edge behavior later.
+
+## Automatic regional world identity
+
+`TectonicWorldContext` is the deterministic source for automatic regional
+generation. It is created from `MapGenerationOptions.WorldSeed`, stores stable
+plate IDs, motions, hotspots, macro lineaments, and rift systems, and is
+sampled using world-aligned coordinates from `WorkingDomain`. The latent
+world has a fixed sampling lattice; requested width, height, crop, and local
+iteration order therefore cannot change object identity or plate assignment.
+The local `PlateDomainMap` and history layers are projections of that context.
+
+Legacy and `Isolated` requests deliberately retain the existing local
+simulation path and its compatibility random stream. This distinction is
+intentional: an isolated region is reproducible as a standalone map, whereas
+an automatic region is a window into a seeded world and should agree with a
+same-resolution full-world sample on overlap.

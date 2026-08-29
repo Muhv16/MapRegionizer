@@ -10,7 +10,8 @@ public sealed class GenerateTectonicBoundariesStage : IMapGenerationStage
     {
         MapDataKeys.PlateDomains,
         MapDataKeys.CrustFields,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.TectonicWorldContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.TectonicBoundaries };

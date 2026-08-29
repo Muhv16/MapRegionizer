@@ -11,7 +11,7 @@ using Xunit;
 
 namespace MapRegionizer.Core.Tests;
 
-public sealed class Stage6To8ProjectionContractTests
+public sealed class ProjectionContractTests
 {
     private const double WebLimit = WebMercator3857.LatitudeLimitDegrees;
 

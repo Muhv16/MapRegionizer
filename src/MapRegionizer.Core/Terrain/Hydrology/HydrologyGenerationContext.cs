@@ -12,7 +12,10 @@ internal sealed record HydrologyGenerationContext(
     WaterSurfaceMap WaterSurfaces,
     HydrologyGenerationOptions Options,
     int Seed,
-    IGridTopology GridTopology)
+    IGridTopology GridTopology,
+    IHydrologyBoundaryContext? Boundary = null,
+    int WorldOriginX = 0,
+    int WorldOriginY = 0)
 {
     public int Width => Mask.Width;
     public int Height => Mask.Height;

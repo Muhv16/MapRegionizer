@@ -2,23 +2,27 @@ using MapRegionizer.Core.Terrain;
 
 namespace MapRegionizer.Core.Generation.Stages;
 
-public sealed class GenerateHydrologyStage : IMapGenerationStage
+public sealed class GenerateHydrologyStage : IMapGenerationStage, ISpatialBoundaryAwareStage
 {
     public string Id => MapStageIds.GenerateHydrology;
 
     public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey>
     {
+        MapDataKeys.Mask,
         MapDataKeys.Elevation,
         MapDataKeys.WaterSurfaces,
         MapDataKeys.WaterBodyTopology,
         MapDataKeys.GeneratedLakes,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.HydrologyBoundaryContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey>
     {
         MapDataKeys.Hydrology
     };
+
+    public StageBoundaryMetadata BoundaryMetadata => StageBoundaryMetadata.Propagating();
 
     public void Execute(MapGenerationContext context)
     {
@@ -35,6 +39,9 @@ public sealed class GenerateHydrologyStage : IMapGenerationStage
             generatedLakes,
             waterSurfaces,
             context.SpatialContext,
-            context.Options.Hydrology);
+            context.Options.Hydrology,
+            context.HydrologyBoundary,
+            context.WorldOriginX,
+            context.WorldOriginY);
     }
 }

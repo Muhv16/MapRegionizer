@@ -2,9 +2,59 @@ using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Domain;
 
-public sealed record MapMask(int Width, int Height, IReadOnlySet<GridPoint> LandPoints)
+public sealed record MapMask
 {
+    public MapMask(int Width, int Height, IReadOnlySet<GridPoint> LandPoints)
+        : this(GridWindow.FromSize(Width, Height), LandPoints)
+    {
+    }
+
+    /// <summary>
+    /// Creates a mask for a world-aligned window.  Land points are local cell
+    /// coordinates in the window (the same convention as the legacy mask).
+    /// </summary>
+    public MapMask(GridWindow Window, IReadOnlySet<GridPoint> LandPoints)
+    {
+        ArgumentNullException.ThrowIfNull(LandPoints);
+
+        this.Window = Window;
+        Width = Window.Width;
+        Height = Window.Height;
+        this.LandPoints = LandPoints;
+        if (LandPoints.Any(point => point.X < 0 || point.X >= Width || point.Y < 0 || point.Y >= Height))
+            throw new ArgumentException("Land points must use local coordinates inside the mask window.", nameof(LandPoints));
+    }
+
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public GridWindow Window { get; }
+    public int OriginX => Window.X;
+    public int OriginY => Window.Y;
+    public IReadOnlySet<GridPoint> LandPoints { get; init; }
+
     public bool IsLand(GridPoint point) => LandPoints.Contains(point);
+
+    public void Deconstruct(out int width, out int height, out IReadOnlySet<GridPoint> landPoints)
+    {
+        width = Width;
+        height = Height;
+        landPoints = LandPoints;
+    }
+
+    public MapMask Crop(GridWindow requestedWindow)
+    {
+        if (!Window.Contains(requestedWindow))
+            throw new ArgumentException("Requested window must be contained by the mask window.", nameof(requestedWindow));
+
+        var offsetX = requestedWindow.X - Window.X;
+        var offsetY = requestedWindow.Y - Window.Y;
+        var points = LandPoints
+            .Where(point => point.X >= offsetX && point.X < offsetX + requestedWindow.Width &&
+                            point.Y >= offsetY && point.Y < offsetY + requestedWindow.Height)
+            .Select(point => new GridPoint(point.X - offsetX, point.Y - offsetY))
+            .ToHashSet();
+        return new MapMask(requestedWindow, points);
+    }
 }
 
 public readonly record struct GridPoint(int X, int Y);
@@ -21,7 +71,10 @@ public sealed record GeneratedMap(
     HydrologyMap? Hydrology = null,
     ClimateMap? Climate = null,
     RegionRaster? RegionRaster = null,
-    MapSpatialReference? SpatialReference = null);
+    MapSpatialReference? SpatialReference = null,
+    RequestedDomain? RequestedDomain = null,
+    WorkingDomain? WorkingDomain = null,
+    RegionalGenerationMode GenerationMode = RegionalGenerationMode.Legacy);
 
 /// <summary>
 /// Map extents in canonical map units. The constructor keeps the historical

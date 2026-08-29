@@ -36,10 +36,34 @@ public sealed class MapGenerationOptions
     public BoundaryDistortionOptions Boundaries { get; init; } = new();
     [Obsolete("Use Spatial.Projection is represented by WorldModel, Coverage, GridMapping, and Topology.")]
     public MapProjectionMode ProjectionMode { get; init; } = MapProjectionMode.EquirectangularWorld;
+    /// <summary>
+    /// Stable seed for world-context generation.  Legacy callers may continue
+    /// using <see cref="Seed"/>; when both are supplied WorldSeed governs
+    /// automatic regional identity while Seed keeps local compatibility paths
+    /// reproducible.
+    /// </summary>
+    public int? WorldSeed { get; init; }
     public TectonicPlateGenerationOptions TectonicPlates { get; init; } = new();
     public ElevationGenerationOptions Elevation { get; init; } = new();
     public HydrologyGenerationOptions Hydrology { get; init; } = new();
     public ClimateGenerationOptions Climate { get; init; } = new();
+
+    internal MapGenerationOptions WithSpatial(MapSpatialOptions spatial) => new()
+    {
+        Spatial = spatial,
+        Seed = Seed,
+        WorldSeed = WorldSeed,
+        Debug = Debug,
+        ShapeExtraction = ShapeExtraction,
+        WaterBodies = WaterBodies,
+        Regions = Regions,
+        Boundaries = Boundaries,
+        ProjectionMode = ProjectionMode,
+        TectonicPlates = TectonicPlates,
+        Elevation = Elevation,
+        Hydrology = Hydrology,
+        Climate = Climate
+    };
 
     /// <summary>
     /// Returns spatial options while honoring an explicitly supplied legacy

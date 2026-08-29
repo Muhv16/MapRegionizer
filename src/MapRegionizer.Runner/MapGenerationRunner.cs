@@ -149,6 +149,7 @@ public sealed class MapGenerationRunner
         {
             Spatial = options.EffectiveSpatial,
             Seed = options.Seed,
+            WorldSeed = options.WorldSeed,
             Debug = options.Debug,
             ShapeExtraction = options.ShapeExtraction,
             WaterBodies = options.WaterBodies,

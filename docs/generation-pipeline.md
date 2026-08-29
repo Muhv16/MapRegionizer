@@ -21,6 +21,13 @@ Current core data keys:
 ```text
 Mask
 SpatialContext
+WorldSeed
+RequestedDomain
+WorkingDomain
+TectonicWorldContext
+ClimateWorldContext
+ClimateBoundaryContext
+HydrologyBoundaryContext
 Landmasses
 WaterBodies
 WaterBodyTopology
@@ -70,6 +77,7 @@ The default pipeline contains these stages:
 ExtractLandmassesStage
  -> ExtractWaterBodiesStage
  -> ClassifyWaterBodiesStage
+ -> GenerateTectonicWorldContextStage
  -> GenerateTectonicHistoryStage
  -> GenerateCrustFieldsStage
  -> GeneratePlateDomainsStage
@@ -105,16 +113,20 @@ ClassifyWaterBodiesStage
   requires: Mask, Landmasses, WaterBodies, SpatialContext
   produces: WaterBodyTopology
 
+GenerateTectonicWorldContextStage
+  requires: SpatialContext, WorldSeed
+  produces: TectonicWorldContext
+
 GenerateTectonicHistoryStage
-  requires: Mask, Landmasses, WaterBodies, SpatialContext
+  requires: Mask, Landmasses, WaterBodies, SpatialContext, TectonicWorldContext
   produces: TectonicHistory
 
 GenerateCrustFieldsStage
-  requires: Mask, TectonicHistory, SpatialContext
+  requires: Mask, TectonicHistory, SpatialContext, TectonicWorldContext
   produces: CrustFields
 
 GeneratePlateDomainsStage
-  requires: Mask, CrustFields, TectonicHistory, SpatialContext
+  requires: Mask, CrustFields, TectonicHistory, SpatialContext, TectonicWorldContext
   produces: PlateDomains
 
 GenerateTectonicBoundariesStage
@@ -130,11 +142,11 @@ GenerateRiftProvincesStage
   produces: RiftProvinces
 
 GenerateTectonicFeaturesStage
-  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, SpatialContext
+  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, SpatialContext, TectonicWorldContext
   produces: TectonicFeatures
 
 GenerateElevationStage
-  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology, SpatialContext
+  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology, SpatialContext, TectonicWorldContext
   produces: BaseTerrain
 
 GenerateSmallLakesStage
@@ -146,11 +158,15 @@ GenerateLakeLevelsStage
   produces: Elevation, WaterSurfaces
 
 GenerateHydrologyStage
-  requires: Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes, SpatialContext
+  requires: Mask, Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes, SpatialContext, HydrologyBoundaryContext
   produces: Hydrology
 
+GenerateClimateWorldContextStage
+  requires: SpatialContext, WorldSeed, ClimateBoundaryContext
+  produces: ClimateWorldContext
+
 GenerateClimateStage
-  requires: Elevation, WaterSurfaces, WaterBodyTopology, Hydrology, SpatialContext
+  requires: Mask, Elevation, WaterSurfaces, WaterBodyTopology, Hydrology, SpatialContext, ClimateWorldContext, ClimateBoundaryContext
   produces: Climate
 
 AssembleTectonicPlateMapStage
@@ -450,3 +466,36 @@ GenerateClimateStage
 ```
 
 With this model, if a user likes generated regions but dislikes generated tectonics or terrain, only tectonic generation and downstream elevation/compatibility data need to be regenerated. Region data remains clean and reusable.
+
+## Regional requests and boundary contexts
+
+`MapGenerationRequest` separates the immutable `RequestedDomain` from the
+world-aligned `WorkingDomain`. A request with `RegionalGenerationMode.Automatic`
+must provide an `IMapMaskSource`; the source is asked for the complete working
+window, including any halo. Generation runs on that mask and
+`GeneratedMap` crops rasters and canonical geometry to the requested window
+only after the pipeline finishes. The returned spatial reference and bounds
+are recreated for the requested dimensions, so geographic edges remain
+aligned with the original requested coverage. The legacy
+`Generate(MapMask, ...)` overload creates a `Legacy` request with no crop and
+retains its historical cylindrical and isolated boundary behavior.
+
+Stages expose `StageBoundaryMetadata`: `FiniteLocal` stages may declare a
+specific required halo, while `Propagating` stages (moisture and drainage) and
+`GlobalContextDependent` stages (automatic tectonic identity) use explicit
+boundary/world contexts instead of pretending a finite halo is sufficient.
+`MapGenerationRequest.ValidateFiniteHalo` validates finite requirements for a
+custom pipeline; non-finite dependencies are intentionally not converted to a
+universal radius.
+
+Automatic tectonics is keyed by `WorldSeed` and samples a stable latent
+`TectonicWorldContext` at world coordinates. Consequently, plate IDs and
+world-object identity do not depend on requested crop size or iteration order.
+Climate and hydrology receive `IClimateBoundaryContext` and
+`IHydrologyBoundaryContext` respectively. Their analytical/default providers
+are deterministic; `Isolated` uses explicit dry/closed boundaries, while
+automatic requests can supply incoming moisture/flow, external elevation and
+water, and downstream targets from a coarse-world provider. Incoming flow is
+propagated through the local flow graph before visible river extraction, and
+external elevation/water are used only for boundary classification rather than
+inventing local runoff.

@@ -38,4 +38,13 @@ public sealed class MapGenerator
         session.RunFull();
         return session.CurrentMap;
     }
+
+    /// <summary>Generates an aligned regional request, executing on its working domain and cropping at the end.</summary>
+    public GeneratedMap Generate(MapGenerationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var session = MapGenerationSession.Create(request, _pipeline, _geometryFactory);
+        session.RunFull();
+        return session.CurrentMap;
+    }
 }

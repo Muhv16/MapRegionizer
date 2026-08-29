@@ -8,7 +8,7 @@ using Xunit;
 
 namespace MapRegionizer.Core.Tests;
 
-public sealed class Stage5OutputContractTests
+public sealed class GeographicOutputContractTests
 {
     [Fact]
     public void GeographicGeometryRoundTripsToCanonicalGridMapUnitsAndPreservesYOrientation()

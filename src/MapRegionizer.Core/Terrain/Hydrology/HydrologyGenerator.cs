@@ -40,10 +40,13 @@ internal sealed class HydrologyGenerator
         GeneratedLakeMap generatedLakes,
         WaterSurfaceMap waterSurfaces,
         MapSpatialContext spatialContext,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IHydrologyBoundaryContext? boundaryContext = null,
+        int worldOriginX = 0,
+        int worldOriginY = 0)
     {
         ArgumentNullException.ThrowIfNull(spatialContext);
-        var context = new HydrologyGenerationContext(mask, elevation, waterBodyTopology, generatedLakes, waterSurfaces, options, _seed, spatialContext.GridTopology);
+        var context = new HydrologyGenerationContext(mask, elevation, waterBodyTopology, generatedLakes, waterSurfaces, options, _seed, spatialContext.GridTopology, boundaryContext, worldOriginX, worldOriginY);
         var lakes = new LakeConnector(_seed);
         var graph = new DrainageGraphBuilder(_seed);
         var basins = new BasinDelineator();
@@ -96,6 +99,12 @@ internal sealed class HydrologyGenerator
             endorheicPolicies = BasinDelineator.BuildEndorheicRiverPolicies(basinState.Basins, context.Elevation);
         }
 
+        // Boundary contributions are injected once after the local flow graph
+        // has stabilized, then propagated along the final downstream paths.
+        ApplyIncomingBoundaryFlow(context, flowState.FlowDirections, flowState.Accumulation);
+        basinState = basins.Build(context, flowState.FlowDirections, flowState.Accumulation, lakeIds);
+        endorheicPolicies = BasinDelineator.BuildEndorheicRiverPolicies(basinState.Basins, context.Elevation);
+
         var validEndorheicBasins = BasinDelineator.BuildValidEndorheicBasinSet(basinState.Basins, endorheicPolicies, options.MaxEndorheicBasins);
         var allowedRiverBasins = BasinDelineator.BuildAllowedRiverBasinSet(basinState.Basins, validEndorheicBasins);
 
@@ -121,10 +130,93 @@ internal sealed class HydrologyGenerator
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height, options.MaxEndorheicBasins, context.GridTopology);
         riverSegments = rivers.ResolveVisibleCrossings(riverSegments, context.Width, context.GridTopology);
         riverSegments = rivers.FinalizeVisibleRivers(riverSegments, context.Width, context.Height, options.MaxEndorheicBasins, context.GridTopology);
+        riverSegments = ApplyExternalTargets(context, riverSegments);
         mouths.Clear();
-        mouths.AddRange(riverSegments.Select(r => new RiverMouth(r.Id, r.Mouth, r.TargetKind, r.TargetId, r.MouthKind ?? RiverMouthKind.SimpleMouth, r.Discharge)));
+        mouths.AddRange(riverSegments
+            .Where(river => !IsExternalTerminal(context, river.DrainageTerminal))
+            .Select(r => new RiverMouth(r.Id, r.Mouth, r.TargetKind, r.TargetId, r.MouthKind ?? RiverMouthKind.SimpleMouth, r.Discharge)));
 
         var finalRiverCells = HydrologyMapAssembler.BuildRiverCellRaster(context.Width, context.Height, riverSegments, context.GridTopology);
         return HydrologyMapAssembler.Create(context, hydroSurface, flowState.FlowDirections, flowState.Accumulation, basinState.BasinIds, finalRiverCells, riverSegments, mouths, outlets, basinState.Basins);
+    }
+
+    private static void ApplyIncomingBoundaryFlow(HydrologyGenerationContext context, int[] flowDirections, double[] accumulation)
+    {
+        if (context.Boundary is null || context.Boundary is IsolatedHydrologyBoundaryContext)
+            return;
+
+        for (var y = 0; y < context.Height; y++)
+        {
+            for (var x = 0; x < context.Width; x++)
+            {
+                if (x != 0 && x != context.Width - 1 && y != 0 && y != context.Height - 1)
+                    continue;
+                var worldX = context.WorldOriginX + x;
+                var worldY = context.WorldOriginY + y;
+                var incoming = context.Boundary.GetIncomingFlow(worldX, worldY);
+                // Only incoming flow is injected into accumulation. External
+                // elevation/water are consulted by terminal classification,
+                // never converted into synthetic runoff.
+                var contribution = incoming;
+                if (!double.IsFinite(contribution) || contribution <= 0)
+                    continue;
+
+                var current = y * context.Width + x;
+                var remaining = contribution;
+                var visited = new HashSet<int>();
+                while (remaining > 0 && visited.Add(current))
+                {
+                    accumulation[current] += remaining;
+                    var next = HydrologyGridMath.DownstreamIndex(current, flowDirections[current], context.GridTopology);
+                    if (next < 0 || next == current)
+                        break;
+                    current = next;
+                    remaining *= 0.995;
+                }
+            }
+        }
+
+    }
+
+    private static bool IsExternalTerminal(HydrologyGenerationContext context, GridPoint terminal)
+    {
+        if (context.Boundary is null || context.Boundary is IsolatedHydrologyBoundaryContext)
+            return false;
+
+        if (terminal.X != 0 && terminal.X != context.Width - 1 && terminal.Y != 0 && terminal.Y != context.Height - 1)
+            return false;
+
+        var worldX = context.WorldOriginX + terminal.X;
+        var worldY = context.WorldOriginY + terminal.Y;
+        var target = context.Boundary.GetExternalDownstreamTarget(worldX, worldY);
+        if (target is not null || context.Boundary.GetExternalWaterInfluence(worldX, worldY))
+            return true;
+
+        var externalElevation = context.Boundary.GetExternalElevation(worldX, worldY);
+        var localElevation = context.Elevation.GetElevation(terminal.X, terminal.Y);
+        return context.Boundary.TreatUnspecifiedBoundaryAsExternal &&
+               double.IsFinite(externalElevation) && localElevation > externalElevation;
+    }
+
+    private static List<RiverSegment> ApplyExternalTargets(
+        HydrologyGenerationContext context,
+        List<RiverSegment> rivers)
+    {
+        if (context.Boundary is null || context.Boundary is IsolatedHydrologyBoundaryContext)
+            return rivers;
+
+        return rivers.Select(river =>
+        {
+            var terminal = river.DrainageTerminal;
+            if (terminal.X != 0 && terminal.X != context.Width - 1 && terminal.Y != 0 && terminal.Y != context.Height - 1)
+                return river;
+
+            var target = context.Boundary.GetExternalDownstreamTarget(
+                context.WorldOriginX + terminal.X,
+                context.WorldOriginY + terminal.Y);
+            return target is null
+                ? river
+                : river with { TargetKind = target.Kind, TargetId = target.TargetId };
+        }).ToList();
     }
 }

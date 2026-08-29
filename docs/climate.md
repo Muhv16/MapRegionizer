@@ -304,3 +304,23 @@ The presentation palette deliberately separates transitional dry biomes by value
 Biome edges are lightly blended with neighboring biome colors, while uninterrupted biome interiors get a small saturation/value lift. River-valley accents are rendered separately from broad floodplain data: floodplain and wetland biomes may occupy lowlands, but the presentation layer draws a thinner, brighter green/blue-green accent directly along river polylines based on discharge.
 
 `climate.json` includes compact run-length encoded rows for climate class, biome, mean annual temperature, physical moisture, biome moisture, habitability, and agricultural potential. Diagnostic mode adds summer and winter temperature, seasonality, latitude, atmospheric moisture, precipitation, rain shadow, monsoon influence, river-valley influence, wetland influence, snow overlay, mountain overlay, and ice score rows.
+
+## Regional boundary contract
+
+Climate forcing always uses the latitude supplied by the session's immutable
+`MapSpatialContext`; it does not infer latitude from a local row number. A
+regional automatic request supplies an `IClimateBoundaryContext` through its
+`ClimateWorldContext`. The upwind edge is initialized from
+`GetIncomingMoisture(worldX, worldY, latitudeDegrees)`, then moisture is
+advected across the working window, so a requested crop does not silently
+reset every upwind row to zero. Providers may also expose external elevation
+and water influence for the first upwind sample. These values affect the
+boundary slope/evaporation calculation only; they do not replace the local
+elevation raster.
+
+`IsolatedClimateBoundaryContext` is the explicit compatibility policy for
+legacy and isolated requests: it contributes no incoming moisture and no
+external water/elevation. `AnalyticalClimateBoundaryContext` is deterministic
+for a `WorldSeed` and is the default for automatic requests. A coarse global
+climate implementation can satisfy the same interface without introducing a
+separate regional climate generator.

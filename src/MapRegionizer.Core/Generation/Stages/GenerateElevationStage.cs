@@ -16,7 +16,8 @@ public sealed class GenerateElevationStage : IMapGenerationStage
         MapDataKeys.RiftProvinces,
         MapDataKeys.TectonicFeatures,
         MapDataKeys.WaterBodyTopology,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.TectonicWorldContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.BaseTerrain };

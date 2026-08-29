@@ -40,7 +40,10 @@ public sealed class ClimateGenerator
         WaterSurfaceMap waterSurfaces,
         HydrologyMap hydrology,
         MapSpatialContext spatialContext,
-        ClimateGenerationOptions options)
+        ClimateGenerationOptions options,
+        IClimateBoundaryContext? boundaryContext = null,
+        int worldOriginX = 0,
+        int worldOriginY = 0)
     {
         ArgumentNullException.ThrowIfNull(mask);
         ArgumentNullException.ThrowIfNull(elevation);
@@ -128,7 +131,10 @@ public sealed class ClimateGenerator
             atmosphericMoisture,
             precipitation,
             rainShadow,
-            options);
+            options,
+            boundaryContext,
+            worldOriginX,
+            worldOriginY);
 
         ApplyContinentalityAndMonsoons(
             elevation,
@@ -469,7 +475,10 @@ public sealed class ClimateGenerator
         double[] atmosphericMoisture,
         double[] precipitation,
         double[] rainShadow,
-        ClimateGenerationOptions options)
+        ClimateGenerationOptions options,
+        IClimateBoundaryContext? boundaryContext,
+        int worldOriginX,
+        int worldOriginY)
     {
         var width = elevation.Width;
         var height = elevation.Height;
@@ -482,22 +491,40 @@ public sealed class ClimateGenerator
             var end = wind.X >= 0 ? width : -1;
             var step = wind.X >= 0 ? 1 : -1;
 
-            var previous = 0.0;
+            var boundaryX = wind.X >= 0 ? worldOriginX - 1 : worldOriginX + width;
+            var boundaryLatitude = signedLatitudes[y] * 90.0;
+            var previous = boundaryContext?.GetIncomingMoisture(boundaryX, worldOriginY + y, boundaryLatitude) ?? 0.0;
+            if (!double.IsFinite(previous) || previous < 0)
+                throw new ArgumentException("Climate boundary returned a non-finite or negative incoming moisture value.", nameof(boundaryContext));
             for (var x = start; x != end; x += step)
             {
                 var index = y * width + x;
                 var upwindX = x;
-                if (topology.TryResolve(new GridPoint(x, y), -step, 0, out var upwindPoint))
+                var hasUpwindCell = topology.TryResolve(new GridPoint(x, y), -step, 0, out var upwindPoint);
+                if (hasUpwindCell)
                     upwindX = upwindPoint.X;
                 var upwindIndex = y * width + upwindX;
                 var verticalIndex = index;
                 if (topology.TryResolve(new GridPoint(x, y), 0, -Math.Sign(wind.Y), out var verticalPoint))
                     verticalIndex = verticalPoint.Y * width + verticalPoint.X;
+                var externalWater = false;
+                var externalElevation = 0.0;
+                if (!hasUpwindCell && boundaryContext is not null)
+                {
+                    var externalX = worldOriginX + x - step;
+                    var externalY = worldOriginY + y;
+                    externalWater = boundaryContext.GetExternalWaterInfluence(externalX, externalY);
+                    externalElevation = boundaryContext.GetExternalElevation(externalX, externalY);
+                    if (!double.IsFinite(externalElevation))
+                        externalElevation = 0.0;
+                }
+
                 var incoming = previous * options.MoistureRetention +
                     outgoing[verticalIndex] * Math.Abs(wind.Y) * 0.28 +
-                    LocalEvaporation(index, water, largeWater, distanceToLargeWater, riverInfluence, meanAnnualTemperature, options);
+                    LocalEvaporation(index, water, largeWater, distanceToLargeWater, riverInfluence, meanAnnualTemperature, options) +
+                    (externalWater ? options.OceanEvaporation * 0.18 : 0.0);
 
-                var slope = elevation.GetElevation(x, y) - elevation.GetElevation(upwindX, y);
+                var slope = elevation.GetElevation(x, y) - (hasUpwindCell ? elevation.GetElevation(upwindX, y) : externalElevation);
                 var terrainClass = elevation.GetTerrainClass(x, y);
                 var mountainFactor = terrainClass == TerrainClassKind.Mountain ? 0.38 :
                     terrainClass == TerrainClassKind.Highland ? 0.18 : 0.0;

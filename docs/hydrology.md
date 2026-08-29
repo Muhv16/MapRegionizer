@@ -188,6 +188,27 @@ the first `Polyline` entry remains the first continuous part for compatibility.
 No hydrology raster, canonical cell path, or source `RiverSegment.Polyline` is
 modified by export.
 
+## Regional boundary contract
+
+`IHydrologyBoundaryContext` makes regional drainage semantics explicit. It can
+provide incoming flow at a world-aligned edge cell, an external downstream
+target (`Ocean`, `Lake`, `InlandSea`, or `EndorheicDryBasin`), external
+elevation, and external water influence. Incoming flow is injected before
+visible river selection and propagated along the stabilized local flow graph,
+so it contributes to downstream accumulation rather than only to the edge
+cell. External elevation and water are consulted when classifying a terminal;
+they are never converted into synthetic local runoff.
+
+`IsolatedHydrologyBoundaryContext` keeps the legacy policy: no incoming flow
+and no outside target, so an open edge may be a local terminal. Automatic
+regional requests can use the deterministic table adapter or a coarse-world
+provider. During the final requested-domain crop, a river with cells inside
+the request is retained even when its source or drainage terminal lies
+outside; only a mouth explicitly represented inside the requested domain is
+published as a local mouth. This prevents a requested edge from manufacturing
+a false source or mouth while still allowing rivers to enter and leave the
+region.
+
 The `Quality` block reports straight-run count and maximum run length, short-river count using a scale-dependent 5..8 cell limit, detached-river count, confluence count, mean tributaries per major river, endorheic river count, maximum alternating zig-zag run, mean curvature, sharp turns, backtrack-like turns, `CrossingRiverEdgeCount` for opposing visible diagonal D8 edges in 2x2 cells, and `PolylineCrossingCount` for remaining substantial crossings or invalid vertex touches between exported render polylines, including parent/child pairs whose child line does not terminate at the contact. It also reports per-river self-geometry diagnostics: `SelfCrossingRiverCount`, `SelfCrossingPolylineCount`, and `DuplicateRiverCellCount`. `Summary.EndorheicRiverCount` is the count of exported rivers whose `Kind` is `Endorheic`. Separate summary counters report lake inflow rivers, closed-lake rivers, open-lake rivers, and dry-basin rivers so closed lakes and dry basins no longer have to be inferred from one overloaded count. `Summary.MajorRiverCount` uses the exported `IsMajor` classification so tiny creeks and steep low-discharge streams do not inflate the major-river total.
 
 `elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled. The renderer samples river polylines into anti-aliased Catmull-Rom-like curves, while preserving wrap breaks so world-edge rivers do not draw across the full image.

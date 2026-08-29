@@ -10,7 +10,8 @@ public sealed class GenerateCrustFieldsStage : IMapGenerationStage
     {
         MapDataKeys.Mask,
         MapDataKeys.TectonicHistory,
-        MapDataKeys.SpatialContext
+        MapDataKeys.SpatialContext,
+        MapDataKeys.TectonicWorldContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.CrustFields };
