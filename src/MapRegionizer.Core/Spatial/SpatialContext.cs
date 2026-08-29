@@ -168,6 +168,7 @@ public sealed class EquirectangularGridMapping : IGridMapping
 public sealed class WebMercatorGridMapping : IGridMapping
 {
     public const double WebMercatorLatitudeLimit = 85.0511287798066;
+    public const double ProjectedCellAspectTolerance = 1e-6;
 
     private readonly MapSpatialReference _reference;
     private readonly double _northMercator;
@@ -180,10 +181,16 @@ public sealed class WebMercatorGridMapping : IGridMapping
         _reference = reference;
         _northMercator = MercatorY(reference.NorthLatitude);
         _southMercator = MercatorY(reference.SouthLatitude);
+
+        if (reference.PreserveProjectedCellAspectRatio)
+            ValidateProjectedCellAspectRatio(reference);
     }
 
     public GeoCoordinate GridToGeographic(GridCoordinate point)
     {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+            throw new ArgumentOutOfRangeException(nameof(point), "Grid coordinates must be finite.");
+
         var u = point.X / _reference.GridWidth;
         var v = point.Y / _reference.GridHeight;
         var longitude = _reference.Longitude.StartLongitudeDegrees + u * _reference.Longitude.SpanDegrees;
@@ -199,9 +206,12 @@ public sealed class WebMercatorGridMapping : IGridMapping
             longitudeDelta = _reference.Longitude.SpanDegrees;
 
         var mercator = MercatorY(point.LatitudeDegrees);
-        return new GridCoordinate(
+        var result = new GridCoordinate(
             longitudeDelta / _reference.Longitude.SpanDegrees * _reference.GridWidth,
             (mercator - _northMercator) / (_southMercator - _northMercator) * _reference.GridHeight);
+        if (!double.IsFinite(result.X) || !double.IsFinite(result.Y))
+            throw new InvalidOperationException("Geographic coordinates could not be mapped to a finite grid coordinate.");
+        return result;
     }
 
     public static double MercatorY(double latitudeDegrees)
@@ -213,8 +223,57 @@ public sealed class WebMercatorGridMapping : IGridMapping
         return Math.Log(Math.Tan(Math.PI / 4 + radians / 2));
     }
 
-    public static double InverseMercatorY(double value) =>
-        Math.Atan(Math.Sinh(value)) * 180.0 / Math.PI;
+    public static double InverseMercatorY(double value)
+    {
+        if (!double.IsFinite(value))
+            throw new ArgumentOutOfRangeException(nameof(value), "Mercator Y must be finite.");
+
+        var latitude = Math.Atan(Math.Sinh(value)) * 180.0 / Math.PI;
+        if (!double.IsFinite(latitude))
+            throw new InvalidOperationException("Inverse Mercator produced a non-finite latitude.");
+        return latitude;
+    }
+
+    public static double ProjectedCellWidth(MapSpatialReference reference)
+    {
+        ValidateProjectedMetricReference(reference);
+        var projectedWidth = WebMercator3857.EarthRadiusMeters * reference.Longitude.SpanDegrees * Math.PI / 180.0;
+        return projectedWidth / reference.GridWidth;
+    }
+
+    public static double ProjectedCellHeight(MapSpatialReference reference)
+    {
+        ValidateProjectedMetricReference(reference);
+        var projectedHeight = WebMercator3857.EarthRadiusMeters *
+                              Math.Abs(MercatorY(reference.NorthLatitude) - MercatorY(reference.SouthLatitude));
+        return projectedHeight / reference.GridHeight;
+    }
+
+    public static double ProjectedCellAspectRatio(MapSpatialReference reference) =>
+        ProjectedCellWidth(reference) / ProjectedCellHeight(reference);
+
+    private static void ValidateProjectedMetricReference(MapSpatialReference reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        reference.Validate();
+        if (reference.GridMapping != GridMappingKind.WebMercator)
+            throw new ArgumentException("Projected cell metrics require Web Mercator grid mapping.", nameof(reference));
+    }
+
+    private static void ValidateProjectedCellAspectRatio(MapSpatialReference reference)
+    {
+        var projectedCellWidth = ProjectedCellWidth(reference);
+        var projectedCellHeight = ProjectedCellHeight(reference);
+        var scale = Math.Max(projectedCellWidth, projectedCellHeight);
+        if (!double.IsFinite(projectedCellWidth) || !double.IsFinite(projectedCellHeight) ||
+            Math.Abs(projectedCellWidth - projectedCellHeight) > scale * ProjectedCellAspectTolerance)
+        {
+            throw new ArgumentException(
+                $"Web Mercator projected cell dimensions must match when {nameof(MapSpatialReference.PreserveProjectedCellAspectRatio)} is enabled. " +
+                $"Got {projectedCellWidth:R} m by {projectedCellHeight:R} m.",
+                nameof(reference));
+        }
+    }
 }
 
 public sealed class GridSamplingMetric : IGridMetric

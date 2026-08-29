@@ -104,9 +104,30 @@ public static class GeoJsonMapWriter
             ["gridMapping"] = reference.GridMapping.ToString(),
             ["topology"] = reference.Topology.ToString(),
             ["canonicalCoordinates"] = reference.CanonicalCoordinates.ToString(),
+            ["preserveProjectedCellAspectRatio"] = reference.PreserveProjectedCellAspectRatio,
             ["legacyCompatibility"] = reference.LegacyCompatibility.ToString(),
-            ["outputCoordinates"] = options.CoordinateSystem.ToString()
+            ["outputCoordinates"] = options.CoordinateSystem.ToString(),
+            ["projection"] = ProjectionName(options),
+            ["latitudeOverflowPolicy"] = options.LatitudeOverflowPolicy.ToString(),
+            ["antimeridianPolicy"] = options.AntimeridianPolicy.ToString(),
+            ["effectiveAntimeridianPolicy"] = EffectiveAntimeridianPolicy(options).ToString(),
+            ["adaptiveDensification"] = options.EnableAdaptiveDensification,
+            ["projectionErrorTolerance"] = options.ProjectionErrorTolerance,
+            ["maxDensificationDepth"] = options.MaxDensificationDepth,
+            ["minDensificationSegmentLength"] = options.MinDensificationSegmentLength
         };
+
+    private static string ProjectionName(MapOutputOptions options) =>
+        options.CoordinateSystem is OutputCoordinateSystem.WebMercator or OutputCoordinateSystem.WebMercator3857
+            ? nameof(OutputCoordinateSystem.WebMercator3857)
+            : options.CoordinateSystem.ToString();
+
+    private static AntimeridianOutputPolicy EffectiveAntimeridianPolicy(MapOutputOptions options) =>
+        options.AntimeridianPolicy == AntimeridianOutputPolicy.Auto
+            ? options.CoordinateSystem is OutputCoordinateSystem.WebMercator or OutputCoordinateSystem.WebMercator3857
+                ? AntimeridianOutputPolicy.Split
+                : AntimeridianOutputPolicy.Unwrap
+            : options.AntimeridianPolicy;
 
     private static MapSpatialReference CreateLegacyReference(GeneratedMap map)
     {

@@ -179,6 +179,15 @@ the transformed document; it also records the legacy compatibility profile
 when one is active. The legacy overloads keep their existing grid-unit
 JSON contract.
 
+The explicit overload also supports `WebMercator3857`. It records the latitude
+overflow, antimeridian, and adaptive-densification policies in
+`spatialReference`; `LatitudeOverflowPolicy.Reject` is the default and
+`Clip` is available for source maps that include polar rows. Projected river
+paths are copied and may be split into `PolylineParts` at the antimeridian;
+the first `Polyline` entry remains the first continuous part for compatibility.
+No hydrology raster, canonical cell path, or source `RiverSegment.Polyline` is
+modified by export.
+
 The `Quality` block reports straight-run count and maximum run length, short-river count using a scale-dependent 5..8 cell limit, detached-river count, confluence count, mean tributaries per major river, endorheic river count, maximum alternating zig-zag run, mean curvature, sharp turns, backtrack-like turns, `CrossingRiverEdgeCount` for opposing visible diagonal D8 edges in 2x2 cells, and `PolylineCrossingCount` for remaining substantial crossings or invalid vertex touches between exported render polylines, including parent/child pairs whose child line does not terminate at the contact. It also reports per-river self-geometry diagnostics: `SelfCrossingRiverCount`, `SelfCrossingPolylineCount`, and `DuplicateRiverCellCount`. `Summary.EndorheicRiverCount` is the count of exported rivers whose `Kind` is `Endorheic`. Separate summary counters report lake inflow rivers, closed-lake rivers, open-lake rivers, and dry-basin rivers so closed lakes and dry basins no longer have to be inferred from one overloaded count. `Summary.MajorRiverCount` uses the exported `IsMajor` classification so tiny creeks and steep low-discharge streams do not inflate the major-river total.
 
 `elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled. The renderer samples river polylines into anti-aliased Catmull-Rom-like curves, while preserving wrap breaks so world-edge rivers do not draw across the full image.

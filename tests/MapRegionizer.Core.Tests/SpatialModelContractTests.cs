@@ -263,13 +263,18 @@ public sealed class SpatialModelContractTests
     }
 
     [Fact]
-    public void WebMercatorOutputIsExplicitlyRejectedUntilProjectionMilestone()
+    public void WebMercatorOutputSupportsExplicitLatitudeClipPolicy()
     {
         var transformer = new MapCoordinateTransformer(
             MapSpatialContext.Create(4, 2, new MapSpatialOptions()),
-            new MapOutputOptions { CoordinateSystem = OutputCoordinateSystem.WebMercator });
+            new MapOutputOptions
+            {
+                CoordinateSystem = OutputCoordinateSystem.WebMercator3857,
+                LatitudeOverflowPolicy = LatitudeOverflowPolicy.Clip
+            });
 
-        Assert.Throws<NotSupportedException>(() => transformer.Transform(new MapPoint(1, 1)));
+        var projected = transformer.Transform(new MapPoint(1, 0));
+        Assert.Equal(WebMercator3857.LatitudeLimitDegrees, WebMercator3857.Inverse(projected).LatitudeDegrees, 10);
     }
 
     [Fact]
@@ -369,7 +374,8 @@ public sealed class SpatialModelContractTests
         {
             Coverage = MapCoverage.Regional(longitude, -40, 40),
             GridMapping = mapping,
-            Topology = GridTopologyKind.OpenRectangular
+            Topology = GridTopologyKind.OpenRectangular,
+            PreserveProjectedCellAspectRatio = mapping != GridMappingKind.WebMercator
         };
         var context = MapSpatialContext.Create(300, 80, options);
         var geographic = context.GridToGeographic(gridPoint);

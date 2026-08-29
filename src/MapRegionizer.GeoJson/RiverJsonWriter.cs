@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Spatial;
+using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.GeoJson;
 
@@ -67,8 +68,17 @@ public static class RiverJsonWriter
             gridMapping = reference.GridMapping.ToString(),
             topology = reference.Topology.ToString(),
             canonicalCoordinates = reference.CanonicalCoordinates.ToString(),
+            preserveProjectedCellAspectRatio = reference.PreserveProjectedCellAspectRatio,
             legacyCompatibility = reference.LegacyCompatibility.ToString(),
-            outputCoordinates = outputOptions.CoordinateSystem.ToString()
+            outputCoordinates = outputOptions.CoordinateSystem.ToString(),
+            projection = ProjectionName(outputOptions),
+            latitudeOverflowPolicy = outputOptions.LatitudeOverflowPolicy.ToString(),
+            antimeridianPolicy = outputOptions.AntimeridianPolicy.ToString(),
+            effectiveAntimeridianPolicy = EffectiveAntimeridianPolicy(outputOptions).ToString(),
+            adaptiveDensification = outputOptions.EnableAdaptiveDensification,
+            projectionErrorTolerance = outputOptions.ProjectionErrorTolerance,
+            maxDensificationDepth = outputOptions.MaxDensificationDepth,
+            minDensificationSegmentLength = outputOptions.MinDensificationSegmentLength
         });
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = exportOptions.WriteIndented });
     }
@@ -164,6 +174,7 @@ public static class RiverJsonWriter
 
     private static RiverDto ToRiverDto(RiverSegment river, RiverJsonExportOptions options, MapCoordinateTransformer? transformer = null)
     {
+        var outputPolyline = ToOutputPolyline(river, transformer);
         return new RiverDto(
             river.Id,
             river.Kind,
@@ -184,17 +195,44 @@ public static class RiverJsonWriter
             river.TributaryIds is { Count: > 0 } ? river.TributaryIds : null,
             river.Cells.Count,
             options.IncludeCellPaths ? river.Cells.Select(ToPoint).ToList() : null,
-            river.Polyline.Select(point => ToOutputPoint(point, transformer)).ToList());
+            outputPolyline.Points,
+            outputPolyline.Parts);
     }
 
-    private static MapPointDto ToOutputPoint(MapPoint point, MapCoordinateTransformer? transformer)
+    private static (IReadOnlyList<MapPointDto> Points, IReadOnlyList<IReadOnlyList<MapPointDto>>? Parts) ToOutputPolyline(
+        RiverSegment river,
+        MapCoordinateTransformer? transformer)
     {
         if (transformer is null)
-            return ToPoint(point);
+            return (river.Polyline.Select(ToPoint).ToList(), null);
 
         var unitsPerCell = transformer.Reference.UnitsPerCell;
-        var transformed = transformer.Transform(new MapPoint(point.X * unitsPerCell, point.Y * unitsPerCell));
-        return ToPoint(transformed);
+        var source = new GeometryFactory().CreateLineString(
+            river.Polyline.Select(point => new Coordinate(point.X * unitsPerCell, point.Y * unitsPerCell)).ToArray());
+        var transformed = transformer.Transform(source);
+        var lines = new List<LineString>();
+        AddOutputLines(transformed, lines);
+        var parts = lines
+            .Where(line => line.NumPoints >= 2)
+            .Select(line => (IReadOnlyList<MapPointDto>)line.Coordinates.Select(coordinate => ToPoint(new MapPoint(coordinate.X, coordinate.Y))).ToList())
+            .ToList();
+        if (parts.Count == 0)
+            return ([], null);
+        return (parts[0], parts.Count == 1 ? null : parts);
+    }
+
+    private static void AddOutputLines(Geometry geometry, ICollection<LineString> destination)
+    {
+        switch (geometry)
+        {
+            case LineString line:
+                destination.Add(line);
+                break;
+            case GeometryCollection collection:
+                foreach (var child in collection.Geometries)
+                    AddOutputLines(child, destination);
+                break;
+        }
     }
 
     private static IReadOnlyList<string> EncodeRows(HydrologyMap hydrology, Func<int, int, double> readValue, int binSize)
@@ -268,6 +306,18 @@ public static class RiverJsonWriter
     private static PointDto ToPoint(GridPoint point) => new(point.X, point.Y);
 
     private static MapPointDto ToPoint(MapPoint point) => new(Math.Round(point.X, 3), Math.Round(point.Y, 3));
+
+    private static string ProjectionName(MapOutputOptions options) =>
+        options.CoordinateSystem is OutputCoordinateSystem.WebMercator or OutputCoordinateSystem.WebMercator3857
+            ? nameof(OutputCoordinateSystem.WebMercator3857)
+            : options.CoordinateSystem.ToString();
+
+    private static AntimeridianOutputPolicy EffectiveAntimeridianPolicy(MapOutputOptions options) =>
+        options.AntimeridianPolicy == AntimeridianOutputPolicy.Auto
+            ? options.CoordinateSystem is OutputCoordinateSystem.WebMercator or OutputCoordinateSystem.WebMercator3857
+                ? AntimeridianOutputPolicy.Split
+                : AntimeridianOutputPolicy.Unwrap
+            : options.AntimeridianPolicy;
 
     private static MapSpatialReference CreateLegacyReference(GeneratedMap map)
     {
@@ -834,7 +884,8 @@ public static class RiverJsonWriter
         IReadOnlyList<int>? TributaryIds,
         int CellCount,
         IReadOnlyList<PointDto>? Cells,
-        IReadOnlyList<MapPointDto> Polyline);
+        IReadOnlyList<MapPointDto> Polyline,
+        IReadOnlyList<IReadOnlyList<MapPointDto>>? PolylineParts);
 
     private sealed record RiverMouthDto(
         int RiverId,

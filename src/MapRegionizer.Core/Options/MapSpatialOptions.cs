@@ -13,6 +13,11 @@ public sealed record MapSpatialOptions
     public GridMappingKind GridMapping { get; init; } = GridMappingKind.Equirectangular;
     public GridTopologyKind Topology { get; init; } = GridTopologyKind.CylindricalX;
     public double UnitsPerCell { get; init; } = 1.0;
+    /// <summary>
+    /// Requires Web Mercator sampling cells to have equal projected X/Y size.
+    /// The check is applied when grid dimensions are known.
+    /// </summary>
+    public bool PreserveProjectedCellAspectRatio { get; init; } = true;
     public LegacyCompatibilityProfile LegacyCompatibility { get; init; } = LegacyCompatibilityProfile.None;
 
     [Obsolete("Use UnitsPerCell. This alias is retained for legacy configuration compatibility.")]
@@ -103,7 +108,8 @@ public sealed record MapSpatialOptions
             GridMapping = GridMapping,
             Topology = Topology,
             CanonicalCoordinates = CoordinateSpaceKind.GridMapUnits,
-            LegacyCompatibility = LegacyCompatibility
+            LegacyCompatibility = LegacyCompatibility,
+            PreserveProjectedCellAspectRatio = PreserveProjectedCellAspectRatio
         };
         reference.Validate();
         return reference;

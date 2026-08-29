@@ -354,9 +354,42 @@ topology/mapping and do not depend on output coordinate choices. GeoJSON and
 river exporters accept `MapOutputOptions` and transform cloned geometry at the
 output boundary. Geographic exports include the full spatial-reference
 descriptor, including the legacy compatibility profile when applicable. Web
-Mercator output is intentionally rejected until the later
-projection milestone rather than being silently emitted with an incomplete
-transform.
+Mercator output uses the official EPSG:3857 spherical-Mercator constants
+(WGS84 semi-major radius, metres) and is also a presentation-only operation.
+`LatitudeOverflowPolicy.Reject` is the default and rejects geographic
+coordinates (or inverse projected Y values) outside the mathematical tile
+latitude (±85.0511287798066°); `Clip` clamps them to that boundary. Output
+metadata records the selected policy. `WebMercator3857` is the canonical output
+name and `WebMercator` remains a compatibility spelling.
+
+Projected vector output is copied from the canonical NTS geometry. Long
+segments are adaptively subdivided using `ProjectionErrorTolerance`; midpoint
+and quarter-point samples are checked so symmetric projection curves cannot
+pass an estimator that only samples the midpoint. Recursion is bounded by
+`MaxDensificationDepth`: if the tolerance is still unmet at that bound, the
+transform fails explicitly. `MinDensificationSegmentLength` is the documented
+safety override for accepting very short output segments without further
+subdivision. This is an export policy: it never repairs, unions, or distorts
+the generated geometry.
+`AntimeridianOutputPolicy.Auto` unwraps geographic output for compatibility and
+splits Web Mercator paths at the world seam; callers can choose `Unwrap` or
+`Split` explicitly. Split line output can be a `MultiLineString`, and split
+polygon output can be a `MultiPolygon`, with each part normalized to one world
+copy and no artificial world-spanning edge. Point and `MultiPoint` output has
+no segment to cut, so `Auto`/`Split` normalize each point immediately; an
+`Auto`/`Unwrap` geographic point retains its unwrapped longitude. The same
+policies apply to river
+polylines; `RiverSegment.Polyline` remains fractional continuous-grid geometry
+and is scaled by `UnitsPerCell` only by the output adapter.
+
+For generation sampling, `GridMappingKind.WebMercator` maps a grid row linearly
+in projected Mercator Y and applies inverse Mercator to obtain latitude. The
+grid remains a raster metric (X/Y cell distances are used by generation
+algorithms), while climate reads the resulting geographic latitude. When
+`PreserveProjectedCellAspectRatio` is enabled (the default), context creation
+requires projected X and Y cell sizes to match; applications using a deliberate
+non-square raster can disable that check explicitly. The dimensions are
+validated where the spatial context knows both coverage and grid size.
 
 The Milestone 1 legacy baseline is intentionally explicit. The default
 `EquirectangularWorld` profile keeps cylindrical X topology for tectonics,

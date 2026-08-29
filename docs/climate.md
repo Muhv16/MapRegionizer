@@ -45,6 +45,16 @@ profiles, the deprecated `ClimateGenerationOptions.PolarLatitudeMargin` keeps
 the historical 0.05 edge scaling; new spatial configurations use their
 declared latitude coverage directly.
 
+With `GridMappingKind.WebMercator`, rows are spaced linearly in projected
+Mercator Y and `GridToGeographic` applies inverse Mercator. Consequently,
+latitude spacing is denser near the configured Mercator limits and wider near
+the equator; climate uses that geographic latitude for both temperature and
+wind instead of deriving latitude from the local row number. This does not
+change the raster sampling metric used by the other climate fields. Web
+Mercator coverage must stay within ±85.0511287798066°; set
+`PreserveProjectedCellAspectRatio = false` when a non-square projected raster
+is intentional.
+
 ## Temperature
 
 Base temperature follows a curved latitude model:

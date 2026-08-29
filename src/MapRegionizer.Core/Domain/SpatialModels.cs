@@ -268,6 +268,7 @@ public sealed record MapSpatialReference
     public GridMappingKind GridMapping { get; init; } = GridMappingKind.Equirectangular;
     public GridTopologyKind Topology { get; init; } = GridTopologyKind.CylindricalX;
     public CoordinateSpaceKind CanonicalCoordinates { get; init; } = CoordinateSpaceKind.GridMapUnits;
+    public bool PreserveProjectedCellAspectRatio { get; init; } = true;
     public LegacyCompatibilityProfile LegacyCompatibility { get; init; } = LegacyCompatibilityProfile.None;
 
     public double WidthInMapUnits => GridWidth * UnitsPerCell;
