@@ -1,4 +1,5 @@
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Terrain;
 
@@ -13,41 +14,55 @@ internal static class HydrologyGridMath
     public static int ChebyshevDistance(GridPoint a, GridPoint b) =>
         Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
 
-    public static double Distance(GridPoint a, GridPoint b, int width)
+    // Width-only overloads preserve the pre-spatial helper contract; pipeline
+    // code always supplies its explicit topology below.
+    public static double Distance(GridPoint a, GridPoint b, int width) =>
+        Distance(a, b, new CylindricalXTopology(width, Math.Max(a.Y, b.Y) + 1));
+
+    public static double Distance(GridPoint a, GridPoint b, IGridTopology topology)
     {
-        var dx = WrappedDeltaX(a.X - b.X, width);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, a.X - b.X);
         var dy = a.Y - b.Y;
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    public static int DownstreamIndex(int index, int direction, int width, int height)
+    public static int DownstreamIndex(int index, int direction, int width, int height) =>
+        DownstreamIndex(index, direction, new CylindricalXTopology(width, height));
+
+    public static int DownstreamIndex(int index, int direction, IGridTopology topology)
     {
-        if (direction < 0 || direction >= Directions.Length || width <= 0)
+        if (direction < 0 || direction >= Directions.Length)
             return -1;
 
+        var width = topology is CylindricalXTopology cylindrical ? cylindrical.Width :
+            topology is OpenRectangularTopology open ? open.Width : 0;
+        if (width <= 0)
+            return -1;
         var x = index % width;
         var y = index / width;
         var move = Directions[direction];
-        var nextY = y + move.Dy;
-        if (nextY < 0 || nextY >= height)
+        if (!topology.TryResolve(new GridPoint(x, y), move.Dx, move.Dy, out var next))
             return -1;
-        var nextX = WrapX(x + move.Dx, width);
-        return nextY * width + nextX;
+        return next.Y * width + next.X;
     }
 
-    public static GridPoint? Move(GridPoint point, int direction, int width, int height)
+    public static GridPoint? Move(GridPoint point, int direction, int width, int height) =>
+        Move(point, direction, new CylindricalXTopology(width, height));
+
+    public static GridPoint? Move(GridPoint point, int direction, IGridTopology topology)
     {
-        var move = Directions[direction];
-        var y = point.Y + move.Dy;
-        if (y < 0 || y >= height)
+        if (direction < 0 || direction >= Directions.Length)
             return null;
-
-        return new GridPoint(WrapX(point.X + move.Dx, width), y);
+        var move = Directions[direction];
+        return topology.TryResolve(point, move.Dx, move.Dy, out var next) ? next : null;
     }
 
-    public static int DirectionIndex(GridPoint from, GridPoint to, int width)
+    public static int DirectionIndex(GridPoint from, GridPoint to, int width) =>
+        DirectionIndex(from, to, new CylindricalXTopology(width, Math.Max(from.Y, to.Y) + 1));
+
+    public static int DirectionIndex(GridPoint from, GridPoint to, IGridTopology topology)
     {
-        var dx = WrappedDeltaX(to.X - from.X, width);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, to.X - from.X);
         var dy = to.Y - from.Y;
         for (var i = 0; i < Directions.Length; i++)
         {
@@ -58,24 +73,17 @@ internal static class HydrologyGridMath
         return -1;
     }
 
-    public static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
+    public static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height) =>
+        Neighbors8(point, new CylindricalXTopology(width, height));
+
+    public static IEnumerable<GridPoint> Neighbors8(GridPoint point, IGridTopology topology)
     {
         for (var i = 0; i < Directions.Length; i++)
         {
-            var moved = Move(point, i, width, height);
+            var moved = Move(point, i, topology);
             if (moved.HasValue)
                 yield return moved.Value;
         }
-    }
-
-    public static int WrapX(int x, int width) => (x % width + width) % width;
-
-    public static int WrappedDeltaX(int dx, int width)
-    {
-        if (Math.Abs(dx) <= width / 2.0)
-            return dx;
-
-        return dx > 0 ? dx - width : dx + width;
     }
 
     public static double Hash01(int x, int y, int seed)
@@ -91,11 +99,14 @@ internal static class HydrologyGridMath
     public static double HashUnit(int x, int y, int seed) => Math.Clamp((Hash01(x, y, seed) + 1.0) * 0.5, 0, 1);
 
     public static IReadOnlyList<GridPoint> FindShoreline(int width, int height, IReadOnlyList<GridPoint> waterCells, Func<GridPoint, bool> isSameWater)
+        => FindShoreline(width, height, waterCells, isSameWater, new CylindricalXTopology(width, height));
+
+    public static IReadOnlyList<GridPoint> FindShoreline(int width, int height, IReadOnlyList<GridPoint> waterCells, Func<GridPoint, bool> isSameWater, IGridTopology topology)
     {
         var shoreline = new HashSet<GridPoint>();
         foreach (var cell in waterCells)
         {
-            foreach (var neighbor in Neighbors8(cell, width, height))
+            foreach (var neighbor in topology.GetNeighbors8(cell))
             {
                 if (!isSameWater(neighbor))
                     shoreline.Add(neighbor);

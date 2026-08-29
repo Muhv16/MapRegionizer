@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.ElevationGridMath;
 using static MapRegionizer.Core.Terrain.ElevationNoise;
 using static MapRegionizer.Core.Terrain.ElevationSignalMath;
@@ -16,14 +17,14 @@ internal sealed class TectonicFieldBuilder
         var subductionMask = new double[context.Length];
         var passiveMask = new double[context.Length];
 
-        StampBoundaryMasks(context.Mask, context.Boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask);
+        StampBoundaryMasks(context.Mask, context.Boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask, context.GridTopology);
         var rawCollisionMask = collisionMask.ToArray();
-        ridgeMask = ShapeSignal(SmoothField(ridgeMask, context.Mask.Width, context.Mask.Height, 11), 0.16, 1.65);
-        collisionMask = ShapeSignal(SmoothField(collisionMask, context.Mask.Width, context.Mask.Height, 4), 0.10, 1.15);
-        massifMask = ShapeSignal(SmoothField(massifMask, context.Mask.Width, context.Mask.Height, 6), 0.05, 1.0);
-        var forelandMask = ShapeSignal(SmoothField(rawCollisionMask, context.Mask.Width, context.Mask.Height, 12), 0.04, 1.25);
-        subductionMask = DiffuseTectonicLineSignal(subductionMask, context.Mask.Width, context.Mask.Height, 8, 11, 0.08, 1.18, 0.24);
-        passiveMask = DiffuseTectonicLineSignal(passiveMask, context.Mask.Width, context.Mask.Height, 6, 10, 0.03, 1.0, 0.26);
+        ridgeMask = ShapeSignal(SmoothField(ridgeMask, context.Mask.Width, context.Mask.Height, 11, context.GridTopology), 0.16, 1.65);
+        collisionMask = ShapeSignal(SmoothField(collisionMask, context.Mask.Width, context.Mask.Height, 4, context.GridTopology), 0.10, 1.15);
+        massifMask = ShapeSignal(SmoothField(massifMask, context.Mask.Width, context.Mask.Height, 6, context.GridTopology), 0.05, 1.0);
+        var forelandMask = ShapeSignal(SmoothField(rawCollisionMask, context.Mask.Width, context.Mask.Height, 12, context.GridTopology), 0.04, 1.25);
+        subductionMask = DiffuseTectonicLineSignal(subductionMask, context.Mask.Width, context.Mask.Height, 8, 11, 0.08, 1.18, 0.24, context.GridTopology);
+        passiveMask = DiffuseTectonicLineSignal(passiveMask, context.Mask.Width, context.Mask.Height, 6, 10, 0.03, 1.0, 0.26, context.GridTopology);
 
         return new TectonicFields(
             ridgeMask,
@@ -53,7 +54,8 @@ internal sealed class TectonicFieldBuilder
         double[] collisionMask,
         double[] massifMask,
         double[] subductionMask,
-        double[] passiveMask)
+        double[] passiveMask,
+        IGridTopology? topology = null)
     {
         foreach (var segment in boundaries.Segments)
         {
@@ -75,9 +77,9 @@ internal sealed class TectonicFieldBuilder
                     ? MountainGate(point, segment.Id, segment.BoundaryMode)
                     : 0;
 
-                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, localRadius))
+                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, localRadius, topology))
                 {
-                    var distance = Distance(point, stamped, mask.Width);
+                    var distance = Distance(point, stamped, mask.Width, topology);
                     var edgeVariation = 0.84 + SmoothNoise(stamped.X, stamped.Y, segment.Id * 73 + 1907, 8.0) * 0.32;
                     var falloff = SmoothStep(Math.Clamp(1.0 - distance / (localRadius + 1.0), 0, 1)) * localStrength * edgeVariation;
                     var index = stamped.Y * mask.Width + stamped.X;
@@ -116,12 +118,12 @@ internal sealed class TectonicFieldBuilder
                     continue;
 
                 var massifRadius = localRadius + (int)Math.Round((mountainGate >= 0.84 ? 8 : 5) * BoundaryMassifWidth(point, segment.Id));
-                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, massifRadius))
+                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, massifRadius, topology))
                 {
                     if (!mask.IsLand(stamped))
                         continue;
 
-                    var distance = Distance(point, stamped, mask.Width);
+                    var distance = Distance(point, stamped, mask.Width, topology);
                     var edgeVariation = 0.80 + SmoothNoise(stamped.X, stamped.Y, segment.Id * 83 + 2027, 10.0) * 0.36;
                     var falloff = SmoothStep(Math.Clamp(1.0 - distance / (massifRadius + 1.0), 0, 1)) * localStrength * edgeVariation;
                     var index = stamped.Y * mask.Width + stamped.X;

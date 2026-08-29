@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -22,27 +23,29 @@ internal sealed class ForcedLongRiverPlanner
         byte[] riverCells,
         HydrologyGenerationOptions options,
         List<int>[]? upstreamCache = null,
-        int[]? upstreamDepthsCache = null)
+        int[]? upstreamDepthsCache = null,
+        IGridTopology? gridTopology = null)
     {
         if (options.RiverDensity <= 0)
             return;
 
         var width = mask.Width;
         var height = mask.Height;
-        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
-        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        gridTopology ??= new CylindricalXTopology(width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height, gridTopology);
+        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height, gridTopology);
 
         foreach (var body in waterSurfaces.Bodies
                      .Where(b => b.Kind == WaterBodyKind.InlandSea)
                      .OrderByDescending(b => b.CellCount))
         {
             var lakeId = body.Id.Value;
-            if (HasVisibleLakeInflow(lakeId, riverCells, flowDirections, upstream, lakeIds, width, height, minimumLength: 8))
+            if (HasVisibleLakeInflow(lakeId, riverCells, flowDirections, upstream, lakeIds, width, height, minimumLength: 8, gridTopology))
                 continue;
 
             var bestPath = Enumerable.Range(0, flowDirections.Length)
-                .Where(i => IsLakeInflowMouthCandidate(i, lakeId, flowDirections, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height))
-                .Select(i => BuildLongestUpstreamPath(i, upstream, upstreamDepths, accumulation, lakeIds, mask, topology, width))
+                .Where(i => IsLakeInflowMouthCandidate(i, lakeId, flowDirections, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height, gridTopology))
+                .Select(i => BuildLongestUpstreamPath(i, upstream, upstreamDepths, accumulation, lakeIds, mask, topology, width, gridTopology))
                 .Where(path => path.Count >= 8)
                 .OrderByDescending(path => path.Count)
                 .ThenByDescending(path => accumulation[path[0]])
@@ -64,14 +67,16 @@ internal sealed class ForcedLongRiverPlanner
         int[] lakeIds,
         int width,
         int height,
-        int minimumLength)
+        int minimumLength,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         for (var index = 0; index < riverCells.Length; index++)
         {
             if (riverCells[index] == 0)
                 continue;
 
-            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            var downstream = DownstreamIndex(index, flowDirections[index], gridTopology);
             if (downstream < 0 || lakeIds[downstream] != lakeId)
                 continue;
 
@@ -104,13 +109,15 @@ internal sealed class ForcedLongRiverPlanner
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var point = new GridPoint(index % width, index / width);
         if (!IsRenderableRiverLand(point, mask, topology, lakeIds) || !allowedRiverBasins.Contains(basinIds[index]))
             return false;
 
-        var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+        var downstream = DownstreamIndex(index, flowDirections[index], gridTopology);
         return downstream >= 0 && lakeIds[downstream] == lakeId;
     }
 
@@ -138,7 +145,8 @@ internal sealed class ForcedLongRiverPlanner
         byte[] riverCells,
         HydrologyGenerationOptions options,
         List<int>[]? upstreamCache = null,
-        int[]? upstreamDepthsCache = null)
+        int[]? upstreamDepthsCache = null,
+        IGridTopology? gridTopology = null)
     {
         var result = new Dictionary<int, IReadOnlyList<int>>();
         if (options.LongRiverCountMultiplier <= 0 || options.RiverDensity <= 0)
@@ -146,16 +154,17 @@ internal sealed class ForcedLongRiverPlanner
 
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var areaRoot = Math.Sqrt(width * height);
         var targetCount = Math.Clamp((int)Math.Round(areaRoot * 0.026 * options.LongRiverCountMultiplier * Math.Max(0.2, options.RiverDensity)), 2, 48);
         var minLength = Math.Clamp((int)Math.Round(areaRoot * 0.032), 20, 82);
-        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
-        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height, gridTopology);
+        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height, gridTopology);
         var basinById = basins.ToDictionary(b => b.Id);
 
         var candidates = Enumerable.Range(0, flowDirections.Length)
-            .Where(i => IsLongRiverMouthCandidate(i, flowDirections, riverCells, basinIds, basinById, allowedRiverBasins, lakeIds, mask, topology, width, height))
-            .Select(i => BuildLongestUpstreamPath(i, upstream, upstreamDepths, accumulation, lakeIds, mask, topology, width))
+            .Where(i => IsLongRiverMouthCandidate(i, flowDirections, riverCells, basinIds, basinById, allowedRiverBasins, lakeIds, mask, topology, width, height, gridTopology))
+            .Select(i => BuildLongestUpstreamPath(i, upstream, upstreamDepths, accumulation, lakeIds, mask, topology, width, gridTopology))
             .Where(path => path.Count >= minLength)
             .Select(path => new LongRiverPath(path, accumulation[path[0]], basinIds[path[0]]))
             .OrderByDescending(p => p.Path.Count)
@@ -176,7 +185,7 @@ internal sealed class ForcedLongRiverPlanner
             if (chosenMouths.Any(i =>
                 {
                     var point = new GridPoint(i % width, i / width);
-                    return Math.Abs(WrappedDeltaX(point.X - mouthPoint.X, width)) < minLength / 3 &&
+                    return Math.Abs(GridTopologyMath.WrappedDeltaX(gridTopology, point.X - mouthPoint.X)) < minLength / 3 &&
                            Math.Abs(point.Y - mouthPoint.Y) < minLength / 3;
                 }))
             {

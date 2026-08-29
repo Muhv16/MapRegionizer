@@ -26,7 +26,7 @@ internal static class TectonicFeatureRenderer
         var width = Math.Max(1, (int)Math.Ceiling(map.Bounds.Width * options.Scale));
         var height = Math.Max(1, (int)Math.Ceiling(map.Bounds.Height * options.Scale));
         var image = new Image<Rgba32>(width, height);
-        var pixelSize = Math.Max(double.Epsilon, map.Bounds.PixelSize * options.Scale);
+        var pixelSize = Math.Max(double.Epsilon, map.Bounds.UnitsPerCell * options.Scale);
 
         image.ProcessPixelRows(accessor =>
         {
@@ -45,13 +45,13 @@ internal static class TectonicFeatureRenderer
         foreach (var feature in featureMap.Features
             .Where(f => ShouldDrawFeature(f, options))
             .OrderBy(f => GetFeatureDrawOrder(f.Kind)))
-            DrawFeature(image, feature, featureMap.Width, map.Bounds.PixelSize, options);
+            DrawFeature(image, feature, featureMap.Width, map.Bounds.UnitsPerCell, options);
 
         foreach (var island in featureMap.Islands)
-            DrawIslandMarker(image, island, map.Bounds.PixelSize, options);
+            DrawIslandMarker(image, island, map.Bounds.UnitsPerCell, options);
 
         if (options.DrawPlateBoundaries)
-            TectonicPlateRenderer.DrawPlateBoundaries(image, tectonics, map.Bounds.PixelSize, options);
+            TectonicPlateRenderer.DrawPlateBoundaries(image, tectonics, map.Bounds.UnitsPerCell, options);
 
         return image;
     }

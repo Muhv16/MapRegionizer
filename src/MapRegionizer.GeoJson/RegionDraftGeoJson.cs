@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
@@ -51,7 +53,7 @@ public static class RegionDraftGeoJson
             {
                 ["width"] = document.Bounds.Width,
                 ["height"] = document.Bounds.Height,
-                ["pixelSize"] = document.Bounds.PixelSize
+                ["pixelSize"] = document.Bounds.UnitsPerCell
             },
             ["maskFingerprint"] = document.MaskFingerprint,
             ["landmassFingerprint"] = document.LandmassFingerprint,

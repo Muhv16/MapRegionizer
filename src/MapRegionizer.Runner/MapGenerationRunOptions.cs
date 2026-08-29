@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Options;
 using MapRegionizer.GeoJson;
 
@@ -137,7 +139,7 @@ public sealed class MapGenerationRunOptions
     {
         return new MapGenerationOptions
         {
-            PixelSize = PixelSize,
+            Spatial = MapSpatialOptions.FromLegacy(ProjectionMode, PixelSize),
             Seed = Seed,
             Debug = Debug,
             ProjectionMode = ProjectionMode,

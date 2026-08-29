@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.ElevationGridMath;
 using static MapRegionizer.Core.Terrain.ElevationNoise;
 using static MapRegionizer.Core.Terrain.ElevationSignalMath;
@@ -22,7 +23,8 @@ internal sealed class BasinFieldBuilder
             tectonicFields.RiftGraben,
             mountainFields.RidgeContinuity,
             mountainFields.FoothillInfluence,
-            basinInfluence);
+            basinInfluence,
+            context.GridTopology);
         return new BasinFields(basinInfluence);
     }
 
@@ -37,7 +39,8 @@ internal sealed class BasinFieldBuilder
         double[] riftGraben,
         double[] ridgeContinuity,
         double[] foothillInfluence,
-        double[] basinInfluence)
+        double[] basinInfluence,
+        IGridTopology? topology = null)
     {
         var raw = new double[basinInfluence.Length];
         for (var y = 0; y < mask.Height; y++)
@@ -64,8 +67,8 @@ internal sealed class BasinFieldBuilder
             }
         }
 
-        var smooth = SmoothField(raw, mask.Width, mask.Height, 16);
-        var broad = SmoothField(smooth, mask.Width, mask.Height, 10);
+        var smooth = SmoothField(raw, mask.Width, mask.Height, 16, topology);
+        var broad = SmoothField(smooth, mask.Width, mask.Height, 10, topology);
         for (var y = 0; y < mask.Height; y++)
         {
             for (var x = 0; x < mask.Width; x++)

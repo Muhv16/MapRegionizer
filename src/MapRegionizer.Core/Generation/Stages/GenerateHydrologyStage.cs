@@ -11,7 +11,8 @@ public sealed class GenerateHydrologyStage : IMapGenerationStage
         MapDataKeys.Elevation,
         MapDataKeys.WaterSurfaces,
         MapDataKeys.WaterBodyTopology,
-        MapDataKeys.GeneratedLakes
+        MapDataKeys.GeneratedLakes,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey>
@@ -27,6 +28,13 @@ public sealed class GenerateHydrologyStage : IMapGenerationStage
         var generatedLakes = context.GeneratedLakes ?? throw new InvalidOperationException("Generated lakes are required.");
         var seed = context.Options.Seed ?? 0;
         var generator = new HydrologyGenerator(unchecked(seed * 397 ^ 0x48D1F1));
-        context.Hydrology = generator.Generate(context.Mask, elevation, waterBodyTopology, generatedLakes, waterSurfaces, context.Options.Hydrology);
+        context.Hydrology = generator.Generate(
+            context.Mask,
+            elevation,
+            waterBodyTopology,
+            generatedLakes,
+            waterSurfaces,
+            context.SpatialContext,
+            context.Options.Hydrology);
     }
 }

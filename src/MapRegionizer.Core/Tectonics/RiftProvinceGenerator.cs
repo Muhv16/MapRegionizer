@@ -1,11 +1,18 @@
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
 internal sealed class RiftProvinceGenerator
 {
-    public RiftProvinceMap Generate(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, TectonicBoundaryMap boundaries)
+    public RiftProvinceMap Generate(
+        MapMask mask,
+        TectonicHistory history,
+        CrustFieldMap crustFields,
+        TectonicBoundaryMap boundaries,
+        IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var length = mask.Width * mask.Height;
         var influence = new double[length];
         var axis = new double[length];
@@ -13,20 +20,20 @@ internal sealed class RiftProvinceGenerator
         var shoulders = new double[length];
         var heatFlow = new double[length];
         var breakup = new double[length];
-        var support = BuildBoundarySupport(mask, boundaries);
+        var support = BuildBoundarySupport(mask, boundaries, topology);
         var provinces = new List<RiftProvince>();
         var nextId = 1;
 
         foreach (var candidate in CreateCandidates(history, boundaries))
         {
-            var ordered = OrderAxisPoints(candidate.Points, mask.Width, candidate.IsHistorical);
+            var ordered = OrderAxisPoints(candidate.Points, mask.Width, candidate.IsHistorical, topology);
             if (ordered.Count < 4)
                 continue;
 
-            foreach (var run in ValidateCandidate(mask, history, crustFields, support, candidate, ordered))
+            foreach (var run in ValidateCandidate(mask, history, crustFields, support, candidate, ordered, topology))
             {
-                var degradation = AnalyzeLinearity(mask, candidate, run.Points, run.Kind);
-                var segments = BuildEnEchelonSegments(mask, candidate, run.Points, run.BaseWidth, run.Activity, run.Kind, degradation);
+                var degradation = AnalyzeLinearity(mask, candidate, run.Points, run.Kind, topology);
+                var segments = BuildEnEchelonSegments(mask, candidate, run.Points, run.BaseWidth, run.Activity, run.Kind, degradation, topology);
                 if (segments.Count == 0)
                     continue;
 
@@ -43,7 +50,7 @@ internal sealed class RiftProvinceGenerator
                     candidate.SourceBoundarySegmentId);
 
                 provinces.Add(province);
-                StampProvince(mask, province, influence, axis, graben, shoulders, heatFlow, breakup);
+                StampProvince(mask, province, influence, axis, graben, shoulders, heatFlow, breakup, topology);
             }
         }
 
@@ -65,7 +72,8 @@ internal sealed class RiftProvinceGenerator
         CrustFieldMap crustFields,
         BoundarySupportMap support,
         CandidateAxis candidate,
-        IReadOnlyList<GridPoint> points)
+        IReadOnlyList<GridPoint> points,
+        IGridTopology topology)
     {
         var width = mask.Width;
         var supportRadius = SupportRadius(mask);
@@ -82,7 +90,7 @@ internal sealed class RiftProvinceGenerator
             for (var i = start; i < end; i++)
             {
                 var point = points[i];
-                var score = ScorePoint(mask, history, crustFields, support, point, candidate, supportRadius, out var boundaryDistance);
+                var score = ScorePoint(mask, history, crustFields, support, point, candidate, supportRadius, topology, out var boundaryDistance);
                 var noiseGate = SmoothNoise(point.X, point.Y, candidate.Seed + 3121, Math.Max(8.0, width * 0.045));
                 var valid = score >= threshold && noiseGate > (candidate.IsHistorical ? 0.16 : 0.12);
 
@@ -138,7 +146,7 @@ internal sealed class RiftProvinceGenerator
         yield return new ValidatedRiftRun(run.Select(p => p.Point).ToArray(), kind, meanScore, activity, baseWidth);
     }
 
-    private static LineDegradation AnalyzeLinearity(MapMask mask, CandidateAxis candidate, IReadOnlyList<GridPoint> points, RiftProvinceKind kind)
+    private static LineDegradation AnalyzeLinearity(MapMask mask, CandidateAxis candidate, IReadOnlyList<GridPoint> points, RiftProvinceKind kind, IGridTopology topology)
     {
         if (points.Count < 8)
             return LineDegradation.None;
@@ -147,7 +155,7 @@ internal sealed class RiftProvinceGenerator
         var longSteps = 0;
         for (var i = 1; i < points.Count; i++)
         {
-            var step = Math.Sqrt(WrappedDistanceSquared(points[i - 1], points[i], mask.Width));
+            var step = Math.Sqrt(WrappedDistanceSquared(points[i - 1], points[i], topology));
             pathLength += step;
             if (step > Math.Max(3.0, mask.Width * 0.012))
                 longSteps++;
@@ -158,7 +166,7 @@ internal sealed class RiftProvinceGenerator
 
         var start = points[0];
         var end = points[^1];
-        var endDx = WrappedDeltaX(end.X - start.X, mask.Width);
+        var endDx = GridTopologyMath.WrappedDeltaX(topology, end.X - start.X);
         var endDy = end.Y - start.Y;
         var endpointDistance = Math.Sqrt(endDx * endDx + endDy * endDy);
         var componentLength = Math.Max(1.0, endpointDistance);
@@ -169,7 +177,7 @@ internal sealed class RiftProvinceGenerator
 
         foreach (var point in points)
         {
-            var dx = WrappedDeltaX(point.X - start.X, mask.Width);
+            var dx = GridTopologyMath.WrappedDeltaX(topology, point.X - start.X);
             var dy = point.Y - start.Y;
             residualSum += Math.Abs(dx * uy - dy * ux);
         }
@@ -179,8 +187,8 @@ internal sealed class RiftProvinceGenerator
         var turnSamples = 0;
         for (var i = 2; i < points.Count - 2; i += 2)
         {
-            var a = Normalize(new GridVector(WrappedDeltaX(points[i].X - points[i - 2].X, mask.Width), points[i].Y - points[i - 2].Y));
-            var b = Normalize(new GridVector(WrappedDeltaX(points[i + 2].X - points[i].X, mask.Width), points[i + 2].Y - points[i].Y));
+            var a = Normalize(new GridVector(GridTopologyMath.WrappedDeltaX(topology, points[i].X - points[i - 2].X), points[i].Y - points[i - 2].Y));
+            var b = Normalize(new GridVector(GridTopologyMath.WrappedDeltaX(topology, points[i + 2].X - points[i].X), points[i + 2].Y - points[i].Y));
             var dot = Math.Clamp(a.X * b.X + a.Y * b.Y, -1, 1);
             var angle = Math.Acos(dot) * 180.0 / Math.PI;
             if (angle > 14.0)
@@ -225,6 +233,7 @@ internal sealed class RiftProvinceGenerator
         GridPoint point,
         CandidateAxis candidate,
         double supportRadius,
+        IGridTopology topology,
         out double boundaryDistance)
     {
         var index = point.Y * mask.Width + point.X;
@@ -239,7 +248,7 @@ internal sealed class RiftProvinceGenerator
         var extensionalMotion = ExtensionalMotionScore(mode) * Math.Clamp(support.Activity[index] > 0 ? support.Activity[index] : candidate.Activity, 0.12, 1.35);
         var crustSuitability = CrustSuitability(crust);
         var context = LandOrShelfContext(mask, crust, coastal, point, mode);
-        var nonCraton = NonCratonPreference(mask, history, crustFields, point, boundaryDistance, supportRadius);
+        var nonCraton = NonCratonPreference(mask, history, crustFields, point, boundaryDistance, supportRadius, topology);
         var basin = BasinAffinity(crust, coastal, crustFields.GetLastRiftingAge(point));
         var noise = SmoothNoise(point.X - 37, point.Y + 53, candidate.Seed + 3181, Math.Max(10.0, mask.Width * 0.07));
         var noiseGate = noise < 0.20 ? 0.20 + noise * 1.15 : 0.58 + noise * 0.52;
@@ -263,7 +272,8 @@ internal sealed class RiftProvinceGenerator
         double baseWidth,
         double activity,
         RiftProvinceKind kind,
-        LineDegradation degradation)
+        LineDegradation degradation,
+        IGridTopology topology)
     {
         var result = new List<RiftProvinceSegment>();
         var i = 0;
@@ -272,7 +282,7 @@ internal sealed class RiftProvinceGenerator
         while (i < points.Count)
         {
             var point = points[Math.Clamp(i + (int)Math.Round(minStep * 0.5), 0, points.Count - 1)];
-            var tangent = Tangent(points, Math.Clamp(i, 0, points.Count - 1), mask.Width);
+            var tangent = Tangent(points, Math.Clamp(i, 0, points.Count - 1), topology);
             var normal = new GridVector(-tangent.Y, tangent.X);
             var length = kind == RiftProvinceKind.BackArcExtension
                 ? mask.Width * (0.045 + Hash01(point.X, point.Y, candidate.Seed + 3203) * 0.075)
@@ -283,7 +293,7 @@ internal sealed class RiftProvinceGenerator
             var jitterDegrees = degradation.IsLineLike ? 84.0 : 50.0;
             var jitter = (Hash01(point.X, point.Y, candidate.Seed + 3229) * jitterDegrees - jitterDegrees * 0.5) * Math.PI / 180.0;
             var direction = Normalize(Rotate(tangent, jitter));
-            var center = new GridPoint(WrapX((int)Math.Round(point.X + normal.X * offset), mask.Width), Math.Clamp((int)Math.Round(point.Y + normal.Y * offset), 0, mask.Height - 1));
+            var center = ResolvePoint(mask, topology, point.X + normal.X * offset, point.Y + normal.Y * offset);
             var strength = Math.Clamp(activity * degradation.StrengthScale * (0.64 + Hash01(point.X, point.Y, candidate.Seed + 3251) * 0.56), 0.06, 1.25);
 
             result.Add(new RiftProvinceSegment(center, direction, length, width, strength, false));
@@ -294,7 +304,7 @@ internal sealed class RiftProvinceGenerator
                 var side = Hash01(point.X, point.Y, candidate.Seed + 3263) < 0.5 ? -1.0 : 1.0;
                 var branchDirection = Normalize(Rotate(direction, side * (0.58 + Hash01(point.X, point.Y, candidate.Seed + 3269) * 0.72)));
                 var branchOffset = width * degradation.OffsetScale * (0.65 + Hash01(point.X, point.Y, candidate.Seed + 3271) * 0.75);
-                var branchCenter = new GridPoint(WrapX((int)Math.Round(center.X + normal.X * branchOffset * side), mask.Width), Math.Clamp((int)Math.Round(center.Y + normal.Y * branchOffset * side), 0, mask.Height - 1));
+                var branchCenter = ResolvePoint(mask, topology, center.X + normal.X * branchOffset * side, center.Y + normal.Y * branchOffset * side);
                 result.Add(new RiftProvinceSegment(branchCenter, branchDirection, length * 0.42, width * 0.58, strength * 0.48, true));
             }
 
@@ -306,11 +316,11 @@ internal sealed class RiftProvinceGenerator
         if (degradation.IsLineLike && result.Count == 1 && points.Count >= minStep * 3)
         {
             var point = points[Math.Clamp(points.Count * 2 / 3, 0, points.Count - 1)];
-            var tangent = Tangent(points, Math.Clamp(points.Count * 2 / 3, 0, points.Count - 1), mask.Width);
+            var tangent = Tangent(points, Math.Clamp(points.Count * 2 / 3, 0, points.Count - 1), topology);
             var normal = new GridVector(-tangent.Y, tangent.X);
             var side = Hash01(point.X, point.Y, candidate.Seed + 3283) < 0.5 ? -1.0 : 1.0;
             var width = baseWidth * degradation.WidthScale * 1.15;
-            var center = new GridPoint(WrapX((int)Math.Round(point.X + normal.X * width * degradation.OffsetScale * side), mask.Width), Math.Clamp((int)Math.Round(point.Y + normal.Y * width * degradation.OffsetScale * side), 0, mask.Height - 1));
+            var center = ResolvePoint(mask, topology, point.X + normal.X * width * degradation.OffsetScale * side, point.Y + normal.Y * width * degradation.OffsetScale * side);
             result.Add(new RiftProvinceSegment(center, Normalize(Rotate(tangent, side * 0.62)), Math.Max(mask.Width * 0.018, result[0].Length * 0.55), width, result[0].Strength * 0.55, true));
         }
 
@@ -325,19 +335,20 @@ internal sealed class RiftProvinceGenerator
         double[] grabenMask,
         double[] shoulderUpliftMask,
         double[] heatFlowMask,
-        double[] breakupMask)
+        double[] breakupMask,
+        IGridTopology topology)
     {
         for (var i = 0; i < province.Segments.Count; i++)
         {
             var segment = province.Segments[i];
-            StampSegment(mask, province.Id, province.Kind, segment, riftInfluence, riftAxis, grabenMask, shoulderUpliftMask, heatFlowMask, breakupMask);
+            StampSegment(mask, province.Id, province.Kind, segment, riftInfluence, riftAxis, grabenMask, shoulderUpliftMask, heatFlowMask, breakupMask, topology);
 
             if (segment.IsFailedArm || i == 0)
                 continue;
 
             var previous = province.Segments[i - 1];
             if (!previous.IsFailedArm)
-                StampTransferZone(mask, province.Id, province.Kind, previous, segment, riftInfluence, heatFlowMask, breakupMask);
+                StampTransferZone(mask, province.Id, province.Kind, previous, segment, riftInfluence, heatFlowMask, breakupMask, topology);
         }
     }
 
@@ -351,7 +362,8 @@ internal sealed class RiftProvinceGenerator
         double[] grabenMask,
         double[] shoulderUpliftMask,
         double[] heatFlowMask,
-        double[] breakupMask)
+        double[] breakupMask,
+        IGridTopology topology)
     {
         var halfLength = Math.Max(1.0, segment.Length * 0.5);
         var radius = Math.Clamp((int)Math.Ceiling(Math.Max(halfLength, segment.Width * 2.5)), 2, Math.Max(4, (int)Math.Round(mask.Width * 0.11)));
@@ -361,9 +373,9 @@ internal sealed class RiftProvinceGenerator
         var heatStrength = kind == RiftProvinceKind.BackArcExtension ? 0.72 : 0.92;
         var grabenStrength = kind == RiftProvinceKind.BackArcExtension ? 0.24 : segment.IsFailedArm ? 0.42 : 1.0;
 
-        foreach (var point in PointsInRadius(mask.Width, mask.Height, segment.Center, radius))
+        foreach (var point in PointsInRadius(segment.Center, radius, topology))
         {
-            var dx = WrappedDeltaX(point.X - segment.Center.X, mask.Width);
+            var dx = GridTopologyMath.WrappedDeltaX(topology, point.X - segment.Center.X);
             var dy = point.Y - segment.Center.Y;
             var along = dx * segment.Direction.X + dy * segment.Direction.Y;
             var across = dx * normal.X + dy * normal.Y;
@@ -401,25 +413,26 @@ internal sealed class RiftProvinceGenerator
         RiftProvinceSegment second,
         double[] riftInfluence,
         double[] heatFlowMask,
-        double[] breakupMask)
+        double[] breakupMask,
+        IGridTopology topology)
     {
-        var dx = WrappedDeltaX(second.Center.X - first.Center.X, mask.Width);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, second.Center.X - first.Center.X);
         var dy = second.Center.Y - first.Center.Y;
         var distance = Math.Sqrt(dx * dx + dy * dy);
         if (distance <= 1.0 || distance > Math.Max(first.Length, second.Length) * 1.4)
             return;
 
         var direction = Normalize(new GridVector(dx, dy));
-        var center = new GridPoint(WrapX((int)Math.Round(first.Center.X + dx * 0.5), mask.Width), Math.Clamp((int)Math.Round(first.Center.Y + dy * 0.5), 0, mask.Height - 1));
+        var center = ResolvePoint(mask, topology, first.Center.X + dx * 0.5, first.Center.Y + dy * 0.5);
         var transferStrength = kind == RiftProvinceKind.BackArcExtension ? 0.18 : 0.30;
         var segment = new RiftProvinceSegment(center, direction, distance, Math.Max(1.5, Math.Min(first.Width, second.Width) * 0.55), Math.Min(first.Strength, second.Strength) * transferStrength, true);
         var halfLength = Math.Max(1.0, segment.Length * 0.5);
         var radius = Math.Clamp((int)Math.Ceiling(Math.Max(halfLength, segment.Width * 1.8)), 2, Math.Max(4, (int)Math.Round(mask.Width * 0.08)));
         var normal = new GridVector(-segment.Direction.Y, segment.Direction.X);
 
-        foreach (var point in PointsInRadius(mask.Width, mask.Height, segment.Center, radius))
+        foreach (var point in PointsInRadius(segment.Center, radius, topology))
         {
-            var localDx = WrappedDeltaX(point.X - segment.Center.X, mask.Width);
+            var localDx = GridTopologyMath.WrappedDeltaX(topology, point.X - segment.Center.X);
             var localDy = point.Y - segment.Center.Y;
             var along = localDx * segment.Direction.X + localDy * segment.Direction.Y;
             var across = localDx * normal.X + localDy * normal.Y;
@@ -435,7 +448,7 @@ internal sealed class RiftProvinceGenerator
         }
     }
 
-    private static BoundarySupportMap BuildBoundarySupport(MapMask mask, TectonicBoundaryMap boundaries)
+    private static BoundarySupportMap BuildBoundarySupport(MapMask mask, TectonicBoundaryMap boundaries, IGridTopology topology)
     {
         var length = mask.Width * mask.Height;
         var distance = Enumerable.Repeat(double.PositiveInfinity, length).ToArray();
@@ -466,7 +479,7 @@ internal sealed class RiftProvinceGenerator
             if (Math.Abs(distance[currentIndex] - current.Distance) > 0.0001)
                 continue;
 
-            foreach (var (neighbor, cost) in Neighbors8WithCost(current.Point, mask.Width, mask.Height))
+            foreach (var (neighbor, cost) in Neighbors8WithCost(current.Point, topology))
             {
                 var nextDistance = current.Distance + cost;
                 if (nextDistance > maxDistance)
@@ -486,21 +499,21 @@ internal sealed class RiftProvinceGenerator
         return new BoundarySupportMap(distance, activity, mode);
     }
 
-    private static IReadOnlyList<GridPoint> OrderAxisPoints(IReadOnlyList<GridPoint> points, int width, bool preserveOrder)
+    private static IReadOnlyList<GridPoint> OrderAxisPoints(IReadOnlyList<GridPoint> points, int width, bool preserveOrder, IGridTopology topology)
     {
         var distinct = points.Distinct().ToArray();
         if (preserveOrder || distinct.Length <= 2)
             return distinct;
 
         var remaining = distinct.ToHashSet();
-        var start = distinct.OrderBy(p => NeighborCount(p, remaining, width)).ThenBy(p => p.Y).ThenBy(p => p.X).First();
+        var start = distinct.OrderBy(p => NeighborCount(p, remaining, topology)).ThenBy(p => p.Y).ThenBy(p => p.X).First();
         var ordered = new List<GridPoint>(distinct.Length) { start };
         remaining.Remove(start);
 
         while (remaining.Count > 0)
         {
             var current = ordered[^1];
-            var next = remaining.OrderBy(p => WrappedDistanceSquared(current, p, width)).ThenBy(p => p.Y).ThenBy(p => p.X).First();
+            var next = remaining.OrderBy(p => WrappedDistanceSquared(current, p, topology)).ThenBy(p => p.Y).ThenBy(p => p.X).First();
             ordered.Add(next);
             remaining.Remove(next);
         }
@@ -508,11 +521,11 @@ internal sealed class RiftProvinceGenerator
         return ordered;
     }
 
-    private static GridVector Tangent(IReadOnlyList<GridPoint> points, int index, int width)
+    private static GridVector Tangent(IReadOnlyList<GridPoint> points, int index, IGridTopology topology)
     {
         var previous = points[Math.Max(0, index - 2)];
         var next = points[Math.Min(points.Count - 1, index + 2)];
-        return Normalize(new GridVector(WrappedDeltaX(next.X - previous.X, width), next.Y - previous.Y));
+        return Normalize(new GridVector(GridTopologyMath.WrappedDeltaX(topology, next.X - previous.X), next.Y - previous.Y));
     }
 
     private static bool HasYoungRiftMemory(CrustFieldMap crustFields, GridPoint point)
@@ -555,7 +568,7 @@ internal sealed class RiftProvinceGenerator
         return 0.22;
     }
 
-    private static double NonCratonPreference(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, GridPoint point, double boundaryDistance, double supportRadius)
+    private static double NonCratonPreference(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, GridPoint point, double boundaryDistance, double supportRadius, IGridTopology topology)
     {
         var age = crustFields.GetContinentalAge(point);
         var ageScore = double.IsNaN(age) ? 0 : Math.Clamp((age - 1800.0) / 1600.0, 0, 1);
@@ -563,7 +576,7 @@ internal sealed class RiftProvinceGenerator
         var radius = Math.Max(8.0, mask.Width * 0.13);
         foreach (var center in history.CratonCenters)
         {
-            var distance = Math.Sqrt(WrappedDistanceSquared(point, center, mask.Width));
+            var distance = Math.Sqrt(WrappedDistanceSquared(point, center, topology));
             centerScore = Math.Max(centerScore, Math.Clamp(1.0 - distance / radius, 0, 1));
         }
 
@@ -612,8 +625,8 @@ internal sealed class RiftProvinceGenerator
         return value * value * (3.0 - 2.0 * value);
     }
 
-    private static int NeighborCount(GridPoint point, IReadOnlySet<GridPoint> points, int width) =>
-        Neighbors8(point, width, int.MaxValue).Count(points.Contains);
+    private static int NeighborCount(GridPoint point, IReadOnlySet<GridPoint> points, IGridTopology topology) =>
+        topology.GetNeighbors8(point).Count(points.Contains);
 
     private static double Hash01(int x, int y, int seed)
     {
@@ -657,75 +670,47 @@ internal sealed class RiftProvinceGenerator
         return length <= 0.0001 ? new GridVector(1, 0) : new GridVector(vector.X / length, vector.Y / length);
     }
 
-    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    private static IEnumerable<GridPoint> PointsInRadius(GridPoint center, int radius, IGridTopology topology)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
-            var y = center.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
             for (var dx = -radius; dx <= radius; dx++)
             {
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (topology.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }
 
-    private static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
+    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, IGridTopology topology)
     {
-        for (var dy = -1; dy <= 1; dy++)
+        foreach (var neighbor in topology.GetNeighbors8(point))
         {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-                yield return new GridPoint(WrapX(point.X + dx, width), y);
-            }
+            var dx = GridTopologyMath.WrappedDeltaX(topology, neighbor.X - point.X);
+            var dy = neighbor.Y - point.Y;
+            var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+            yield return (neighbor, cost);
         }
     }
 
-    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, int width, int height)
+    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, IGridTopology topology)
     {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
-                yield return (new GridPoint(WrapX(point.X + dx, width), y), cost);
-            }
-        }
-    }
-
-    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, int width)
-    {
-        var dx = Math.Abs(a.X - b.X);
-        dx = Math.Min(dx, width - dx);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, a.X - b.X);
         var dy = a.Y - b.Y;
         return dx * dx + dy * dy;
     }
 
-    private static double WrappedDeltaX(double dx, int width)
+    private static GridPoint ResolvePoint(MapMask mask, IGridTopology topology, double x, double y)
     {
-        if (Math.Abs(dx) <= width / 2.0)
-            return dx;
-
-        return dx > 0 ? dx - width : dx + width;
+        var roundedX = (int)Math.Round(x);
+        var roundedY = (int)Math.Clamp(Math.Round(y), 0, mask.Height - 1);
+        return topology.TryResolve(new GridPoint(roundedX, roundedY), 0, 0, out var resolved)
+            ? resolved
+            : new GridPoint(Math.Clamp(roundedX, 0, mask.Width - 1), roundedY);
     }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
 
     private sealed record CandidateAxis(
         IReadOnlyList<GridPoint> Points,

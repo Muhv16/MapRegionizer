@@ -1,28 +1,35 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
 internal sealed class OrogenProvinceGenerator
 {
-    public OrogenProvinceMap Generate(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, TectonicBoundaryMap boundaries)
+    public OrogenProvinceMap Generate(
+        MapMask mask,
+        TectonicHistory history,
+        CrustFieldMap crustFields,
+        TectonicBoundaryMap boundaries,
+        IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var length = mask.Width * mask.Height;
         var influence = new double[length];
         var strength = new double[length];
         var axis = new double[length];
-        var support = BuildBoundarySupport(mask, boundaries);
-        var landmassIds = BuildLandmassIds(mask, out var landmassSizes);
+        var support = BuildBoundarySupport(mask, boundaries, topology);
+        var landmassIds = BuildLandmassIds(mask, topology, out var landmassSizes);
         var provinces = new List<OrogenProvince>();
         var nextId = 1;
 
         foreach (var candidate in CreateCandidates(history, boundaries))
         {
-            var orderedPoints = OrderAxisPoints(candidate.Points, mask.Width, candidate.IsHistorical);
+            var orderedPoints = OrderAxisPoints(candidate.Points, mask.Width, candidate.IsHistorical, topology);
             if (orderedPoints.Count < 4)
                 continue;
 
-            foreach (var segment in ValidateCandidate(mask, history, crustFields, support, landmassIds, landmassSizes, candidate, orderedPoints))
+            foreach (var segment in ValidateCandidate(mask, history, crustFields, support, landmassIds, landmassSizes, candidate, orderedPoints, topology))
             {
                 var province = new OrogenProvince(
                     nextId++,
@@ -34,7 +41,7 @@ internal sealed class OrogenProvinceGenerator
                     candidate.SourceLineamentId,
                     candidate.SourceBoundarySegmentId);
                 provinces.Add(province);
-                StampProvince(mask, province, influence, strength, axis);
+                StampProvince(mask, province, influence, strength, axis, topology);
             }
         }
 
@@ -58,7 +65,8 @@ internal sealed class OrogenProvinceGenerator
         int[] landmassIds,
         IReadOnlyDictionary<int, int> landmassSizes,
         CandidateAxis candidate,
-        IReadOnlyList<GridPoint> points)
+        IReadOnlyList<GridPoint> points,
+        IGridTopology topology)
     {
         var width = mask.Width;
         var supportRadius = SupportRadius(mask);
@@ -84,7 +92,7 @@ internal sealed class OrogenProvinceGenerator
                 var point = points[i];
                 var index = point.Y * width + point.X;
                 var landmassId = landmassIds[index];
-                var score = ScorePoint(mask, history, crustFields, support, point, candidate, supportRadius, out var cratonInterior, out var boundaryDistance);
+                var score = ScorePoint(mask, history, crustFields, support, point, candidate, supportRadius, topology, out var cratonInterior, out var boundaryDistance);
                 var basinLike = IsBasinLike(crustFields.GetCrust(point), crustFields.GetCoastalZone(point), boundaryDistance, supportRadius);
                 var supported = boundaryDistance <= supportRadius * (candidate.IsHistorical ? 0.95 : 1.08);
                 var valid = landmassId >= 0 && score >= threshold && supported && !basinLike;
@@ -183,6 +191,7 @@ internal sealed class OrogenProvinceGenerator
         GridPoint point,
         CandidateAxis candidate,
         double supportRadius,
+        IGridTopology topology,
         out double cratonInterior,
         out double boundaryDistance)
     {
@@ -194,9 +203,9 @@ internal sealed class OrogenProvinceGenerator
         var mode = support.Mode[supportIndex];
         var convergence = BoundaryModeScore(mode) * Math.Clamp(support.Activity[supportIndex], 0.10, 1.35);
         var continentalLike = ContinentalLikeScore(crust);
-        var ageContrast = CrustAgeContrast(mask, crustFields, point);
+        var ageContrast = CrustAgeContrast(mask, crustFields, point, topology);
         var nonCoastalPreference = NonCoastalPreference(crust, coastal, mode, boundaryProximity);
-        cratonInterior = CratonInteriorScore(mask, history, crustFields, point, boundaryDistance, supportRadius);
+        cratonInterior = CratonInteriorScore(mask, history, crustFields, point, boundaryDistance, supportRadius, topology);
         var cratonPenalty = 1.0 - cratonInterior * (boundaryProximity > 0.55 ? 0.25 : 0.78);
         var noise = SmoothNoise(point.X, point.Y, candidate.Seed + 757, Math.Max(8.0, mask.Width * 0.075));
         var noiseGate = noise < 0.22 ? 0.18 + noise * 1.3 : 0.54 + noise * 0.58;
@@ -216,7 +225,7 @@ internal sealed class OrogenProvinceGenerator
             1.5);
     }
 
-    private static BoundarySupportMap BuildBoundarySupport(MapMask mask, TectonicBoundaryMap boundaries)
+    private static BoundarySupportMap BuildBoundarySupport(MapMask mask, TectonicBoundaryMap boundaries, IGridTopology topology)
     {
         var length = mask.Width * mask.Height;
         var distance = Enumerable.Repeat(double.PositiveInfinity, length).ToArray();
@@ -249,7 +258,7 @@ internal sealed class OrogenProvinceGenerator
             if (Math.Abs(distance[currentIndex] - current.Distance) > 0.0001)
                 continue;
 
-            foreach (var (neighbor, cost) in Neighbors8WithCost(current.Point, mask.Width, mask.Height))
+            foreach (var (neighbor, cost) in Neighbors8WithCost(current.Point, topology))
             {
                 var nextDistance = current.Distance + cost;
                 if (nextDistance > maxDistance)
@@ -270,7 +279,7 @@ internal sealed class OrogenProvinceGenerator
         return new BoundarySupportMap(distance, activity, segmentId, mode);
     }
 
-    private static int[] BuildLandmassIds(MapMask mask, out IReadOnlyDictionary<int, int> sizes)
+    private static int[] BuildLandmassIds(MapMask mask, IGridTopology topology, out IReadOnlyDictionary<int, int> sizes)
     {
         var ids = Enumerable.Repeat(-1, mask.Width * mask.Height).ToArray();
         var counts = new Dictionary<int, int>();
@@ -295,7 +304,7 @@ internal sealed class OrogenProvinceGenerator
                 {
                     var current = queue.Dequeue();
                     count++;
-                    foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+                    foreach (var neighbor in topology.GetNeighbors4(current))
                     {
                         var index = neighbor.Y * mask.Width + neighbor.X;
                         if (!mask.IsLand(neighbor) || ids[index] >= 0)
@@ -314,7 +323,7 @@ internal sealed class OrogenProvinceGenerator
         return ids;
     }
 
-    private static IReadOnlyList<GridPoint> OrderAxisPoints(IReadOnlyList<GridPoint> points, int width, bool preserveOrder)
+    private static IReadOnlyList<GridPoint> OrderAxisPoints(IReadOnlyList<GridPoint> points, int width, bool preserveOrder, IGridTopology topology)
     {
         var distinct = points.Distinct().ToArray();
         if (preserveOrder || distinct.Length <= 2)
@@ -322,7 +331,7 @@ internal sealed class OrogenProvinceGenerator
 
         var remaining = distinct.ToHashSet();
         var start = distinct
-            .OrderBy(p => NeighborCount(p, remaining, width))
+            .OrderBy(p => NeighborCount(p, remaining, topology))
             .ThenBy(p => p.Y)
             .ThenBy(p => p.X)
             .First();
@@ -333,7 +342,7 @@ internal sealed class OrogenProvinceGenerator
         {
             var current = ordered[^1];
             var next = remaining
-                .OrderBy(p => WrappedDistanceSquared(current, p, width))
+                .OrderBy(p => WrappedDistanceSquared(current, p, topology))
                 .ThenBy(p => p.Y)
                 .ThenBy(p => p.X)
                 .First();
@@ -344,7 +353,7 @@ internal sealed class OrogenProvinceGenerator
         return ordered;
     }
 
-    private static void StampProvince(MapMask mask, OrogenProvince province, double[] influence, double[] strength, double[] axis)
+    private static void StampProvince(MapMask mask, OrogenProvince province, double[] influence, double[] strength, double[] axis, IGridTopology topology)
     {
         if (province.AxisPoints.Count == 0)
             return;
@@ -368,12 +377,12 @@ internal sealed class OrogenProvinceGenerator
             var radius = Math.Clamp((int)Math.Ceiling(localWidth), 1, Math.Max(2, (int)Math.Round(mask.Width * 0.08)));
 
             axis[point.Y * mask.Width + point.X] = Math.Max(axis[point.Y * mask.Width + point.X], province.MeanScore * taper);
-            foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, radius))
+            foreach (var stamped in PointsInRadius(point, radius, topology))
             {
                 if (!mask.IsLand(stamped))
                     continue;
 
-                var distance = Math.Sqrt(WrappedDistanceSquared(point, stamped, mask.Width));
+                var distance = Math.Sqrt(WrappedDistanceSquared(point, stamped, topology));
                 if (distance > localWidth)
                     continue;
 
@@ -385,7 +394,7 @@ internal sealed class OrogenProvinceGenerator
         }
     }
 
-    private static double CrustAgeContrast(MapMask mask, CrustFieldMap crustFields, GridPoint point)
+    private static double CrustAgeContrast(MapMask mask, CrustFieldMap crustFields, GridPoint point, IGridTopology topology)
     {
         var centerAge = crustFields.GetContinentalAge(point);
         var minAge = double.IsNaN(centerAge) ? double.PositiveInfinity : centerAge;
@@ -393,7 +402,7 @@ internal sealed class OrogenProvinceGenerator
         var terraneOrArc = crustFields.GetCrust(point) is CrustKind.Terrane or CrustKind.Arc ? 0.22 : 0.0;
         var radius = Math.Clamp((int)Math.Round(Math.Min(mask.Width, mask.Height) * 0.025), 2, 7);
 
-        foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, radius))
+        foreach (var stamped in PointsInRadius(point, radius, topology))
         {
             var crust = crustFields.GetCrust(stamped);
             if (crust is CrustKind.Terrane or CrustKind.Arc)
@@ -413,7 +422,7 @@ internal sealed class OrogenProvinceGenerator
         return Math.Clamp(contrast + terraneOrArc, 0, 1);
     }
 
-    private static double CratonInteriorScore(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, GridPoint point, double boundaryDistance, double supportRadius)
+    private static double CratonInteriorScore(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, GridPoint point, double boundaryDistance, double supportRadius, IGridTopology topology)
     {
         if (!mask.IsLand(point))
             return 0;
@@ -427,7 +436,7 @@ internal sealed class OrogenProvinceGenerator
 
         foreach (var center in history.CratonCenters)
         {
-            var distance = Math.Sqrt(WrappedDistanceSquared(point, center, mask.Width));
+            var distance = Math.Sqrt(WrappedDistanceSquared(point, center, topology));
             centerScore = Math.Max(centerScore, Math.Clamp(1.0 - distance / centerRadius, 0, 1));
         }
 
@@ -484,8 +493,8 @@ internal sealed class OrogenProvinceGenerator
 
     private static double SupportRadius(MapMask mask) => Math.Clamp(mask.Width * 0.065, 6.0, 28.0);
 
-    private static int NeighborCount(GridPoint point, IReadOnlySet<GridPoint> points, int width) =>
-        Neighbors8(point, width, int.MaxValue).Count(points.Contains);
+    private static int NeighborCount(GridPoint point, IReadOnlySet<GridPoint> points, IGridTopology topology) =>
+        topology.GetNeighbors8(point).Count(points.Contains);
 
     private static double Hash01(int x, int y, int seed)
     {
@@ -513,75 +522,37 @@ internal sealed class OrogenProvinceGenerator
 
     private static double Lerp(double a, double b, double amount) => a + (b - a) * amount;
 
-    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    private static IEnumerable<GridPoint> PointsInRadius(GridPoint center, int radius, IGridTopology topology)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
-            var y = center.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
             for (var dx = -radius; dx <= radius; dx++)
             {
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (topology.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }
-
-    private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height)
+    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, IGridTopology topology)
     {
-        yield return new GridPoint(WrapX(point.X - 1, width), point.Y);
-        yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
-        if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-        if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-    }
-
-    private static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
-    {
-        for (var dy = -1; dy <= 1; dy++)
+        foreach (var neighbor in topology.GetNeighbors8(point))
         {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-                yield return new GridPoint(WrapX(point.X + dx, width), y);
-            }
+            var dx = GridTopologyMath.WrappedDeltaX(topology, neighbor.X - point.X);
+            var dy = neighbor.Y - point.Y;
+            var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+            yield return (neighbor, cost);
         }
     }
 
-    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, int width, int height)
+    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, IGridTopology topology)
     {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
-                yield return (new GridPoint(WrapX(point.X + dx, width), y), cost);
-            }
-        }
-    }
-
-    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, int width)
-    {
-        var dx = Math.Abs(a.X - b.X);
-        dx = Math.Min(dx, width - dx);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, a.X - b.X);
         var dy = a.Y - b.Y;
         return dx * dx + dy * dy;
     }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
 
     private sealed record CandidateAxis(
         IReadOnlyList<GridPoint> Points,

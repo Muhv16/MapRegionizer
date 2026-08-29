@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -11,10 +12,12 @@ namespace MapRegionizer.Core.Terrain;
 internal sealed class ChannelPathTracer
 {
     private readonly int _seed;
+    internal IGridTopology? GridTopology { get; }
 
-    public ChannelPathTracer(int seed)
+    public ChannelPathTracer(int seed, IGridTopology? gridTopology = null)
     {
         _seed = seed;
+        GridTopology = gridTopology;
     }
 
     internal List<GridPoint> BuildChannelPath(
@@ -37,13 +40,14 @@ internal sealed class ChannelPathTracer
             path = originalCells.ToList();
 
         path = RerouteLongStraightRuns(mask, elevation, topology, lakeIds, path, usedChannelCells, discharge, meanSlope, options);
-        path = SmoothAlternatingZigZags(path, mask.Width);
+        path = SmoothAlternatingZigZags(path, mask.Width, GridTopology ?? new CylindricalXTopology(mask.Width, mask.Height));
         path = RepairSelfIntersections(mask, elevation, topology, lakeIds, path, originalCells, usedChannelCells, discharge, meanSlope, options);
-        if (path.Count >= 2 && RiverPathGeometryValidator.IsSimpleCellPath(path, mask.Width))
+        var gridTopology = GridTopology ?? new CylindricalXTopology(mask.Width, mask.Height);
+        if (path.Count >= 2 && RiverPathGeometryValidator.IsSimpleCellPath(path, mask.Width, gridTopology))
             return path;
 
         var original = originalCells.ToList();
-        return RiverPathGeometryValidator.IsSimpleCellPath(original, mask.Width) ? original : [];
+        return RiverPathGeometryValidator.IsSimpleCellPath(original, mask.Width, gridTopology) ? original : [];
     }
 
     internal List<GridPoint> TraceChannelPath(
@@ -58,6 +62,7 @@ internal sealed class ChannelPathTracer
         HydrologyGenerationOptions options)
     {
         var width = mask.Width;
+        var gridTopology = GridTopology ?? new CylindricalXTopology(width, mask.Height);
         var target = originalCells[^1];
         var corridorRadius = Math.Clamp((int)Math.Round(Math.Sqrt(originalCells.Count) * 0.72), 4, 8);
         var start = originalCells[0];
@@ -67,7 +72,7 @@ internal sealed class ChannelPathTracer
             [start] = new ChannelNodeInfo { Cost = 0.0, HasParent = false, PreviousDirection = -1, StraightRunLength = 0, DiagonalRunDirection = -1, DiagonalRunLength = 0 }
         };
         var closed = new HashSet<GridPoint>();
-        open.Enqueue(start, Distance(start, target, width));
+        open.Enqueue(start, Distance(start, target, gridTopology));
         var maxExpansions = Math.Clamp(originalCells.Count * 520, 2400, 52000);
         var expansions = 0;
 
@@ -85,7 +90,7 @@ internal sealed class ChannelPathTracer
 
             for (var direction = 0; direction < Directions.Length; direction++)
             {
-                var moved = Move(currentCell, direction, width, mask.Height);
+                var moved = Move(currentCell, direction, gridTopology);
                 if (!moved.HasValue)
                     continue;
 
@@ -95,14 +100,14 @@ internal sealed class ChannelPathTracer
                 if (next != target && !IsRenderableRiverLand(next, mask, topology, lakeIds))
                     continue;
 
-                var pathDistance = DistanceToPath(next, originalCells, width, corridorRadius + 1.0);
+                var pathDistance = DistanceToPath(next, originalCells, width, corridorRadius + 1.0, gridTopology);
                 if (pathDistance > corridorRadius && next != target)
                     continue;
 
                 var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
                 var straightRun = direction == currentInfo.PreviousDirection ? currentInfo.StraightRunLength + 1 : 1;
                 var diagonalRun = isDiagonal && direction == currentInfo.DiagonalRunDirection ? currentInfo.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
-                var nearTarget = Distance(next, target, width) <= 2.01;
+                var nearTarget = Distance(next, target, gridTopology) <= 2.01;
                 if (!nearTarget && straightRun > 5)
                     continue;
                 if (!nearTarget && isDiagonal && diagonalRun > 4)
@@ -146,7 +151,7 @@ internal sealed class ChannelPathTracer
                     DiagonalRunLength = diagonalRun
                 };
 
-                var heuristic = Distance(next, target, width) * 2.4 + pathDistance * 0.8;
+                var heuristic = Distance(next, target, gridTopology) * 2.4 + pathDistance * 0.8;
                 open.Enqueue(next, cost + heuristic);
             }
         }
@@ -187,7 +192,7 @@ internal sealed class ChannelPathTracer
         var plainness = ChannelPlainness(terrain);
         var slopeFactor = Math.Clamp(1.0 - meanSlope / 34.0, 0.0, 1.0);
         var lateralStrength = Math.Clamp(0.22 + plainness * slopeFactor * 0.78 + elevation.GetFoothillInfluence(next) * 0.18, 0.16, 1.0);
-        var targetDistance = Distance(next, target, width);
+        var targetDistance = Distance(next, target, GridTopology ?? new CylindricalXTopology(width, mask.Height));
         var ridgePenalty = Math.Max(0.0, elevation.GetRidgeContinuity(next) - elevation.GetMountainPassPotential(next) * 0.42) * 46.0;
         var usedAttraction = usedChannelCells[next.Y * width + next.X] > 0 ? -Math.Clamp(discharge / 180.0, 0.7, 3.4) * 7.5 : 0.0;
         var curvaturePenalty = ChannelCurvaturePenalty(previousDirection, direction);
@@ -240,7 +245,7 @@ internal sealed class ChannelPathTracer
         path.Reverse();
         return path;
     }
-    internal static List<GridPoint> SmoothAlternatingZigZags(IReadOnlyList<GridPoint> cells, int width)
+    internal static List<GridPoint> SmoothAlternatingZigZags(IReadOnlyList<GridPoint> cells, int width, IGridTopology? gridTopology = null)
     {
         if (cells.Count < 5)
             return cells.ToList();
@@ -252,13 +257,14 @@ internal sealed class ChannelPathTracer
             changed = false;
             for (var i = 1; i < result.Count - 2; i++)
             {
-                var d0 = DirectionIndex(result[i - 1], result[i], width);
-                var d1 = DirectionIndex(result[i], result[i + 1], width);
-                var d2 = DirectionIndex(result[i + 1], result[i + 2], width);
+                var topology = gridTopology ?? new CylindricalXTopology(width, 1);
+                var d0 = DirectionIndex(result[i - 1], result[i], topology);
+                var d1 = DirectionIndex(result[i], result[i + 1], topology);
+                var d2 = DirectionIndex(result[i + 1], result[i + 2], topology);
                 if (d0 < 0 || d1 < 0 || d2 < 0 || d0 != d2 || d0 == d1)
                     continue;
 
-                if (IsAdjacent(result[i - 1], result[i + 1], width))
+                if (IsAdjacent(result[i - 1], result[i + 1], width, gridTopology))
                 {
                     result.RemoveAt(i);
                     changed = true;
@@ -267,8 +273,8 @@ internal sealed class ChannelPathTracer
 
                 if (i + 3 < result.Count)
                 {
-                    var d3 = DirectionIndex(result[i + 2], result[i + 3], width);
-                    if (d1 == d3 && IsAdjacent(result[i], result[i + 2], width))
+                    var d3 = DirectionIndex(result[i + 2], result[i + 3], gridTopology ?? new CylindricalXTopology(width, 1));
+                    if (d1 == d3 && IsAdjacent(result[i], result[i + 2], width, gridTopology))
                     {
                         result.RemoveAt(i + 1);
                         changed = true;
@@ -293,14 +299,15 @@ internal sealed class ChannelPathTracer
         double meanSlope,
         HydrologyGenerationOptions options)
     {
+        var gridTopology = GridTopology ?? new CylindricalXTopology(mask.Width, mask.Height);
         var result = RemoveDuplicateCellLoops(cells);
         for (var pass = 0; pass < 4; pass++)
         {
             result = RemoveDuplicateCellLoops(result);
-            if (RiverPathGeometryValidator.IsSimpleCellPath(result, mask.Width))
+            if (RiverPathGeometryValidator.IsSimpleCellPath(result, mask.Width, gridTopology))
                 return result;
 
-            if (!RiverPathGeometryValidator.TryFindCellSelfIntersection(result, mask.Width, out var crossing))
+            if (!RiverPathGeometryValidator.TryFindCellSelfIntersection(result, mask.Width, gridTopology, out var crossing))
                 break;
 
             var anchorStart = Math.Max(0, crossing.FirstIndex - 2);
@@ -309,10 +316,10 @@ internal sealed class ChannelPathTracer
                 break;
 
             var segment = result.Skip(anchorStart).Take(anchorEnd - anchorStart + 1).ToList();
-            var forbiddenDirection = DirectionIndex(result[crossing.FirstIndex], result[crossing.FirstIndex + 1], mask.Width);
+            var forbiddenDirection = DirectionIndex(result[crossing.FirstIndex], result[crossing.FirstIndex + 1], gridTopology);
             var rerouted = FindLocalChannelPath(mask, elevation, topology, lakeIds, segment, usedChannelCells, discharge, meanSlope, options, forbiddenDirection);
             rerouted = RemoveDuplicateCellLoops(rerouted);
-            if (rerouted.Count <= 2 || rerouted.SequenceEqual(segment) || !RiverPathGeometryValidator.IsSimpleCellPath(rerouted, mask.Width))
+            if (rerouted.Count <= 2 || rerouted.SequenceEqual(segment) || !RiverPathGeometryValidator.IsSimpleCellPath(rerouted, mask.Width, gridTopology))
                 break;
 
             result.RemoveRange(anchorStart, anchorEnd - anchorStart + 1);
@@ -320,11 +327,11 @@ internal sealed class ChannelPathTracer
         }
 
         result = RemoveDuplicateCellLoops(result);
-        if (RiverPathGeometryValidator.IsSimpleCellPath(result, mask.Width))
+        if (RiverPathGeometryValidator.IsSimpleCellPath(result, mask.Width, gridTopology))
             return result;
 
         var original = originalCells.ToList();
-        return RiverPathGeometryValidator.IsSimpleCellPath(original, mask.Width) ? original : [];
+        return RiverPathGeometryValidator.IsSimpleCellPath(original, mask.Width, gridTopology) ? original : [];
     }
 
     internal static List<GridPoint> RemoveDuplicateCellLoops(IReadOnlyList<GridPoint> cells)
@@ -355,10 +362,11 @@ internal sealed class ChannelPathTracer
         HydrologyGenerationOptions options)
     {
         const int minRun = 6;
+        var gridTopology = GridTopology ?? new CylindricalXTopology(mask.Width, mask.Height);
         var result = cells.ToList();
         for (var pass = 0; pass < 3; pass++)
         {
-            var run = DetectLongStraightRuns(result, minRun)
+            var run = DetectLongStraightRuns(result, minRun, gridTopology)
                 .OrderByDescending(r => r.Length)
                 .FirstOrDefault();
             if (run == default)
@@ -397,6 +405,7 @@ internal sealed class ChannelPathTracer
             return false;
 
         var width = mask.Width;
+        var gridTopology = GridTopology ?? new CylindricalXTopology(width, mask.Height);
         var move = Directions[run.Direction];
         var firstPivot = Math.Clamp(run.Start + run.Length / 2, 1, cells.Count - 2);
         for (var offset = 0; offset <= Math.Max(1, run.Length / 2); offset++)
@@ -407,9 +416,9 @@ internal sealed class ChannelPathTracer
                 var next = cells[pivot + 1];
                 if (move.Dx == 0 || move.Dy == 0)
                 {
-                    foreach (var candidate in CardinalKinkCandidates(cells[pivot], move, width, mask.Height))
+                    foreach (var candidate in CardinalKinkCandidates(cells[pivot], move, width, mask.Height, gridTopology))
                     {
-                        if (!CanUseKinkCell(candidate, prev, next, cells, pivot, mask, elevation, topology, lakeIds))
+                        if (!CanUseKinkCell(candidate, prev, next, cells, pivot, mask, elevation, topology, lakeIds, gridTopology))
                             continue;
 
                         cells[pivot] = candidate;
@@ -418,10 +427,10 @@ internal sealed class ChannelPathTracer
                 }
                 else
                 {
-                    foreach (var pair in DiagonalKinkCandidates(prev, move, width, mask.Height))
+                    foreach (var pair in DiagonalKinkCandidates(prev, move, width, mask.Height, gridTopology))
                     {
-                        if (!CanUseKinkCell(pair.First, prev, pair.Second, cells, pivot, mask, elevation, topology, lakeIds) ||
-                            !CanUseKinkCell(pair.Second, pair.First, next, cells, pivot, mask, elevation, topology, lakeIds))
+                        if (!CanUseKinkCell(pair.First, prev, pair.Second, cells, pivot, mask, elevation, topology, lakeIds, gridTopology) ||
+                            !CanUseKinkCell(pair.Second, pair.First, next, cells, pivot, mask, elevation, topology, lakeIds, gridTopology))
                         {
                             continue;
                         }
@@ -457,33 +466,36 @@ internal sealed class ChannelPathTracer
             yield return right;
     }
 
-    internal static IEnumerable<GridPoint> CardinalKinkCandidates(GridPoint current, (int Dx, int Dy) move, int width, int height)
+    internal static IEnumerable<GridPoint> CardinalKinkCandidates(GridPoint current, (int Dx, int Dy) move, int width, int height, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         if (move.Dx == 0)
         {
-            yield return new GridPoint(WrapX(current.X + 1, width), current.Y);
-            yield return new GridPoint(WrapX(current.X - 1, width), current.Y);
+            if (gridTopology.TryResolve(current, 1, 0, out var right))
+                yield return right;
+            if (gridTopology.TryResolve(current, -1, 0, out var left))
+                yield return left;
         }
         else
         {
-            if (current.Y + 1 < height)
-                yield return new GridPoint(current.X, current.Y + 1);
-            if (current.Y - 1 >= 0)
-                yield return new GridPoint(current.X, current.Y - 1);
+            if (gridTopology.TryResolve(current, 0, 1, out var down))
+                yield return down;
+            if (gridTopology.TryResolve(current, 0, -1, out var up))
+                yield return up;
         }
     }
 
-    internal static IEnumerable<(GridPoint First, GridPoint Second)> DiagonalKinkCandidates(GridPoint previous, (int Dx, int Dy) move, int width, int height)
+    internal static IEnumerable<(GridPoint First, GridPoint Second)> DiagonalKinkCandidates(GridPoint previous, (int Dx, int Dy) move, int width, int height, IGridTopology? gridTopology = null)
     {
-        var a1 = new GridPoint(WrapX(previous.X + move.Dx, width), previous.Y);
-        var b1Y = previous.Y + move.Dy;
-        if (b1Y >= 0 && b1Y < height)
-            yield return (a1, new GridPoint(WrapX(previous.X + move.Dx * 2, width), b1Y));
+        gridTopology ??= new CylindricalXTopology(width, height);
+        if (!gridTopology.TryResolve(previous, move.Dx, 0, out var a1))
+            yield break;
+        if (gridTopology.TryResolve(previous, move.Dx * 2, move.Dy, out var b1))
+            yield return (a1, b1);
 
-        var a2Y = previous.Y + move.Dy;
-        var b2Y = previous.Y + move.Dy * 2;
-        if (a2Y >= 0 && a2Y < height && b2Y >= 0 && b2Y < height)
-            yield return (new GridPoint(previous.X, a2Y), new GridPoint(WrapX(previous.X + move.Dx, width), b2Y));
+        if (gridTopology.TryResolve(previous, 0, move.Dy, out var a2) &&
+            gridTopology.TryResolve(previous, move.Dx, move.Dy * 2, out var b2))
+            yield return (a2, b2);
     }
 
     internal static bool CanUseKinkCell(
@@ -495,7 +507,8 @@ internal sealed class ChannelPathTracer
         MapMask mask,
         ElevationMap elevation,
         WaterBodyTopology topology,
-        int[] lakeIds)
+        int[] lakeIds,
+        IGridTopology? gridTopology = null)
     {
         if (!IsAdjacent(previous, candidate, mask.Width) || !IsAdjacent(candidate, next, mask.Width))
             return false;
@@ -514,8 +527,8 @@ internal sealed class ChannelPathTracer
         return breach <= maxBreach;
     }
 
-    internal static bool IsAdjacent(GridPoint a, GridPoint b, int width) =>
-        Math.Max(Math.Abs(WrappedDeltaX(b.X - a.X, width)), Math.Abs(b.Y - a.Y)) == 1;
+    internal static bool IsAdjacent(GridPoint a, GridPoint b, int width, IGridTopology? gridTopology = null) =>
+        Math.Max(Math.Abs(GridTopologyMath.WrappedDeltaX(gridTopology ?? new CylindricalXTopology(width, Math.Max(a.Y, b.Y) + 1), b.X - a.X)), Math.Abs(b.Y - a.Y)) == 1;
     internal List<GridPoint> FindLocalChannelPath(
         MapMask mask,
         ElevationMap elevation,
@@ -553,6 +566,7 @@ internal sealed class ChannelPathTracer
         int radius)
     {
         var width = mask.Width;
+        var gridTopology = GridTopology ?? new CylindricalXTopology(width, mask.Height);
         var start = segment[0];
         var target = segment[^1];
         var open = new PriorityQueue<GridPoint, double>();
@@ -561,7 +575,7 @@ internal sealed class ChannelPathTracer
             [start] = new ChannelNodeInfo { Cost = 0.0, HasParent = false, PreviousDirection = -1, StraightRunLength = 0, DiagonalRunDirection = -1, DiagonalRunLength = 0 }
         };
         var closed = new HashSet<GridPoint>();
-        open.Enqueue(start, Distance(start, target, width));
+        open.Enqueue(start, Distance(start, target, gridTopology));
         var expansions = 0;
         var maxExpansions = Math.Clamp(segment.Count * radius * 96, 1800, 18000);
 
@@ -579,7 +593,7 @@ internal sealed class ChannelPathTracer
 
             for (var direction = 0; direction < Directions.Length; direction++)
             {
-                var moved = Move(currentCell, direction, width, mask.Height);
+                var moved = Move(currentCell, direction, gridTopology);
                 if (!moved.HasValue)
                     continue;
 
@@ -589,14 +603,14 @@ internal sealed class ChannelPathTracer
                 if (next != target && !IsRenderableRiverLand(next, mask, topology, lakeIds))
                     continue;
 
-                var pathDistance = DistanceToPath(next, segment, width, radius + 0.75);
+                var pathDistance = DistanceToPath(next, segment, width, radius + 0.75, gridTopology);
                 if (pathDistance > radius && next != target)
                     continue;
 
                 var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
                 var straightRun = direction == currentInfo.PreviousDirection ? currentInfo.StraightRunLength + 1 : 1;
                 var diagonalRun = isDiagonal && direction == currentInfo.DiagonalRunDirection ? currentInfo.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
-                var nearTarget = Distance(next, target, width) <= 2.01;
+                var nearTarget = Distance(next, target, gridTopology) <= 2.01;
                 if (!nearTarget && straightRun > 5)
                     continue;
                 if (!nearTarget && isDiagonal && diagonalRun > 4)
@@ -643,7 +657,7 @@ internal sealed class ChannelPathTracer
                     DiagonalRunDirection = isDiagonal ? direction : -1,
                     DiagonalRunLength = diagonalRun
                 };
-                open.Enqueue(next, cost + Distance(next, target, width) * 2.2 + pathDistance * 0.8);
+                open.Enqueue(next, cost + Distance(next, target, gridTopology) * 2.2 + pathDistance * 0.8);
             }
         }
 
@@ -652,18 +666,19 @@ internal sealed class ChannelPathTracer
 
         return ReconstructChannelPath(target, nodeInfo);
     }
-    internal static IReadOnlyList<StraightRun> DetectLongStraightRuns(IReadOnlyList<GridPoint> cells, int minRun)
+    internal static IReadOnlyList<StraightRun> DetectLongStraightRuns(IReadOnlyList<GridPoint> cells, int minRun, IGridTopology? gridTopology = null)
     {
         var runs = new List<StraightRun>();
         if (cells.Count < minRun + 1)
             return runs;
 
-        var runDirection = DirectionIndex(cells[0], cells[1], int.MaxValue / 4);
+        gridTopology ??= new CylindricalXTopology(Math.Max(1, cells.Max(p => p.X) + 1), Math.Max(1, cells.Max(p => p.Y) + 1));
+        var runDirection = DirectionIndex(cells[0], cells[1], gridTopology);
         var runStart = 0;
         var runLength = 1;
         for (var i = 1; i < cells.Count - 1; i++)
         {
-            var direction = DirectionIndex(cells[i], cells[i + 1], int.MaxValue / 4);
+            var direction = DirectionIndex(cells[i], cells[i + 1], gridTopology);
             if (direction == runDirection)
             {
                 runLength++;
@@ -682,12 +697,12 @@ internal sealed class ChannelPathTracer
         return runs;
     }
 
-    internal static double DistanceToPath(GridPoint point, IReadOnlyList<GridPoint> cells, int width, double maxStopDistance)
+    internal static double DistanceToPath(GridPoint point, IReadOnlyList<GridPoint> cells, int width, double maxStopDistance, IGridTopology? gridTopology = null)
     {
         var best = double.PositiveInfinity;
         foreach (var cell in cells)
         {
-            var distance = Distance(point, cell, width);
+            var distance = Distance(point, cell, gridTopology ?? new CylindricalXTopology(width, Math.Max(point.Y, cell.Y) + 1));
             if (distance < best)
                 best = distance;
             if (best <= 0.001 || best <= maxStopDistance * 0.35)
@@ -751,11 +766,12 @@ internal sealed class ChannelPathTracer
     internal List<MapPoint> BuildPolyline(ElevationMap elevation, IReadOnlyList<GridPoint> cells, GridPoint? terminal, double discharge, double meanSlope, HydrologyGenerationOptions options)
     {
         var full = BuildPolyline(elevation, cells, terminal, discharge, meanSlope, options, bendScale: 1.0, includeSegmentBends: true);
-        if (RiverPathGeometryValidator.IsSimplePolyline(full, elevation.Width))
+        var gridTopology = GridTopology ?? new CylindricalXTopology(elevation.Width, elevation.Height);
+        if (RiverPathGeometryValidator.IsSimplePolyline(full, elevation.Width, gridTopology))
             return full;
 
         var softened = BuildPolyline(elevation, cells, terminal, discharge, meanSlope, options, bendScale: 0.35, includeSegmentBends: true);
-        if (RiverPathGeometryValidator.IsSimplePolyline(softened, elevation.Width))
+        if (RiverPathGeometryValidator.IsSimplePolyline(softened, elevation.Width, gridTopology))
             return softened;
 
         return BuildPolyline(elevation, cells, terminal, discharge, meanSlope, options, bendScale: 0.0, includeSegmentBends: false);
@@ -799,11 +815,11 @@ internal sealed class ChannelPathTracer
     {
         var current = cells[index];
         var next = cells[index + 1];
-        var rawDx = next.X - current.X;
-        if (Math.Abs(rawDx) > elevation.Width / 2.0)
+        var gridTopology = GridTopology ?? new CylindricalXTopology(elevation.Width, elevation.Height);
+        if (!gridTopology.GetNeighbors8(current).Contains(next))
             return null;
 
-        var dx = rawDx;
+        var dx = GridTopologyMath.WrappedDeltaX(gridTopology, next.X - current.X);
         var dy = next.Y - current.Y;
         var len = Math.Sqrt(dx * dx + dy * dy);
         if (len <= 0.001)
@@ -850,7 +866,7 @@ internal sealed class ChannelPathTracer
 
         var prev = cells[index - 1];
         var next = cells[index + 1];
-        var dx = WrappedDeltaX(next.X - prev.X, elevation.Width);
+        var dx = GridTopologyMath.WrappedDeltaX(GridTopology ?? new CylindricalXTopology(elevation.Width, elevation.Height), next.X - prev.X);
         var dy = next.Y - prev.Y;
         var len = Math.Sqrt(dx * dx + dy * dy);
         if (len <= 0.001)

@@ -1,4 +1,5 @@
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 
 namespace MapRegionizer.Core.Terrain;
@@ -7,16 +8,18 @@ internal sealed class RiverTopologyGraph
 {
     private readonly byte[] _cells;
     private readonly int[] _downstream;
+    public IGridTopology GridTopology { get; }
 
     public int Width { get; }
     public int Height { get; }
 
-    private RiverTopologyGraph(int width, int height, byte[] cells, int[] downstream)
+    private RiverTopologyGraph(int width, int height, byte[] cells, int[] downstream, IGridTopology gridTopology)
     {
         Width = width;
         Height = height;
         _cells = cells;
         _downstream = downstream;
+        GridTopology = gridTopology;
     }
 
     public ReadOnlySpan<byte> CellsSpan => _cells;
@@ -31,8 +34,9 @@ internal sealed class RiverTopologyGraph
 
     public byte[] ToRiverCells() => _cells.ToArray();
 
-    public static RiverTopologyGraph Build(int width, int height, int[] flowDirections, byte[] riverCells, int[] lakeIds)
+    public static RiverTopologyGraph Build(int width, int height, int[] flowDirections, byte[] riverCells, int[] lakeIds, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var cells = riverCells.ToArray();
         var downstream = new int[cells.Length];
         Array.Fill(downstream, -1);
@@ -41,12 +45,12 @@ internal sealed class RiverTopologyGraph
             if (cells[index] == 0 || lakeIds[index] > 0)
                 continue;
 
-            var next = DownstreamIndex(index, flowDirections[index], width, height);
+            var next = DownstreamIndex(index, flowDirections[index], gridTopology);
             if (next >= 0 && next < cells.Length && cells[next] != 0 && lakeIds[next] <= 0)
                 downstream[index] = next;
         }
 
-        return new RiverTopologyGraph(width, height, cells, downstream);
+        return new RiverTopologyGraph(width, height, cells, downstream, gridTopology);
     }
 
     public void SetDownstream(int from, int to)

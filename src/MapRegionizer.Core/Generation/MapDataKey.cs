@@ -8,6 +8,7 @@ public readonly record struct MapDataKey(string Value)
 public static class MapDataKeys
 {
     public static readonly MapDataKey Mask = new("mask");
+    public static readonly MapDataKey SpatialContext = new("spatialContext");
     public static readonly MapDataKey Landmasses = new("landmasses");
     public static readonly MapDataKey WaterBodies = new("waterBodies");
     public static readonly MapDataKey WaterBodyTopology = new("waterBodyTopology");

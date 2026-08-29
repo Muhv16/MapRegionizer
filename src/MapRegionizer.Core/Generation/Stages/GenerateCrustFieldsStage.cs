@@ -9,7 +9,8 @@ public sealed class GenerateCrustFieldsStage : IMapGenerationStage
     public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey>
     {
         MapDataKeys.Mask,
-        MapDataKeys.TectonicHistory
+        MapDataKeys.TectonicHistory,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.CrustFields };
@@ -18,6 +19,6 @@ public sealed class GenerateCrustFieldsStage : IMapGenerationStage
     {
         var history = context.TectonicHistory ?? throw new InvalidOperationException("Tectonic history is required.");
         var generator = new CrustFieldGenerator(context.Random);
-        context.CrustFields = generator.Generate(context.Mask, history, context.Options.TectonicPlates);
+        context.CrustFields = generator.Generate(context.Mask, history, context.Options.TectonicPlates, context.SpatialContext.GridTopology);
     }
 }

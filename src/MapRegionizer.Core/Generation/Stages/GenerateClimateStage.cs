@@ -11,7 +11,8 @@ public sealed class GenerateClimateStage : IMapGenerationStage
         MapDataKeys.Elevation,
         MapDataKeys.WaterSurfaces,
         MapDataKeys.WaterBodyTopology,
-        MapDataKeys.Hydrology
+        MapDataKeys.Hydrology,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey>
@@ -27,6 +28,6 @@ public sealed class GenerateClimateStage : IMapGenerationStage
         var hydrology = context.Hydrology ?? throw new InvalidOperationException("Hydrology is required.");
         var seed = context.Options.Seed ?? 0;
         var generator = new ClimateGenerator(unchecked(seed * 397 ^ 0x5C11A7E));
-        context.Climate = generator.Generate(context.Mask, elevation, waterBodyTopology, waterSurfaces, hydrology, context.Options.Climate);
+        context.Climate = generator.Generate(context.Mask, elevation, waterBodyTopology, waterSurfaces, hydrology, context.SpatialContext, context.Options.Climate);
     }
 }

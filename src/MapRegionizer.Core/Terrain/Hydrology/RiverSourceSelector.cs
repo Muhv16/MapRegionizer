@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -29,18 +30,20 @@ internal sealed class RiverSourceSelector
         int[] lakeIds,
         LandComponentMap landComponents,
         HydrologyGenerationOptions options,
-        List<int>[]? upstreamCache = null)
+        List<int>[]? upstreamCache = null,
+        IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var riverCells = new byte[width * height];
         if (options.RiverDensity <= 0 || options.TributaryDensity <= 0)
             return riverCells;
 
         var baseThreshold = Math.Clamp(Math.Sqrt(width * height) * 0.22, 18.0, 96.0) / Math.Max(0.1, options.RiverDensity * options.TributaryDensity);
         var componentThresholds = BuildComponentRiverThresholds(mask, generatedLakes, accumulation, flowDirections, landComponents, baseThreshold);
-        var mountainSources = BuildMountainSourceBudget(mask, elevation, generatedLakes, landComponents, options);
-        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
+        var mountainSources = BuildMountainSourceBudget(mask, elevation, generatedLakes, landComponents, options, gridTopology);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height, gridTopology);
         var candidates = new List<RiverSourceCandidate>();
         var bucketSize = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) / 30.0), 14, 44);
         const int desiredVisibleLength = 6;
@@ -64,7 +67,7 @@ internal sealed class RiverSourceSelector
                 var mountainInfo = mountainSources.InfoByCell[index];
                 var mountainSide = mountainInfo is null
                     ? MountainSourceSide.None
-                    : TraceMountainSourceSide(index, flowDirections, width, height, maxSteps: 18);
+                    : TraceMountainSourceSide(index, flowDirections, width, height, maxSteps: 18, gridTopology);
                 if (mountainInfo is not null)
                     threshold /= Math.Max(0.25, options.MountainRiverDensity);
                 if (accumulation[index] < threshold || !IsDistributedHeadwater(index, upstream, accumulation, threshold, basinIds, lakeIds, mask, topology))
@@ -73,7 +76,7 @@ internal sealed class RiverSourceSelector
                 var bucketX = x / bucketSize;
                 var bucketY = y / bucketSize;
                 var terrainScore = terrain is TerrainClassKind.Mountain or TerrainClassKind.Highland ? 0.86 : 1.0;
-                var downstreamLength = CountDownstreamDryLength(index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height, maxLength: 48);
+                var downstreamLength = CountDownstreamDryLength(index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height, maxLength: 48, gridTopology);
                 var lengthFactor = downstreamLength >= desiredVisibleLength
                     ? Math.Clamp(0.92 + downstreamLength / 28.0, 1.0, 2.25)
                     : Math.Clamp(0.24 + downstreamLength / (double)desiredVisibleLength * 0.48, 0.24, 0.72);
@@ -85,9 +88,9 @@ internal sealed class RiverSourceSelector
         if (candidates.Count == 0)
             return riverCells;
 
-        var selected = SelectDistributedRiverSources(candidates, width, height, flowDirections, lakeIds, mask, topology, options, mountainSources);
+        var selected = SelectDistributedRiverSources(candidates, width, height, flowDirections, lakeIds, mask, topology, options, mountainSources, gridTopology);
         foreach (var candidate in selected)
-            MarkRiverCorridor(candidate.Index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height);
+            MarkRiverCorridor(candidate.Index, flowDirections, riverCells, basinIds, allowedRiverBasins, lakeIds, mask, topology, width, height, gridTopology);
 
         return riverCells;
     }
@@ -125,10 +128,12 @@ internal sealed class RiverSourceSelector
         ElevationMap elevation,
         GeneratedLakeMap generatedLakes,
         LandComponentMap landComponents,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var infoByCell = new MountainSourceInfo?[width * height];
         var clusterCaps = new Dictionary<int, int>();
         var sideCaps = new Dictionary<MountainSideBudgetKey, int>();
@@ -157,7 +162,7 @@ internal sealed class RiverSourceSelector
                 {
                     var current = queue.Dequeue();
                     cells.Add(current);
-                    foreach (var neighbor in Neighbors8(current, width, height))
+                    foreach (var neighbor in gridTopology.GetNeighbors8(current))
                     {
                         var index = neighbor.Y * width + neighbor.X;
                         if (visited[index] || landComponents.ComponentIds[index] != componentId || !IsMountainSourceLand(neighbor, mask, elevation, generatedLakes))
@@ -197,8 +202,9 @@ internal sealed class RiverSourceSelector
         return elevation.GetTerrainClass(point) is TerrainClassKind.Mountain or TerrainClassKind.Highland;
     }
 
-    internal static MountainSourceSide TraceMountainSourceSide(int start, int[] flowDirections, int width, int height, int maxSteps)
+    internal static MountainSourceSide TraceMountainSourceSide(int start, int[] flowDirections, int width, int height, int maxSteps, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var startX = start % width;
         var startY = start / width;
         var current = start;
@@ -207,20 +213,20 @@ internal sealed class RiverSourceSelector
         var seen = new HashSet<int>();
         for (var step = 0; step < maxSteps && current >= 0 && current < flowDirections.Length && seen.Add(current); step++)
         {
-            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 break;
 
             var nextX = downstream % width;
             var nextY = downstream / width;
-            dx += WrappedDeltaX(nextX - (current % width), width);
+            dx += (int)GridTopologyMath.WrappedDeltaX(gridTopology, nextX - (current % width));
             dy += nextY - (current / width);
             current = downstream;
         }
 
         if (dx == 0 && dy == 0)
         {
-            dx = WrappedDeltaX((current % width) - startX, width);
+            dx = (int)GridTopologyMath.WrappedDeltaX(gridTopology, (current % width) - startX);
             dy = current / width - startY;
         }
 
@@ -239,9 +245,11 @@ internal sealed class RiverSourceSelector
         MapMask mask,
         WaterBodyTopology topology,
         HydrologyGenerationOptions options,
-        MountainSourceBudget mountainSources)
+        MountainSourceBudget mountainSources,
+        IGridTopology? gridTopology = null)
     {
         var areaRoot = Math.Sqrt(width * height);
+        gridTopology ??= new CylindricalXTopology(width, height);
         var maxSources = Math.Clamp((int)Math.Round(areaRoot * 0.44 * Math.Max(0.2, options.RiverDensity) * Math.Max(0.35, options.TributaryDensity)), 48, 1600);
         var minSpacing = Math.Clamp((int)Math.Round(areaRoot / 72.0 / Math.Max(0.72, Math.Sqrt(Math.Max(0.1, options.RiverDensity)))), 6, 22);
         var selected = new List<RiverSourceCandidate>();
@@ -289,11 +297,11 @@ internal sealed class RiverSourceSelector
                         continue;
                     }
 
-                    if (IsFarEnoughFromSelected(candidate, selected, width, SourceSpacing(candidate, mountainSources, minSpacing)) &&
-                        HasEnoughIndependentDownstreamRun(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, desiredLength: 4))
+                    if (IsFarEnoughFromSelected(candidate, selected, width, SourceSpacing(candidate, mountainSources, minSpacing), gridTopology) &&
+                        HasEnoughIndependentDownstreamRun(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, desiredLength: 4, gridTopology))
                     {
                         selected.Add(candidate);
-                        ReserveDownstreamCorridor(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height);
+                        ReserveDownstreamCorridor(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, gridTopology);
                         selectedByComponent[candidate.ComponentId] = selectedByComponent.GetValueOrDefault(candidate.ComponentId) + 1;
                         selectedByBasin[candidate.BasinId] = selectedByBasin.GetValueOrDefault(candidate.BasinId) + 1;
                         selectedByBucket[bucketKey] = selectedByBucket.GetValueOrDefault(bucketKey) + 1;
@@ -315,7 +323,7 @@ internal sealed class RiverSourceSelector
                 if (selected.Count >= maxSources)
                     break;
                 if (!CanSelectMountainSource(candidate, mountainSources, selectedByMountainCluster, selectedByMountainSide) ||
-                    !IsFarEnoughFromSelected(candidate, selected, width, SourceSpacing(candidate, mountainSources, minSpacing)))
+                    !IsFarEnoughFromSelected(candidate, selected, width, SourceSpacing(candidate, mountainSources, minSpacing), gridTopology))
                 {
                     continue;
                 }
@@ -345,7 +353,8 @@ internal sealed class RiverSourceSelector
                 mask,
                 topology,
                 width,
-                height);
+                height,
+                gridTopology);
         }
 
         return selected;
@@ -419,13 +428,15 @@ internal sealed class RiverSourceSelector
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
         var supplementalBudget = Math.Clamp((int)Math.Round(maxSources * 0.18), 8, 220);
         var supplementalLimit = Math.Min(candidates.Count, maxSources + supplementalBudget);
         var softMinSpacing = Math.Clamp((int)Math.Round(minSpacing * 0.55), 3, minSpacing);
         var softComponentCap = componentCap + Math.Clamp((int)Math.Round(componentCap * 0.45), 4, 28);
         var softBasinCap = basinCap + Math.Clamp((int)Math.Round(basinCap * 0.35), 4, 36);
+        gridTopology ??= new CylindricalXTopology(width, height);
         var coveredBuckets = selected
             .Select(c => new RiverSourceCoverageKey(CoverageComponentId(c), c.BucketX, c.BucketY))
             .ToHashSet();
@@ -457,14 +468,14 @@ internal sealed class RiverSourceSelector
                 continue;
             }
 
-            if (!IsFarEnoughFromSelected(candidate, selected, width, SourceSpacing(candidate, mountainSources, softMinSpacing)) ||
-                !HasEnoughIndependentDownstreamRun(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, desiredLength: 2))
+            if (!IsFarEnoughFromSelected(candidate, selected, width, SourceSpacing(candidate, mountainSources, softMinSpacing), gridTopology) ||
+                !HasEnoughIndependentDownstreamRun(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, desiredLength: 2, gridTopology))
             {
                 continue;
             }
 
             selected.Add(candidate);
-            ReserveDownstreamCorridor(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height);
+            ReserveDownstreamCorridor(candidate.Index, reservedCorridors, flowDirections, lakeIds, mask, topology, width, height, gridTopology);
             selectedByComponent[candidate.ComponentId] = selectedByComponent.GetValueOrDefault(candidate.ComponentId) + 1;
             selectedByBasin[candidate.BasinId] = selectedByBasin.GetValueOrDefault(candidate.BasinId) + 1;
             selectedByBucket[bucketKey] = selectedByBucket.GetValueOrDefault(bucketKey) + 1;
@@ -476,8 +487,9 @@ internal sealed class RiverSourceSelector
     internal static int CoverageComponentId(RiverSourceCandidate candidate) =>
         candidate.ComponentId > 0 ? candidate.ComponentId : -candidate.BasinId;
 
-    internal static bool IsFarEnoughFromSelected(RiverSourceCandidate candidate, IReadOnlyList<RiverSourceCandidate> selected, int width, int minSpacing)
+    internal static bool IsFarEnoughFromSelected(RiverSourceCandidate candidate, IReadOnlyList<RiverSourceCandidate> selected, int width, int minSpacing, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, Math.Max(candidate.BucketY + 1, 1));
         var candidatePoint = new GridPoint(candidate.Index % width, candidate.Index / width);
         foreach (var other in selected)
         {
@@ -485,7 +497,7 @@ internal sealed class RiverSourceSelector
                 continue;
 
             var otherPoint = new GridPoint(other.Index % width, other.Index / width);
-            var dx = Math.Abs(WrappedDeltaX(candidatePoint.X - otherPoint.X, width));
+            var dx = Math.Abs(GridTopologyMath.WrappedDeltaX(gridTopology, candidatePoint.X - otherPoint.X));
             var dy = Math.Abs(candidatePoint.Y - otherPoint.Y);
             if (Math.Sqrt(dx * dx + dy * dy) < minSpacing)
                 return false;
@@ -503,8 +515,10 @@ internal sealed class RiverSourceSelector
         WaterBodyTopology topology,
         int width,
         int height,
-        int desiredLength)
+        int desiredLength,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var current = start;
         var length = 0;
         var seen = new HashSet<int>();
@@ -520,7 +534,7 @@ internal sealed class RiverSourceSelector
             if (length >= desiredLength)
                 return true;
 
-            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 return length >= desiredLength;
 
@@ -538,8 +552,10 @@ internal sealed class RiverSourceSelector
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var current = start;
         var seen = new HashSet<int>();
         while (current >= 0 && current < flowDirections.Length && seen.Add(current))
@@ -549,7 +565,7 @@ internal sealed class RiverSourceSelector
                 break;
 
             reservedCorridors[current] = true;
-            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 break;
 
@@ -617,9 +633,11 @@ internal sealed class RiverSourceSelector
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
         var current = start;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var basinId = basinIds[start];
         for (var guard = 0; guard < flowDirections.Length && current >= 0 && current < flowDirections.Length; guard++)
         {
@@ -628,7 +646,7 @@ internal sealed class RiverSourceSelector
                 break;
 
             riverCells[current] = 1;
-            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
             {
                 if (!allowedRiverBasins.Contains(basinIds[current]))
@@ -657,12 +675,14 @@ internal sealed class RiverSourceSelector
         WaterBodyTopology topology,
         int width,
         int height,
-        int maxLength)
+        int maxLength,
+        IGridTopology? gridTopology = null)
     {
         var current = start;
         var basinId = basinIds[start];
         var length = 0;
         var seen = new HashSet<int>();
+        gridTopology ??= new CylindricalXTopology(width, height);
         while (current >= 0 && current < flowDirections.Length && seen.Add(current) && length < maxLength)
         {
             var point = new GridPoint(current % width, current / width);
@@ -670,7 +690,7 @@ internal sealed class RiverSourceSelector
                 break;
 
             length++;
-            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 break;
 

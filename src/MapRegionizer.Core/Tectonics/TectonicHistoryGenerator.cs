@@ -1,19 +1,23 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
 internal sealed class TectonicHistoryGenerator
 {
     private readonly Random _random;
+    private IGridTopology? _topology;
 
-    public TectonicHistoryGenerator(Random random)
+    public TectonicHistoryGenerator(Random random, IGridTopology? topology = null)
     {
         _random = random;
+        _topology = topology;
     }
 
     public TectonicHistory Generate(MapMask mask, IReadOnlyList<Landmass> landmasses, IReadOnlyList<WaterBody> waterBodies, TectonicPlateGenerationOptions options)
     {
+        _topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var lineaments = new List<TectonicLineament>();
         var events = new List<TectonicEvent>();
         var cratonCenters = CreateCratonCenters(mask, landmasses);
@@ -110,7 +114,7 @@ internal sealed class TectonicHistoryGenerator
 
         for (var y = 0; y < mask.Height; y++)
         {
-            var x = WrapX(xStart + (int)Math.Round(Math.Sin(y * heightFactor + phase) * amplitude), mask.Width);
+            var x = ResolveX(xStart + (int)Math.Round(Math.Sin(y * heightFactor + phase) * amplitude), mask.Width);
             var point = new GridPoint(x, y);
 
             var isLand = mask.IsLand(point);
@@ -166,12 +170,12 @@ internal sealed class TectonicHistoryGenerator
 
         var length = Math.Max(6, Math.Min(mask.Width, mask.Height) / 7);
         for (var i = 0; i < length; i++)
-            points.Add(new GridPoint(WrapX(hotspot.X - dx * i, mask.Width), Math.Clamp(hotspot.Y - dy * i, 0, mask.Height - 1)));
+            points.Add(new GridPoint(ResolveX(hotspot.X - dx * i, mask.Width), Math.Clamp(hotspot.Y - dy * i, 0, mask.Height - 1)));
 
         return points;
     }
 
-    private static List<GridPoint> FindCoastPoints(MapMask mask)
+    private List<GridPoint> FindCoastPoints(MapMask mask)
     {
         var result = new List<GridPoint>();
 
@@ -192,17 +196,9 @@ internal sealed class TectonicHistoryGenerator
         return result;
     }
 
-    private static bool HasLandNeighbor4(MapMask mask, GridPoint point)
+    private bool HasLandNeighbor4(MapMask mask, GridPoint point)
     {
-        var width = mask.Width;
-        var height = mask.Height;
-
-        if (mask.IsLand(new GridPoint(WrapX(point.X - 1, width), point.Y))) return true;
-        if (mask.IsLand(new GridPoint(WrapX(point.X + 1, width), point.Y))) return true;
-        if (point.Y > 0 && mask.IsLand(new GridPoint(point.X, point.Y - 1))) return true;
-        if (point.Y < height - 1 && mask.IsLand(new GridPoint(point.X, point.Y + 1))) return true;
-
-        return false;
+        return _topology!.GetNeighbors4(point).Any(mask.IsLand);
     }
 
     private List<GridPoint> TraceCoast(MapMask mask, GridPoint start, int length)
@@ -228,7 +224,7 @@ internal sealed class TectonicHistoryGenerator
         return points;
     }
 
-    private static int CollectCoastNeighbors8(
+    private int CollectCoastNeighbors8(
     MapMask mask,
     GridPoint point,
     HashSet<GridPoint> visited,
@@ -236,30 +232,12 @@ internal sealed class TectonicHistoryGenerator
     {
         var count = 0;
 
-        for (var dy = -1; dy <= 1; dy++)
+        foreach (var candidate in _topology!.GetNeighbors8(point))
         {
-            var y = point.Y + dy;
-            if (y < 0 || y >= mask.Height)
+            if (visited.Contains(candidate) || mask.IsLand(candidate) || !HasLandNeighbor4(mask, candidate))
                 continue;
 
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                var candidate = new GridPoint(WrapX(point.X + dx, mask.Width), y);
-
-                if (visited.Contains(candidate))
-                    continue;
-
-                if (mask.IsLand(candidate))
-                    continue;
-
-                if (!HasLandNeighbor4(mask, candidate))
-                    continue;
-
-                result[count++] = candidate;
-            }
+            result[count++] = candidate;
         }
 
         return count;
@@ -276,7 +254,7 @@ internal sealed class TectonicHistoryGenerator
             var yOffset = _random.Next(-offset, offset + 1);
 
             var point = new GridPoint(
-                WrapX(p.X + xOffset, mask.Width),
+                ResolveX(p.X + xOffset, mask.Width),
                 Math.Clamp(p.Y + yOffset, 0, mask.Height - 1));
 
             if (seen.Add(point))
@@ -286,7 +264,7 @@ internal sealed class TectonicHistoryGenerator
         return result;
     }
 
-    private static GridPoint NearestMatching(MapMask mask, GridPoint origin, bool wantsLand, int radius)
+    private GridPoint NearestMatching(MapMask mask, GridPoint origin, bool wantsLand, int radius)
     {
         for (var r = 1; r <= radius; r++)
         {
@@ -294,7 +272,7 @@ internal sealed class TectonicHistoryGenerator
             var yTop = Math.Clamp(origin.Y - r, 0, mask.Height - 1);
             for (var dx = -r; dx <= r; dx++)
             {
-                var point = new GridPoint(WrapX(origin.X + dx, mask.Width), yTop);
+                var point = new GridPoint(ResolveX(origin.X + dx, mask.Width), yTop);
                 if (mask.IsLand(point) == wantsLand)
                     return point;
             }
@@ -305,11 +283,11 @@ internal sealed class TectonicHistoryGenerator
             {
                 var y = Math.Clamp(origin.Y + dy, 0, mask.Height - 1);
 
-                var left = new GridPoint(WrapX(origin.X - r, mask.Width), y);
+                var left = new GridPoint(ResolveX(origin.X - r, mask.Width), y);
                 if (mask.IsLand(left) == wantsLand)
                     return left;
 
-                var right = new GridPoint(WrapX(origin.X + r, mask.Width), y);
+                var right = new GridPoint(ResolveX(origin.X + r, mask.Width), y);
                 if (mask.IsLand(right) == wantsLand)
                     return right;
             }
@@ -318,7 +296,7 @@ internal sealed class TectonicHistoryGenerator
             var yBottom = Math.Clamp(origin.Y + r, 0, mask.Height - 1);
             for (var dx = -r; dx <= r; dx++)
             {
-                var point = new GridPoint(WrapX(origin.X + dx, mask.Width), yBottom);
+                var point = new GridPoint(ResolveX(origin.X + dx, mask.Width), yBottom);
                 if (mask.IsLand(point) == wantsLand)
                     return point;
             }
@@ -328,7 +306,16 @@ internal sealed class TectonicHistoryGenerator
     }
 
     private static int ClampX(int x, int width) => Math.Clamp(x, 0, width - 1);
-    private static int WrapX(int x, int width) => (x % width + width) % width;
+
+    private int ResolveX(int x, int width)
+    {
+        if (_topology is CylindricalXTopology cylindrical)
+            return CylindricalXTopology.NormalizeX(x, cylindrical.Width);
+
+        // This is a bounded path-construction policy, not neighbour
+        // resolution. Topology.GetNeighbors* still rejects open X edges.
+        return Math.Clamp(x, 0, width - 1);
+    }
     private static IEnumerable<GridPoint> EnumeratePoints(int width, int height)
     {
         for (var y = 0; y < height; y++)
@@ -338,27 +325,4 @@ internal sealed class TectonicHistoryGenerator
         }
     }
 
-    private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height)
-    {
-        yield return new GridPoint(WrapX(point.X - 1, width), point.Y);
-        yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
-        if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-        if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-    }
-
-    private static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
-    {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-                yield return new GridPoint(WrapX(point.X + dx, width), y);
-            }
-        }
-    }
 }

@@ -1,5 +1,7 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
+using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 
 namespace MapRegionizer.Core.Generation.Stages;
 
@@ -13,7 +15,8 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
     {
         MapDataKeys.Mask,
         MapDataKeys.WaterBodyTopology,
-        MapDataKeys.BaseTerrain
+        MapDataKeys.BaseTerrain,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.GeneratedLakes };
@@ -30,7 +33,15 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
         }
 
         var generator = new SmallLakeGenerator(CreateSmallLakeSeed(context));
-        context.GeneratedLakes = generator.Generate(context.Mask, baseTerrain, waterBodyTopology, context.Options);
+        var lakeTopology = context.SpatialContext.SpatialReference.LegacyCompatibility is (LegacyCompatibilityProfile.Flat or LegacyCompatibilityProfile.Regional)
+            ? new OpenRectangularTopology(context.Mask.Width, context.Mask.Height)
+            : context.SpatialContext.GridTopology;
+        context.GeneratedLakes = generator.Generate(
+            context.Mask,
+            baseTerrain,
+            waterBodyTopology,
+            context.Options,
+            lakeTopology);
     }
 
     private static int CreateSmallLakeSeed(MapGenerationContext context)
@@ -57,12 +68,12 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             MapMask mask,
             ElevationMap terrain,
             WaterBodyTopology topology,
-            MapGenerationOptions options)
+            MapGenerationOptions options,
+            IGridTopology gridTopology)
         {
             var width = mask.Width;
             var height = mask.Height;
             var length = width * height;
-            var wrapX = options.ProjectionMode == MapProjectionMode.EquirectangularWorld;
             var elevationRange = ComputeElevationRange(mask, terrain);
             var countMultiplier = options.Elevation.SmallLakeCountMultiplier;
             var scatterMultiplier = options.Elevation.SmallLakeScatterMultiplier;
@@ -70,8 +81,8 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             if (elevationRange <= 0.0001 || countMultiplier <= 0)
                 return GeneratedLakeMap.Empty(width, height);
 
-            var waterDistance = ComputeDistanceToWater(mask, topology, wrapX);
-            var existingLakeInfluence = BuildExistingLakeInfluence(mask, topology, wrapX);
+            var waterDistance = ComputeDistanceToWater(mask, topology, gridTopology);
+            var existingLakeInfluence = BuildExistingLakeInfluence(mask, topology, gridTopology);
             var eligible = new bool[length];
             var scores = new double[length];
             var localRelief = new double[length];
@@ -95,10 +106,10 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                     if (elevation >= options.Elevation.MountainLakeElevationMeters * 0.92)
                         continue;
 
-                    var relief3 = LocalRelief(terrain, point, 1, wrapX);
-                    var relief5 = LocalRelief(terrain, point, 2, wrapX);
+                    var relief3 = LocalRelief(terrain, point, 1, gridTopology);
+                    var relief5 = LocalRelief(terrain, point, 2, gridTopology);
                     localRelief[index] = relief5;
-                    if (relief5 > localReliefLimit || !IsLocalMinimum(terrain, point, wrapX, relief3 * 0.20 + 0.75))
+                    if (relief5 > localReliefLimit || !IsLocalMinimum(terrain, point, gridTopology, relief3 * 0.20 + 0.75))
                         continue;
 
                     var roughness = terrain.GetRoughness(point);
@@ -116,7 +127,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                 }
             }
 
-            var components = FindComponents(eligible, width, height, wrapX);
+            var components = FindComponents(eligible, width, height, gridTopology);
             if (components.Count == 0)
                 return GeneratedLakeMap.Empty(width, height);
 
@@ -133,11 +144,11 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                 if (component.Count < 28)
                     continue;
 
-                PlaceClusterLakes(mask, terrain, options.Elevation, component, eligible, scores, localRelief, occupied, bodies, ref nextId, maxGeneratedBodies, countMultiplier, sizeMultiplier, wrapX);
-                PlaceSolitaryLakes(mask, terrain, options.Elevation, component, eligible, scores, localRelief, occupied, bodies, ref nextId, maxGeneratedBodies, countMultiplier, sizeMultiplier, wrapX);
+                PlaceClusterLakes(mask, terrain, options.Elevation, component, eligible, scores, localRelief, occupied, bodies, ref nextId, maxGeneratedBodies, countMultiplier, sizeMultiplier, gridTopology);
+                PlaceSolitaryLakes(mask, terrain, options.Elevation, component, eligible, scores, localRelief, occupied, bodies, ref nextId, maxGeneratedBodies, countMultiplier, sizeMultiplier, gridTopology);
             }
 
-            PlaceScatteredLakes(mask, terrain, options.Elevation, eligible, scores, localRelief, occupied, bodies, ref nextId, maxGeneratedBodies, scatterBudget, sizeMultiplier, wrapX);
+            PlaceScatteredLakes(mask, terrain, options.Elevation, eligible, scores, localRelief, occupied, bodies, ref nextId, maxGeneratedBodies, scatterBudget, sizeMultiplier, gridTopology);
 
             return new GeneratedLakeMap(width, height, bodies);
         }
@@ -156,7 +167,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             int maxBodies,
             double countMultiplier,
             double sizeMultiplier,
-            bool wrapX)
+            IGridTopology gridTopology)
         {
             if (component.Count < 120 || bodies.Count >= maxBodies)
                 return;
@@ -177,23 +188,22 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                 for (var i = 0; i < lakesAroundAnchor && bodies.Count < maxBodies && usedClusterArea < clusterAreaBudget; i++)
                 {
                     var jitterX = anchor.X + _random.Next(-6, 7);
-                    if (wrapX)
-                        jitterX = WrapX(jitterX, mask.Width);
-                    else
-                        jitterX = Math.Clamp(jitterX, 0, mask.Width - 1);
+                    if (!gridTopology.TryResolve(new GridPoint(0, anchor.Y), jitterX, 0, out var resolvedX))
+                        continue;
+                    jitterX = resolvedX.X;
 
                     var jitter = new GridPoint(jitterX, Math.Clamp(anchor.Y + _random.Next(-6, 7), 0, mask.Height - 1));
                     if (!eligible[jitter.Y * mask.Width + jitter.X])
                         jitter = anchor;
 
-                    var body = TryCreateLake(mask, terrain, options, component.Count, jitter, eligible, scores, localRelief, occupied, isCluster: true, nextId, sizeMultiplier, wrapX);
+                    var body = TryCreateLake(mask, terrain, options, component.Count, jitter, eligible, scores, localRelief, occupied, isCluster: true, nextId, sizeMultiplier, gridTopology);
                     if (body is null)
                         continue;
 
                     bodies.Add(body);
                     nextId++;
                     usedClusterArea += body.Cells.Count;
-                    MarkOccupied(mask, occupied, body.Cells, padding: 1, wrapX);
+                    MarkOccupied(mask, occupied, body.Cells, padding: 1, gridTopology: gridTopology);
                 }
             }
         }
@@ -212,7 +222,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             int maxBodies,
             double countMultiplier,
             double sizeMultiplier,
-            bool wrapX)
+            IGridTopology gridTopology)
         {
             var targetCount = Math.Clamp((int)Math.Round(component.Count / 1400.0 * countMultiplier), 0, 8);
             if (component.Count >= 80 && _random.NextDouble() < Math.Clamp(component.Count / 1000.0, 0.10, 0.65))
@@ -225,14 +235,14 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                 if (_random.NextDouble() > scores[anchor.Y * mask.Width + anchor.X])
                     continue;
 
-                var body = TryCreateLake(mask, terrain, options, component.Count, anchor, eligible, scores, localRelief, occupied, isCluster: false, nextId, sizeMultiplier, wrapX);
+                var body = TryCreateLake(mask, terrain, options, component.Count, anchor, eligible, scores, localRelief, occupied, isCluster: false, nextId, sizeMultiplier, gridTopology);
                 if (body is null)
                     continue;
 
                 bodies.Add(body);
                 nextId++;
                 targetCount--;
-                MarkOccupied(mask, occupied, body.Cells, padding: 3, wrapX);
+                MarkOccupied(mask, occupied, body.Cells, padding: 3, gridTopology: gridTopology);
             }
         }
 
@@ -249,7 +259,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             int maxBodies,
             int targetCount,
             double sizeMultiplier,
-            bool wrapX)
+            IGridTopology gridTopology)
         {
             if (targetCount <= 0 || bodies.Count >= maxBodies)
                 return;
@@ -275,14 +285,14 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                     continue;
 
                 var anchor = new GridPoint(index % mask.Width, index / mask.Width);
-                var body = TryCreateLake(mask, terrain, options, 260, anchor, eligible, scores, localRelief, occupied, isCluster: false, nextId, sizeMultiplier, wrapX);
+                var body = TryCreateLake(mask, terrain, options, 260, anchor, eligible, scores, localRelief, occupied, isCluster: false, nextId, sizeMultiplier, gridTopology);
                 if (body is null)
                     continue;
 
                 bodies.Add(body);
                 nextId++;
                 targetCount--;
-                MarkOccupied(mask, occupied, body.Cells, padding: 5, wrapX);
+                MarkOccupied(mask, occupied, body.Cells, padding: 5, gridTopology: gridTopology);
             }
         }
 
@@ -299,7 +309,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             bool isCluster,
             int id,
             double sizeMultiplier,
-            bool wrapX)
+            IGridTopology gridTopology)
         {
             var centerIndex = center.Y * mask.Width + center.X;
             if (!eligible[centerIndex] || occupied[centerIndex])
@@ -318,19 +328,16 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
 
             for (var dy = -scanRadius; dy <= scanRadius; dy++)
             {
-                var y = center.Y + dy;
-                if (y < 0 || y >= mask.Height)
+                if (!gridTopology.TryResolve(center, 0, dy, out var rowPoint))
                     continue;
+                var y = rowPoint.Y;
 
                 for (var dx = -scanRadius; dx <= scanRadius; dx++)
                 {
-                    var x = center.X + dx;
-                    if (wrapX)
-                        x = WrapX(x, mask.Width);
-                    else if (x < 0 || x >= mask.Width)
+                    if (!gridTopology.TryResolve(center, dx, dy, out var point))
                         continue;
 
-                    var point = new GridPoint(x, y);
+                    var x = point.X;
                     var index = y * mask.Width + x;
                     if (!eligible[index] || occupied[index])
                         continue;
@@ -348,12 +355,12 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             if (cells.Count > areaLimit)
             {
                 cells = cells
-                    .OrderBy(p => Distance(center, p, mask.Width, wrapX))
+                    .OrderBy(p => Distance(center, p, gridTopology))
                     .Take(areaLimit)
                     .ToList();
             }
 
-            if (cells.Count < 3 || !IsConnected(cells, mask.Width, mask.Height, wrapX))
+            if (cells.Count < 3 || !IsConnected(cells, gridTopology))
                 return null;
 
             var relief = Math.Max(localRelief[centerIndex], cells.Max(p => terrain.GetElevation(p)) - cells.Min(p => terrain.GetElevation(p)));
@@ -384,10 +391,10 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return max - min;
         }
 
-        private static bool IsLocalMinimum(ElevationMap terrain, GridPoint point, bool wrapX, double tolerance)
+        private static bool IsLocalMinimum(ElevationMap terrain, GridPoint point, IGridTopology gridTopology, double tolerance)
         {
             var value = terrain.GetElevation(point);
-            foreach (var neighbor in Neighbors8(point, terrain.Width, terrain.Height, wrapX))
+            foreach (var neighbor in gridTopology.GetNeighbors8(point))
             {
                 if (terrain.GetElevation(neighbor) + tolerance < value)
                     return false;
@@ -396,23 +403,21 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return true;
         }
 
-        private static double LocalRelief(ElevationMap terrain, GridPoint center, int radius, bool wrapX)
+        private static double LocalRelief(ElevationMap terrain, GridPoint center, int radius, IGridTopology gridTopology)
         {
             var min = double.PositiveInfinity;
             var max = double.NegativeInfinity;
             for (var dy = -radius; dy <= radius; dy++)
             {
-                var y = center.Y + dy;
-                if (y < 0 || y >= terrain.Height)
+                if (!gridTopology.TryResolve(center, 0, dy, out var rowPoint))
                     continue;
+                var y = rowPoint.Y;
 
                 for (var dx = -radius; dx <= radius; dx++)
                 {
-                    var x = center.X + dx;
-                    if (wrapX)
-                        x = WrapX(x, terrain.Width);
-                    else if (x < 0 || x >= terrain.Width)
+                    if (!gridTopology.TryResolve(center, dx, dy, out var point))
                         continue;
+                    var x = point.X;
 
                     var value = terrain.GetElevation(x, y);
                     min = Math.Min(min, value);
@@ -423,7 +428,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return max - min;
         }
 
-        private static double[] BuildExistingLakeInfluence(MapMask mask, WaterBodyTopology topology, bool wrapX)
+        private static double[] BuildExistingLakeInfluence(MapMask mask, WaterBodyTopology topology, IGridTopology gridTopology)
         {
             var influence = new double[mask.Width * mask.Height];
             var sums = new Dictionary<int, (double X, double Y, int Count)>();
@@ -463,7 +468,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                         if (!mask.IsLand(point))
                             continue;
 
-                        var distance = Distance(center, point, mask.Width, wrapX);
+                        var distance = Distance(center, point, gridTopology);
                         if (distance < minRadius || distance > maxRadius)
                             continue;
 
@@ -477,7 +482,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return influence;
         }
 
-        private static double[] ComputeDistanceToWater(MapMask mask, WaterBodyTopology topology, bool wrapX)
+        private static double[] ComputeDistanceToWater(MapMask mask, WaterBodyTopology topology, IGridTopology gridTopology)
         {
             var length = mask.Width * mask.Height;
             var distances = Enumerable.Repeat(double.PositiveInfinity, length).ToArray();
@@ -500,7 +505,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             {
                 var current = queue.Dequeue();
                 var nextDistance = distances[current.Y * mask.Width + current.X] + 1;
-                foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height, wrapX))
+                foreach (var neighbor in gridTopology.GetNeighbors4(current))
                 {
                     var index = neighbor.Y * mask.Width + neighbor.X;
                     if (nextDistance >= distances[index])
@@ -514,7 +519,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return distances;
         }
 
-        private static List<IReadOnlyList<GridPoint>> FindComponents(bool[] eligible, int width, int height, bool wrapX)
+        private static List<IReadOnlyList<GridPoint>> FindComponents(bool[] eligible, int width, int height, IGridTopology gridTopology)
         {
             var visited = new bool[eligible.Length];
             var components = new List<IReadOnlyList<GridPoint>>();
@@ -536,7 +541,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
                     {
                         var current = queue.Dequeue();
                         component.Add(current);
-                        foreach (var neighbor in Neighbors4(current, width, height, wrapX))
+                        foreach (var neighbor in gridTopology.GetNeighbors4(current))
                         {
                             var index = neighbor.Y * width + neighbor.X;
                             if (!eligible[index] || visited[index])
@@ -569,16 +574,16 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return occupied;
         }
 
-        private static void MarkOccupied(MapMask mask, bool[] occupied, IReadOnlyList<GridPoint> cells, int padding, bool wrapX)
+        private static void MarkOccupied(MapMask mask, bool[] occupied, IReadOnlyList<GridPoint> cells, int padding, IGridTopology gridTopology)
         {
             foreach (var cell in cells)
             {
-                foreach (var point in PointsInRadius(mask.Width, mask.Height, cell, padding, wrapX))
+                foreach (var point in PointsInRadius(mask.Width, mask.Height, cell, padding, gridTopology))
                     occupied[point.Y * mask.Width + point.X] = true;
             }
         }
 
-        private static bool IsConnected(IReadOnlyList<GridPoint> cells, int width, int height, bool wrapX)
+        private static bool IsConnected(IReadOnlyList<GridPoint> cells, IGridTopology gridTopology)
         {
             var set = cells.ToHashSet();
             var visited = new HashSet<GridPoint>();
@@ -589,7 +594,7 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             while (queue.Count > 0)
             {
                 var current = queue.Dequeue();
-                foreach (var neighbor in Neighbors4(current, width, height, wrapX))
+                foreach (var neighbor in gridTopology.GetNeighbors4(current))
                 {
                     if (!set.Contains(neighbor) || !visited.Add(neighbor))
                         continue;
@@ -608,78 +613,21 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
             return new GridPoint(x, y);
         }
 
-        private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius, bool wrapX)
+        private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius, IGridTopology gridTopology)
         {
             for (var dy = -radius; dy <= radius; dy++)
             {
-                var y = center.Y + dy;
-                if (y < 0 || y >= height)
-                    continue;
-
                 for (var dx = -radius; dx <= radius; dx++)
                 {
                     if (dx * dx + dy * dy > radius * radius)
                         continue;
 
-                    var x = center.X + dx;
-                    if (wrapX)
-                        x = WrapX(x, width);
-                    else if (x < 0 || x >= width)
+                    if (!gridTopology.TryResolve(center, dx, dy, out var point))
                         continue;
 
-                    yield return new GridPoint(x, y);
+                    yield return point;
                 }
             }
-        }
-
-        private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height, bool wrapX)
-        {
-            if (point.X > 0)
-                yield return new GridPoint(point.X - 1, point.Y);
-            else if (wrapX)
-                yield return new GridPoint(width - 1, point.Y);
-
-            if (point.X < width - 1)
-                yield return new GridPoint(point.X + 1, point.Y);
-            else if (wrapX)
-                yield return new GridPoint(0, point.Y);
-
-            if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-            if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-        }
-
-        private static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height, bool wrapX)
-        {
-            for (var dy = -1; dy <= 1; dy++)
-            {
-                var y = point.Y + dy;
-                if (y < 0 || y >= height)
-                    continue;
-
-                for (var dx = -1; dx <= 1; dx++)
-                {
-                    if (dx == 0 && dy == 0)
-                        continue;
-
-                    var x = point.X + dx;
-                    if (wrapX)
-                        x = WrapX(x, width);
-                    else if (x < 0 || x >= width)
-                        continue;
-
-                    yield return new GridPoint(x, y);
-                }
-            }
-        }
-
-        private static double Distance(GridPoint a, GridPoint b, int width, bool wrapX)
-        {
-            var dx = Math.Abs(a.X - b.X);
-            if (wrapX)
-                dx = Math.Min(dx, Math.Max(0, width - dx));
-
-            var dy = a.Y - b.Y;
-            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         private static double SmoothNoise(int x, int y, int seed, double scale)
@@ -711,6 +659,5 @@ public sealed class GenerateSmallLakesStage : IMapGenerationStage
 
         private static double Lerp(double a, double b, double t) => a + (b - a) * t;
 
-        private static int WrapX(int x, int width) => (x % width + width) % width;
     }
 }

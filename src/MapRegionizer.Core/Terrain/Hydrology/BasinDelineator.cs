@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -12,7 +13,7 @@ internal sealed class BasinDelineator
 {
     internal HydrologyBasinState Build(HydrologyGenerationContext context, int[] flowDirections, double[] accumulation, int[] lakeIds)
     {
-        var (basinIds, basins) = BuildBasins(context.Mask, context.Elevation, context.Topology, context.WaterSurfaces, flowDirections, accumulation, lakeIds);
+        var (basinIds, basins) = BuildBasins(context.Mask, context.Elevation, context.Topology, context.WaterSurfaces, flowDirections, accumulation, lakeIds, context.GridTopology);
         return new HydrologyBasinState(basinIds, basins);
     }
 
@@ -23,10 +24,12 @@ internal sealed class BasinDelineator
         WaterSurfaceMap waterSurfaces,
         int[] flowDirections,
         double[] accumulation,
-        int[] lakeIds)
+        int[] lakeIds,
+        IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var basinIds = new int[width * height];
         var terminals = new Dictionary<TerminalKey, int>();
         var basinStats = new Dictionary<int, MutableBasin>();
@@ -48,7 +51,7 @@ internal sealed class BasinDelineator
                 while (current >= 0 && terminalCache[current] < 0 && guard++ < basinIds.Length)
                 {
                     path.Add(current);
-                    var ds = DownstreamIndex(current, flowDirections[current], width, height);
+                    var ds = DownstreamIndex(current, flowDirections[current], gridTopology);
                     if (ds < 0)
                     {
                         terminal = current;
@@ -183,13 +186,14 @@ internal sealed class BasinDelineator
         .ToHashSet();
     }
 
-    internal static int FindTerminal(int start, int[] flowDirections, int width, int height)
+    internal static int FindTerminal(int start, int[] flowDirections, int width, int height, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var current = start;
         var guard = 0;
         while (guard++ < flowDirections.Length)
         {
-            var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 return current;
             current = downstream;

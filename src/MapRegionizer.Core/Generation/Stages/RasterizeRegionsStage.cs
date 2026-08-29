@@ -6,7 +6,7 @@ namespace MapRegionizer.Core.Generation.Stages;
 public sealed class RasterizeRegionsStage : IMapGenerationStage
 {
     public string Id => MapStageIds.RasterizeRegions;
-    public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey> { MapDataKeys.Mask, MapDataKeys.Regions };
+    public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey> { MapDataKeys.Mask, MapDataKeys.Regions, MapDataKeys.SpatialContext };
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.RegionRaster };
 
     public void Execute(MapGenerationContext context)
@@ -18,7 +18,7 @@ public sealed class RasterizeRegionsStage : IMapGenerationStage
 
         foreach (var point in context.Mask.LandPoints)
         {
-            var sample = CreateSamplePoint(context.GeometryFactory, point, context.Options.PixelSize);
+            var sample = CreateSamplePoint(context.GeometryFactory, point, context.Options.EffectiveSpatial.UnitsPerCell);
             var region = FindCoveringRegion(regions, sample) ?? FindNearestRegion(regions, sample);
             if (region is not null)
                 regionIds[point.Y * width + point.X] = region.Id.Value;

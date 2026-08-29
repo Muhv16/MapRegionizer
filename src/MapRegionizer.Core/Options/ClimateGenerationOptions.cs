@@ -2,6 +2,7 @@ namespace MapRegionizer.Core.Options;
 
 public sealed class ClimateGenerationOptions
 {
+    [Obsolete("Latitude coverage belongs to MapSpatialOptions.Coverage. This value is honored only for legacy projection compatibility.")]
     public double PolarLatitudeMargin { get; init; } = 0.05;
     public double EquatorTemperatureCelsius { get; init; } = 28.0;
     public double PoleCoolingCelsius { get; init; } = 55.0;
@@ -33,7 +34,9 @@ public sealed class ClimateGenerationOptions
 
     public void Validate()
     {
+#pragma warning disable CS0618
         if (PolarLatitudeMargin < 0 || PolarLatitudeMargin >= 1) throw new ArgumentOutOfRangeException(nameof(PolarLatitudeMargin), "Polar latitude margin must be in [0, 1).");
+#pragma warning restore CS0618
         if (LatitudeCurveExponent <= 0) throw new ArgumentOutOfRangeException(nameof(LatitudeCurveExponent), "Latitude curve exponent must be greater than zero.");
         if (LapseRateCelsiusPerMeter < 0) throw new ArgumentOutOfRangeException(nameof(LapseRateCelsiusPerMeter), "Lapse rate cannot be negative.");
         if (ContinentalityDistanceCells <= 0) throw new ArgumentOutOfRangeException(nameof(ContinentalityDistanceCells), "Continentality distance must be greater than zero.");

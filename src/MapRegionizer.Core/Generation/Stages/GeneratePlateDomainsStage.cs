@@ -10,7 +10,8 @@ public sealed class GeneratePlateDomainsStage : IMapGenerationStage
     {
         MapDataKeys.Mask,
         MapDataKeys.CrustFields,
-        MapDataKeys.TectonicHistory
+        MapDataKeys.TectonicHistory,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.PlateDomains };
@@ -19,7 +20,7 @@ public sealed class GeneratePlateDomainsStage : IMapGenerationStage
     {
         var history = context.TectonicHistory ?? throw new InvalidOperationException("Tectonic history is required.");
         var crustFields = context.CrustFields ?? throw new InvalidOperationException("Crust fields are required.");
-        var generator = new PlateDomainGenerator(context.Random);
+        var generator = new PlateDomainGenerator(context.Random, context.SpatialContext.GridTopology);
         context.PlateDomains = generator.Generate(context.Mask, crustFields, history, context.Options.TectonicPlates);
     }
 }

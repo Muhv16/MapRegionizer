@@ -22,7 +22,7 @@ internal sealed class LandShapeExtractor
 
         foreach (var component in components)
         {
-            var polygon = _polygonBuilder.Build(component, options.PixelSize);
+            var polygon = _polygonBuilder.Build(component, options.EffectiveSpatial.UnitsPerCell);
             if (polygon is null || polygon.ExteriorRing.NumPoints <= 3)
                 continue;
 

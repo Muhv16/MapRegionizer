@@ -22,7 +22,7 @@ internal static class ElevationMapRenderer
         var width = Math.Max(1, (int)Math.Ceiling(map.Bounds.Width * options.Scale));
         var height = Math.Max(1, (int)Math.Ceiling(map.Bounds.Height * options.Scale));
         var image = new Image<Rgba32>(width, height);
-        var pixelSize = Math.Max(double.Epsilon, map.Bounds.PixelSize * options.Scale);
+        var pixelSize = Math.Max(double.Epsilon, map.Bounds.UnitsPerCell * options.Scale);
 
         image.ProcessPixelRows(accessor =>
         {
@@ -42,7 +42,7 @@ internal static class ElevationMapRenderer
         });
 
         if (options.DrawPlateBoundaries && map.TectonicPlates is not null)
-            TectonicPlateRenderer.DrawPlateBoundaries(image, map.TectonicPlates, map.Bounds.PixelSize, options);
+            TectonicPlateRenderer.DrawPlateBoundaries(image, map.TectonicPlates, map.Bounds.UnitsPerCell, options);
 
         return image;
     }

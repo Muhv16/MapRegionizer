@@ -34,6 +34,16 @@ Mask
 
 `RawRegions` and `Regions` do not depend on tectonics, so region regeneration can remain fast and independent.
 
+## Spatial semantics
+
+Tectonic stages receive the session's immutable `MapSpatialContext`. Neighbor
+queries and wrapped distances come from its `GridTopology`; the default
+`CylindricalXTopology` preserves the legacy periodic X seam while Y remains an
+open edge. Tectonic distances continue to use the sampling/grid metric in
+Milestone 1, so introducing geographic output does not silently change plate
+or lineament generation. Width-only helper overloads are retained solely as
+legacy adapters for callers outside the pipeline.
+
 ## Domain Models
 
 Main tectonic domain types:

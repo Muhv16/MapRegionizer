@@ -1,6 +1,7 @@
 using System.Buffers;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -30,9 +31,11 @@ internal sealed class EndorheicOverflowConnector
         IReadOnlyList<DrainageBasin> basins,
         IReadOnlyDictionary<int, EndorheicRiverPolicy> endorheicPolicies,
         IReadOnlyList<LakeOutlet> outlets,
-        HashSet<int>? outletLakeIdsCache = null)
+        HashSet<int>? outletLakeIdsCache = null,
+        IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
+        gridTopology ??= new CylindricalXTopology(width, mask.Height);
         var outletLakeIds = outletLakeIdsCache ?? outlets
             .Where(o => o.HasOutlet)
             .Select(o => o.LakeId.Value)
@@ -61,7 +64,8 @@ internal sealed class EndorheicOverflowConnector
                 accumulation,
                 basinIds,
                 basinById,
-                outletLakeIds);
+                outletLakeIds,
+                gridTopology);
             if (path.Count < 2)
                 continue;
 
@@ -69,7 +73,7 @@ internal sealed class EndorheicOverflowConnector
             {
                 var from = new GridPoint(path[i] % width, path[i] / width);
                 var to = new GridPoint(path[i + 1] % width, path[i + 1] / width);
-                var direction = DirectionIndex(from, to, width);
+                var direction = DirectionIndex(from, to, gridTopology);
                 if (direction >= 0)
                     flowDirections[path[i]] = direction;
             }
@@ -90,10 +94,12 @@ internal sealed class EndorheicOverflowConnector
     double[] accumulation,
     int[] basinIds,
     IReadOnlyDictionary<int, DrainageBasin> basinById,
-    HashSet<int> outletLakeIds)
+    HashSet<int> outletLakeIds,
+    IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var start = sourceBasin.TerminalCell.Y * width + sourceBasin.TerminalCell.X;
         var startHeight = hydro[start];
 
@@ -155,7 +161,7 @@ internal sealed class EndorheicOverflowConnector
                     continue;
 
                 var currentPoint = new GridPoint(current % width, current / width);
-                foreach (var neighbor in Neighbors8(currentPoint, width, height))
+                foreach (var neighbor in gridTopology.GetNeighbors8(currentPoint))
                 {
                     var next = neighbor.Y * width + neighbor.X;
                     if (!CanTraverseOverflowCell(next, current, sourceBasin.Id, mask, topology, lakeIds, basinIds, basinById, outletLakeIds))
@@ -178,7 +184,8 @@ internal sealed class EndorheicOverflowConnector
                         hydro,
                         lakeIds,
                         outletLakeIds,
-                        width);
+                        width,
+                        gridTopology);
 
                     var newCost = costs[current] + edgeCost;
                     var newSteps = steps[current] + 1;
@@ -225,12 +232,14 @@ internal sealed class EndorheicOverflowConnector
     double[] hydro,
     int[] lakeIds,
     HashSet<int> outletLakeIds,
-    int width)
+    int width,
+    IGridTopology? gridTopology = null)
     {
         var currentPoint = new GridPoint(current % width, current / width);
         var nextPoint = new GridPoint(next % width, next / width);
+        gridTopology ??= new CylindricalXTopology(width, Math.Max(current / width, next / width) + 1);
 
-        var diagonal = Math.Abs(WrappedDeltaX(nextPoint.X - currentPoint.X, width)) != 0 &&
+        var diagonal = Math.Abs(GridTopologyMath.WrappedDeltaX(gridTopology, nextPoint.X - currentPoint.X)) != 0 &&
                        nextPoint.Y != currentPoint.Y;
 
         var terrain = elevation.GetTerrainClass(nextPoint);
@@ -325,12 +334,14 @@ internal sealed class EndorheicOverflowConnector
         WaterBodyTopology topology,
         double[] hydro,
         int[] lakeIds,
-        HashSet<int> outletLakeIds,
-        int width)
+    HashSet<int> outletLakeIds,
+        int width,
+        IGridTopology? gridTopology = null)
     {
         var currentPoint = new GridPoint(current % width, current / width);
         var nextPoint = new GridPoint(next % width, next / width);
-        var diagonal = Math.Abs(WrappedDeltaX(nextPoint.X - currentPoint.X, width)) != 0 &&
+        gridTopology ??= new CylindricalXTopology(width, Math.Max(current / width, next / width) + 1);
+        var diagonal = Math.Abs(GridTopologyMath.WrappedDeltaX(gridTopology, nextPoint.X - currentPoint.X)) != 0 &&
                        nextPoint.Y != currentPoint.Y;
         var terrain = elevation.GetTerrainClass(nextPoint);
         var isOcean = !mask.IsLand(nextPoint) && topology.IsOceanicWater(nextPoint);

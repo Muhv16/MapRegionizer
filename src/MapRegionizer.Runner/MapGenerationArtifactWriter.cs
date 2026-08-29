@@ -230,7 +230,7 @@ public static class MapGenerationArtifactWriter
             maskPath,
             outputDirectory,
             new MapGenerationRunOptionSummary(
-                options.PixelSize,
+                options.EffectiveSpatial.UnitsPerCell,
                 options.ShapeExtraction.SimplifyTolerance,
                 options.Regions.TargetArea,
                 options.Regions.PointsMultiplier,
@@ -240,7 +240,7 @@ public static class MapGenerationArtifactWriter
                 options.Boundaries.MaxOffset,
                 options.Boundaries.MinLineLengthToCurve,
                 options.Seed,
-                options.ProjectionMode.ToString(),
+                options.EffectiveSpatial.GridMapping.ToString(),
                 options.TectonicPlates.PlateCount,
                 options.TectonicPlates.HotspotCount,
                 options.Elevation.GenerateSmallLakes,
@@ -263,7 +263,9 @@ public static class MapGenerationArtifactWriter
                 options.Hydrology.LakeOutletStrictness,
                 options.Hydrology.PreserveCoastline,
                 options.Hydrology.AllowRiverCarving,
+#pragma warning disable CS0618
                 options.Climate.PolarLatitudeMargin,
+#pragma warning restore CS0618
                 options.Climate.EquatorTemperatureCelsius,
                 options.Climate.PoleCoolingCelsius,
                 options.Climate.LapseRateCelsiusPerMeter,

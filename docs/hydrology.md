@@ -167,6 +167,18 @@ Generated artifacts include `lakes.json` when lake-surface data is available. It
 
 Generated artifacts include `rivers.json` when hydrology data is available. It exports summary river statistics, quality diagnostics, river segments, canonical cell paths, render polylines, mouths, lake outlets, and drainage basins. Diagnostic rasters can be added through `RiverJsonExportOptions`; callers can opt out of `Cells` for a compact export, but the default river JSON includes both canonical `Cells` and visual `Polyline`.
 
+The `RiverSegment.Polyline` is a render geometry in continuous grid-cell
+coordinates: the top-left cell center is `(0.5, 0.5)` and a one-cell step is
+one grid unit. It is deliberately not a second geographic representation. The
+explicit `RiverJsonWriter.Write(GeneratedMap, MapOutputOptions, ...)` overload
+first scales these fractional cell coordinates by `SpatialReference.UnitsPerCell`
+and then applies the requested output transform. The same writer adds the full
+`spatialReference` descriptor (grid dimensions, units, world model, coverage,
+longitude interval, mapping, topology, canonical space, and output space) to
+the transformed document; it also records the legacy compatibility profile
+when one is active. The legacy overloads keep their existing grid-unit
+JSON contract.
+
 The `Quality` block reports straight-run count and maximum run length, short-river count using a scale-dependent 5..8 cell limit, detached-river count, confluence count, mean tributaries per major river, endorheic river count, maximum alternating zig-zag run, mean curvature, sharp turns, backtrack-like turns, `CrossingRiverEdgeCount` for opposing visible diagonal D8 edges in 2x2 cells, and `PolylineCrossingCount` for remaining substantial crossings or invalid vertex touches between exported render polylines, including parent/child pairs whose child line does not terminate at the contact. It also reports per-river self-geometry diagnostics: `SelfCrossingRiverCount`, `SelfCrossingPolylineCount`, and `DuplicateRiverCellCount`. `Summary.EndorheicRiverCount` is the count of exported rivers whose `Kind` is `Endorheic`. Separate summary counters report lake inflow rivers, closed-lake rivers, open-lake rivers, and dry-basin rivers so closed lakes and dry basins no longer have to be inferred from one overloaded count. `Summary.MajorRiverCount` uses the exported `IsMajor` classification so tiny creeks and steep low-discharge streams do not inflate the major-river total.
 
 `elevation-rivers.png` renders `elevation-final.png` with presentation river overlays only. River width is percentile-scaled by discharge, color reflects river kind, and debug markers for outlets or mouths are hidden unless `RiverRenderOptions.DrawDebugMarkers` is enabled. The renderer samples river polylines into anti-aliased Catmull-Rom-like curves, while preserving wrap breaks so world-edge rivers do not draw across the full image.

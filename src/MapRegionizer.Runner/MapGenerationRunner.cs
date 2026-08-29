@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
@@ -145,7 +147,7 @@ public sealed class MapGenerationRunner
             return options;
         return new MapGenerationOptions
         {
-            PixelSize = options.PixelSize,
+            Spatial = options.EffectiveSpatial,
             Seed = options.Seed,
             Debug = options.Debug,
             ShapeExtraction = options.ShapeExtraction,

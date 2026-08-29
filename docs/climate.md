@@ -38,7 +38,12 @@ Derived fields:
 - `IceScore`
 - `LatitudeNorm`
 
-`LatitudeNorm` is `0` at the equator and approaches the pole toward the top and bottom edges. The edge does not have to be exactly `1`; `ClimateGenerationOptions.PolarLatitudeMargin` defaults to `0.05`, so the outermost rows behave like about `0.95` latitude-normalized polar proximity instead of a mathematical pole.
+`LatitudeNorm` is derived from `MapSpatialContext.GridToGeographic` at each
+cell center, so it follows the configured `MapSpatialOptions.Coverage` rather
+than assuming that every raster spans a whole world. For legacy projection
+profiles, the deprecated `ClimateGenerationOptions.PolarLatitudeMargin` keeps
+the historical 0.05 edge scaling; new spatial configurations use their
+declared latitude coverage directly.
 
 ## Temperature
 
@@ -240,7 +245,7 @@ Climate options live in `ClimateGenerationOptions`.
 
 Important controls:
 
-- `PolarLatitudeMargin`
+- `PolarLatitudeMargin` (deprecated legacy compatibility control; use spatial latitude coverage)
 - `EquatorTemperatureCelsius`
 - `PoleCoolingCelsius`
 - `LatitudeCurveExponent`

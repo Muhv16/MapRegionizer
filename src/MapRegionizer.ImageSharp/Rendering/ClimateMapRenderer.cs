@@ -22,7 +22,7 @@ internal static class ClimateMapRenderer
         var width = Math.Max(1, (int)Math.Ceiling(map.Bounds.Width * options.Scale));
         var height = Math.Max(1, (int)Math.Ceiling(map.Bounds.Height * options.Scale));
         var image = new Image<Rgba32>(width, height);
-        var pixelSize = Math.Max(double.Epsilon, map.Bounds.PixelSize * options.Scale);
+        var pixelSize = Math.Max(double.Epsilon, map.Bounds.UnitsPerCell * options.Scale);
         var elevationOptions = options.Elevation;
 
         image.ProcessPixelRows(accessor =>
@@ -45,12 +45,12 @@ internal static class ClimateMapRenderer
         if (options.Mode == ClimateRenderMode.Biomes && map.Hydrology is not null)
         {
             if (options.DrawRiverValleyAccents)
-                RiverOverlayRenderer.DrawRiverValleyAccents(image, map.Hydrology, map.Bounds.PixelSize, options);
+                RiverOverlayRenderer.DrawRiverValleyAccents(image, map.Hydrology, map.Bounds.UnitsPerCell, options);
 
             if (!options.DrawRivers)
                 return image;
 
-            RiverOverlayRenderer.DrawRivers(image, map.Hydrology, map.Bounds.PixelSize, new RiverRenderOptions
+            RiverOverlayRenderer.DrawRivers(image, map.Hydrology, map.Bounds.UnitsPerCell, new RiverRenderOptions
             {
                 Scale = options.Scale,
                 Opacity = options.PresentationRiverOpacity

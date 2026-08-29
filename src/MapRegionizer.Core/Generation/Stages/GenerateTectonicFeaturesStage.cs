@@ -15,7 +15,8 @@ public sealed class GenerateTectonicFeaturesStage : IMapGenerationStage
         MapDataKeys.PlateDomains,
         MapDataKeys.TectonicBoundaries,
         MapDataKeys.OrogenProvinces,
-        MapDataKeys.RiftProvinces
+        MapDataKeys.RiftProvinces,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.TectonicFeatures };
@@ -29,6 +30,6 @@ public sealed class GenerateTectonicFeaturesStage : IMapGenerationStage
         var orogenProvinces = context.OrogenProvinces ?? throw new InvalidOperationException("Orogen provinces are required.");
         var riftProvinces = context.RiftProvinces ?? throw new InvalidOperationException("Rift provinces are required.");
         var generator = new TectonicFeatureGenerator();
-        context.TectonicFeatures = generator.Generate(context.Mask, history, crustFields, plateDomains, boundaries, orogenProvinces, riftProvinces, context.Landmasses);
+        context.TectonicFeatures = generator.Generate(context.Mask, history, crustFields, plateDomains, boundaries, orogenProvinces, riftProvinces, context.Landmasses, context.SpatialContext.GridTopology);
     }
 }

@@ -1,4 +1,5 @@
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 
 namespace MapRegionizer.Core.Terrain;
@@ -9,12 +10,18 @@ internal static class VisibleRiverCrossingRepairer
     private const double GeometryEpsilon = 0.000001;
     private const double TouchTolerance = 0.15;
 
-    internal static List<RiverSegment> ResolvePolylineCrossings(IReadOnlyList<RiverSegment> rivers, int width)
+    // Width-only overloads are compatibility adapters for the historical
+    // cylindrical renderer. Core generation supplies its topology explicitly.
+    internal static List<RiverSegment> ResolvePolylineCrossings(IReadOnlyList<RiverSegment> rivers, int width) =>
+        ResolvePolylineCrossings(rivers, width, new CylindricalXTopology(width, Math.Max(1, rivers.SelectMany(r => r.Cells).Select(c => c.Y).DefaultIfEmpty().Max() + 1)));
+
+    internal static List<RiverSegment> ResolvePolylineCrossings(IReadOnlyList<RiverSegment> rivers, int width, IGridTopology gridTopology)
     {
+        ArgumentNullException.ThrowIfNull(gridTopology);
         var result = rivers.ToList();
         for (var pass = 0; pass < 64; pass++)
         {
-            var contact = FindFirstInvalidContact(result, width);
+            var contact = FindFirstInvalidContact(result, width, gridTopology);
             if (!contact.HasValue)
                 break;
 
@@ -22,7 +29,7 @@ internal static class VisibleRiverCrossingRepairer
             var weak = ChooseWeakRiver(value.First.River, value.Second.River);
             var weakSegment = weak.Id == value.First.River.Id ? value.First : value.Second;
             var strong = weak.Id == value.First.River.Id ? value.Second.River : value.First.River;
-            var repaired = ConvertCrossingToConfluence(weak, weakSegment, strong, value.Point, width);
+            var repaired = ConvertCrossingToConfluence(weak, weakSegment, strong, value.Point, width, gridTopology);
             var index = result.FindIndex(r => r.Id == weak.Id);
             if (index < 0)
                 break;
@@ -37,12 +44,12 @@ internal static class VisibleRiverCrossingRepairer
     }
 
     internal static int CountPolylineCrossings(IReadOnlyList<RiverSegment> rivers, int width) =>
-        EnumerateInvalidContacts(rivers, width).Count();
+        EnumerateInvalidContacts(rivers, width, new CylindricalXTopology(width, Math.Max(1, rivers.SelectMany(r => r.Cells).Select(c => c.Y).DefaultIfEmpty().Max() + 1))).Count();
 
-    private static RiverContact? FindFirstInvalidContact(IReadOnlyList<RiverSegment> rivers, int width)
+    private static RiverContact? FindFirstInvalidContact(IReadOnlyList<RiverSegment> rivers, int width, IGridTopology gridTopology)
     {
         RiverContact? best = null;
-        foreach (var contact in EnumerateInvalidContacts(rivers, width))
+        foreach (var contact in EnumerateInvalidContacts(rivers, width, gridTopology))
         {
             if (!best.HasValue)
             {
@@ -75,12 +82,12 @@ internal static class VisibleRiverCrossingRepairer
         return parentChildBonus + endorheicBonus + Math.Min(crossing.First.River.Discharge, crossing.Second.River.Discharge);
     }
 
-    private static IEnumerable<RiverContact> EnumerateInvalidContacts(IReadOnlyList<RiverSegment> rivers, int width)
+    private static IEnumerable<RiverContact> EnumerateInvalidContacts(IReadOnlyList<RiverSegment> rivers, int width, IGridTopology gridTopology)
     {
         var segments = new List<RiverPolylineSegment>();
         foreach (var river in rivers)
         {
-            foreach (var segment in BuildSegments(river, width))
+            foreach (var segment in BuildSegments(river, width, gridTopology))
                 segments.Add(segment);
         }
         for (var i = 0; i < segments.Count; i++)
@@ -97,7 +104,7 @@ internal static class VisibleRiverCrossingRepairer
                     continue;
 
                 var angle = CrossingAngleDegrees(first, second);
-                if (IsAllowedConfluenceTouch(point, first.River, second.River, width))
+                if (IsAllowedConfluenceTouch(point, first.River, second.River, width, gridTopology))
                     continue;
                 if (angle < MinimumCrossingAngleDegrees && !IsParentChild(first.River, second.River))
                     continue;
@@ -107,13 +114,13 @@ internal static class VisibleRiverCrossingRepairer
         }
     }
 
-    private static IEnumerable<RiverPolylineSegment> BuildSegments(RiverSegment river, int width)
+    private static IEnumerable<RiverPolylineSegment> BuildSegments(RiverSegment river, int width, IGridTopology gridTopology)
     {
         for (var i = 0; i < river.Polyline.Count - 1; i++)
         {
             var a = river.Polyline[i];
             var b = river.Polyline[i + 1];
-            if (Math.Abs(b.X - a.X) > width / 2.0)
+            if (IsWrapBreak(a, b, width, gridTopology))
                 continue;
             var length = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
             if (length <= 0.001)
@@ -128,16 +135,17 @@ internal static class VisibleRiverCrossingRepairer
         RiverPolylineSegment weakSegment,
         RiverSegment strong,
         MapPoint crossing,
-        int width)
+        int width,
+        IGridTopology gridTopology)
     {
         if (weak.Cells.Count < 2 || strong.Cells.Count == 0)
             return null;
 
         var mouth = strong.Cells
-            .OrderBy(c => DistanceToPoint(c, crossing, width))
-            .ThenBy(c => HydrologyGridMath.Distance(c, strong.Mouth, width))
+            .OrderBy(c => DistanceToPoint(c, crossing, width, gridTopology))
+            .ThenBy(c => HydrologyGridMath.Distance(c, strong.Mouth, gridTopology))
             .First();
-        var cutIndex = ChooseWeakCutIndex(weak, crossing, width);
+        var cutIndex = ChooseWeakCutIndex(weak, crossing, width, gridTopology);
         if (cutIndex < 1)
             return null;
 
@@ -159,13 +167,13 @@ internal static class VisibleRiverCrossingRepairer
         };
     }
 
-    private static int ChooseWeakCutIndex(RiverSegment weak, MapPoint crossing, int width)
+    private static int ChooseWeakCutIndex(RiverSegment weak, MapPoint crossing, int width, IGridTopology gridTopology)
     {
         var bestIndex = 0;
         var bestDistance = double.PositiveInfinity;
         for (var i = 0; i < weak.Cells.Count; i++)
         {
-            var distance = DistanceToPoint(weak.Cells[i], crossing, width);
+            var distance = DistanceToPoint(weak.Cells[i], crossing, width, gridTopology);
             if (distance >= bestDistance)
                 continue;
 
@@ -267,7 +275,7 @@ internal static class VisibleRiverCrossingRepairer
         return Math.Acos(Math.Clamp(cosine, -1.0, 1.0)) * 180.0 / Math.PI;
     }
 
-    private static bool IsAllowedConfluenceTouch(MapPoint point, RiverSegment first, RiverSegment second, int width)
+    private static bool IsAllowedConfluenceTouch(MapPoint point, RiverSegment first, RiverSegment second, int width, IGridTopology gridTopology)
     {
         var firstIsChild = first.ParentRiverId == second.Id;
         var secondIsChild = second.ParentRiverId == first.Id;
@@ -277,8 +285,8 @@ internal static class VisibleRiverCrossingRepairer
             return Distance(child.Polyline[^1], point) <= TouchTolerance;
         }
 
-        return Distance(first.Polyline[^1], point) <= TouchTolerance && second.Cells.Any(c => DistanceToPoint(c, point, width) <= 1.05) ||
-               Distance(second.Polyline[^1], point) <= TouchTolerance && first.Cells.Any(c => DistanceToPoint(c, point, width) <= 1.05);
+        return Distance(first.Polyline[^1], point) <= TouchTolerance && second.Cells.Any(c => DistanceToPoint(c, point, width, gridTopology) <= 1.05) ||
+               Distance(second.Polyline[^1], point) <= TouchTolerance && first.Cells.Any(c => DistanceToPoint(c, point, width, gridTopology) <= 1.05);
     }
 
     private static bool IsParentChild(RiverSegment first, RiverSegment second) =>
@@ -297,9 +305,9 @@ internal static class VisibleRiverCrossingRepairer
         return Distance(point, projected);
     }
 
-    private static double DistanceToPoint(GridPoint cell, MapPoint point, int width)
+    private static double DistanceToPoint(GridPoint cell, MapPoint point, int width, IGridTopology gridTopology)
     {
-        var dx = WrappedDeltaX((cell.X + 0.5) - point.X, width);
+        var dx = GridTopologyMath.WrappedDeltaX(gridTopology, (cell.X + 0.5) - point.X);
         var dy = cell.Y + 0.5 - point.Y;
         return Math.Sqrt(dx * dx + dy * dy);
     }
@@ -311,13 +319,8 @@ internal static class VisibleRiverCrossingRepairer
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    private static double WrappedDeltaX(double dx, int width)
-    {
-        if (Math.Abs(dx) <= width / 2.0)
-            return dx;
-
-        return dx > 0 ? dx - width : dx + width;
-    }
+    private static bool IsWrapBreak(MapPoint a, MapPoint b, int width, IGridTopology gridTopology) =>
+        gridTopology is CylindricalXTopology && Math.Abs(b.X - a.X) > width / 2.0;
 
     private readonly record struct RiverPolylineSegment(RiverSegment River, int SegmentIndex, MapPoint A, MapPoint B, double Length);
 

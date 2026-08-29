@@ -27,6 +27,13 @@ Mask
 
 `BaseTerrain` is the pre-hydrology terrain raster. `GenerateSmallLakesStage` can add small terrain-derived lake cells on top of this raster without changing the source mask, landmasses, or regions. `GenerateLakeLevelsStage` then turns base terrain plus user and generated lakes into final `Elevation` by applying local water surfaces, shoreline rim fixes, and lake-bed shaping. Final `Elevation` does not modify the land/water mask. By default, land cells stay above ocean sea level, ocean cells stay at or below sea level, and inland water cells receive a local water surface above sea level with a bed below that surface. `GenerateHydrologyStage` then builds a separate `HydrologyMap` with `HydroSurfaceMeters`, flow routing, drainage basins, and visible rivers. River and climate stages should depend on final terrain, water-surface data, and hydrology rasters, not on rendered terrain images. See [hydrology.md](hydrology.md) for lake-level and river-routing semantics.
 
+All elevation and lake neighborhood/distance calculations consume the
+generation `MapSpatialContext` topology. The default topology is cylindrical
+only along X, matching the legacy raster algorithms; an explicitly regional
+open topology does not infer a seam from longitude or from output format.
+Canonical terrain and geometry remain in GridMapUnits, where
+`UnitsPerCell` replaces the old `PixelSize` terminology.
+
 ## Domain Model
 
 `ElevationMap` stores raster data with the same width and height as `MapMask`.

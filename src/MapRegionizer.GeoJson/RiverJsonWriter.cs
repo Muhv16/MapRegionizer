@@ -1,8 +1,11 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.GeoJson;
 
@@ -27,11 +30,57 @@ public static class RiverJsonWriter
         return Write(map.Hydrology, options);
     }
 
+    /// <summary>Writes river geometry in an explicit output coordinate system.</summary>
+    public static string Write(GeneratedMap map, MapOutputOptions outputOptions, RiverJsonExportOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(outputOptions);
+        if (map.Hydrology is null)
+            throw new InvalidOperationException("The map does not contain hydrology data.");
+
+        outputOptions.Validate();
+        var reference = map.SpatialReference ?? CreateLegacyReference(map);
+        var transformer = new MapCoordinateTransformer(reference, outputOptions);
+        var exportOptions = options ?? new RiverJsonExportOptions();
+        var root = JsonNode.Parse(JsonSerializer.Serialize(ToDto(map.Hydrology, exportOptions, transformer), CreateSerializerOptions(exportOptions)))?.AsObject()
+            ?? throw new InvalidOperationException("Unable to build river output document.");
+        root["spatialReference"] = JsonSerializer.SerializeToNode(new
+        {
+            gridWidth = reference.GridWidth,
+            gridHeight = reference.GridHeight,
+            unitsPerCell = reference.UnitsPerCell,
+            worldModel = new
+            {
+                kind = reference.WorldModel.Kind.ToString(),
+                planetRadius = reference.WorldModel.PlanetRadius
+            },
+            coverage = new
+            {
+                kind = reference.Coverage.Kind.ToString(),
+                southLatitude = reference.Coverage.SouthLatitude,
+                northLatitude = reference.Coverage.NorthLatitude,
+                longitudeStart = reference.Longitude.StartLongitudeDegrees,
+                longitudeSpan = reference.Longitude.SpanDegrees,
+                longitudeEnd = reference.Longitude.EndLongitudeDegrees,
+                crossesAntimeridian = reference.Longitude.CrossesAntimeridian
+            },
+            gridMapping = reference.GridMapping.ToString(),
+            topology = reference.Topology.ToString(),
+            canonicalCoordinates = reference.CanonicalCoordinates.ToString(),
+            legacyCompatibility = reference.LegacyCompatibility.ToString(),
+            outputCoordinates = outputOptions.CoordinateSystem.ToString()
+        });
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = exportOptions.WriteIndented });
+    }
+
     public static void WriteToFile(HydrologyMap hydrology, string filePath, RiverJsonExportOptions? options = null) =>
         File.WriteAllText(filePath, Write(hydrology, options));
 
     public static void WriteToFile(GeneratedMap map, string filePath, RiverJsonExportOptions? options = null) =>
         File.WriteAllText(filePath, Write(map, options));
+
+    public static void WriteToFile(GeneratedMap map, string filePath, MapOutputOptions outputOptions, RiverJsonExportOptions? options = null) =>
+        File.WriteAllText(filePath, Write(map, outputOptions, options));
 
     private static JsonSerializerOptions CreateSerializerOptions(RiverJsonExportOptions options) =>
         new()
@@ -41,11 +90,11 @@ public static class RiverJsonWriter
             Converters = { new JsonStringEnumConverter() }
         };
 
-    private static RiverMapDto ToDto(HydrologyMap hydrology, RiverJsonExportOptions options)
+    private static RiverMapDto ToDto(HydrologyMap hydrology, RiverJsonExportOptions options, MapCoordinateTransformer? transformer = null)
     {
         var rivers = hydrology.Rivers
             .OrderBy(r => r.Id)
-            .Select(r => ToRiverDto(r, options))
+            .Select(r => ToRiverDto(r, options, transformer))
             .ToList();
         var mouths = hydrology.Mouths
             .OrderBy(m => m.RiverId)
@@ -113,7 +162,7 @@ public static class RiverJsonWriter
             options.IncludeDiagnosticRasters ? EncodeIntRows(hydrology, hydrology.GetDrainageBasinId) : null);
     }
 
-    private static RiverDto ToRiverDto(RiverSegment river, RiverJsonExportOptions options)
+    private static RiverDto ToRiverDto(RiverSegment river, RiverJsonExportOptions options, MapCoordinateTransformer? transformer = null)
     {
         return new RiverDto(
             river.Id,
@@ -135,7 +184,17 @@ public static class RiverJsonWriter
             river.TributaryIds is { Count: > 0 } ? river.TributaryIds : null,
             river.Cells.Count,
             options.IncludeCellPaths ? river.Cells.Select(ToPoint).ToList() : null,
-            river.Polyline.Select(ToPoint).ToList());
+            river.Polyline.Select(point => ToOutputPoint(point, transformer)).ToList());
+    }
+
+    private static MapPointDto ToOutputPoint(MapPoint point, MapCoordinateTransformer? transformer)
+    {
+        if (transformer is null)
+            return ToPoint(point);
+
+        var unitsPerCell = transformer.Reference.UnitsPerCell;
+        var transformed = transformer.Transform(new MapPoint(point.X * unitsPerCell, point.Y * unitsPerCell));
+        return ToPoint(transformed);
     }
 
     private static IReadOnlyList<string> EncodeRows(HydrologyMap hydrology, Func<int, int, double> readValue, int binSize)
@@ -209,6 +268,24 @@ public static class RiverJsonWriter
     private static PointDto ToPoint(GridPoint point) => new(point.X, point.Y);
 
     private static MapPointDto ToPoint(MapPoint point) => new(Math.Round(point.X, 3), Math.Round(point.Y, 3));
+
+    private static MapSpatialReference CreateLegacyReference(GeneratedMap map)
+    {
+        var width = map.Hydrology?.Width ?? map.Elevation?.Width ??
+            (int)Math.Round(map.Bounds.Width / map.Bounds.UnitsPerCell);
+        var height = map.Hydrology?.Height ?? map.Elevation?.Height ??
+            (int)Math.Round(map.Bounds.Height / map.Bounds.UnitsPerCell);
+        return new MapSpatialReference
+        {
+            GridWidth = Math.Max(1, width),
+            GridHeight = Math.Max(1, height),
+            UnitsPerCell = map.Bounds.UnitsPerCell,
+            WorldModel = WorldModelDescriptor.Spherical(),
+            Coverage = MapCoverage.Global(),
+            GridMapping = GridMappingKind.Equirectangular,
+            Topology = GridTopologyKind.CylindricalX
+        };
+    }
 
     private sealed record RiverMapDto(
         int Width,
@@ -591,6 +668,8 @@ public static class RiverJsonWriter
         _ => (0, 0)
     };
 
+    // Quality diagnostics retain the legacy cylindrical edge policy as an
+    // export-only rule; generation routing uses MapSpatialContext topology.
     private static int WrapX(int x, int width) => (x % width + width) % width;
 
     private static double WrappedDeltaX(double dx, int width)

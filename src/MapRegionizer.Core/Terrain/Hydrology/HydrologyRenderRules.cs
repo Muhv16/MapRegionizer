@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 
 namespace MapRegionizer.Core.Terrain;
@@ -37,9 +38,15 @@ internal static class HydrologyRenderRules
         target.Kind is DrainageTargetKind.Lake or DrainageTargetKind.InlandSea &&
         (!target.TargetId.HasValue || !outletLakeIds.Contains(target.TargetId.Value));
 
-    public static MountainSourceSide RiverTargetSide(RiverSegment river, int width)
+    // Legacy width-only rendering adapter. Generation passes the explicit
+    // topology so regional open edges cannot acquire an accidental seam.
+    public static MountainSourceSide RiverTargetSide(RiverSegment river, int width) =>
+        RiverTargetSide(river, new CylindricalXTopology(width, Math.Max(river.Source.Y, river.Mouth.Y) + 1));
+
+    public static MountainSourceSide RiverTargetSide(RiverSegment river, IGridTopology topology)
     {
-        var dx = WrappedDeltaX(river.Mouth.X - river.Source.X, width);
+        ArgumentNullException.ThrowIfNull(topology);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, river.Mouth.X - river.Source.X);
         var dy = river.Mouth.Y - river.Source.Y;
         if (Math.Abs(dx) > Math.Abs(dy))
             return dx < 0 ? MountainSourceSide.West : MountainSourceSide.East;

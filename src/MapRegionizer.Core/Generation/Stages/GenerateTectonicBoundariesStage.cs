@@ -9,7 +9,8 @@ public sealed class GenerateTectonicBoundariesStage : IMapGenerationStage
     public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey>
     {
         MapDataKeys.PlateDomains,
-        MapDataKeys.CrustFields
+        MapDataKeys.CrustFields,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.TectonicBoundaries };
@@ -19,6 +20,6 @@ public sealed class GenerateTectonicBoundariesStage : IMapGenerationStage
         var plateDomains = context.PlateDomains ?? throw new InvalidOperationException("Plate domains are required.");
         var crustFields = context.CrustFields ?? throw new InvalidOperationException("Crust fields are required.");
         var generator = new TectonicBoundaryGenerator();
-        context.TectonicBoundaries = generator.Generate(plateDomains, crustFields, context.Options.TectonicPlates);
+        context.TectonicBoundaries = generator.Generate(plateDomains, crustFields, context.Options.TectonicPlates, context.SpatialContext.GridTopology);
     }
 }

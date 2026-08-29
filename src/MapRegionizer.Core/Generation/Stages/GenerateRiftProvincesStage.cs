@@ -11,7 +11,8 @@ public sealed class GenerateRiftProvincesStage : IMapGenerationStage
         MapDataKeys.Mask,
         MapDataKeys.TectonicHistory,
         MapDataKeys.CrustFields,
-        MapDataKeys.TectonicBoundaries
+        MapDataKeys.TectonicBoundaries,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.RiftProvinces };
@@ -22,6 +23,6 @@ public sealed class GenerateRiftProvincesStage : IMapGenerationStage
         var crustFields = context.CrustFields ?? throw new InvalidOperationException("Crust fields are required.");
         var boundaries = context.TectonicBoundaries ?? throw new InvalidOperationException("Tectonic boundaries are required.");
         var generator = new RiftProvinceGenerator();
-        context.RiftProvinces = generator.Generate(context.Mask, history, crustFields, boundaries);
+        context.RiftProvinces = generator.Generate(context.Mask, history, crustFields, boundaries, context.SpatialContext.GridTopology);
     }
 }

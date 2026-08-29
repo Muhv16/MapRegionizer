@@ -1,4 +1,5 @@
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 
@@ -22,7 +23,9 @@ internal static class RiverTopologyPlanarityResolver
             {
                 for (var x = 0; x < graph.Width; x++)
                 {
-                    var eastX = WrapX(x + 1, graph.Width);
+                    if (!graph.GridTopology.TryResolve(new GridPoint(x, y), 1, 0, out var eastPoint))
+                        continue;
+                    var eastX = eastPoint.X;
                     var a = y * graph.Width + x;
                     var b = y * graph.Width + eastX;
                     var c = (y + 1) * graph.Width + x;
@@ -86,13 +89,13 @@ internal static class RiverTopologyPlanarityResolver
     {
         var from = graph.ToPoint(weak.From);
         var candidates = new[] { strong.To, strong.From }
-            .Concat(Neighbors8(from, graph.Width, graph.Height)
+            .Concat(graph.GridTopology.GetNeighbors8(from)
                 .Select(p => p.Y * graph.Width + p.X)
-                .Where(i => graph.Contains(i) && IsOrthogonalNeighbor(weak.From, i, graph.Width)))
+                .Where(i => graph.Contains(i) && IsOrthogonalNeighbor(weak.From, i, graph.Width, graph.GridTopology)))
             .Distinct()
             .Where(i => i != weak.From && i != weak.To)
             .Where(i => graph.Contains(i) && lakeIds[i] <= 0)
-            .Where(i => DirectionIndex(from, graph.ToPoint(i), graph.Width) >= 0)
+            .Where(i => DirectionIndex(from, graph.ToPoint(i), graph.GridTopology) >= 0)
             .Select(i =>
             {
                 var cyclePenalty = graph.WouldCreateCycle(weak.From, i) ? 10000.0 : 0.0;
@@ -125,8 +128,8 @@ internal static class RiverTopologyPlanarityResolver
         var targetHeight = hydro[target];
         var uphillPenalty = Math.Max(0.0, targetHeight - currentHeight) * 3.2;
         var riverAttraction = Math.Min(48.0, Math.Sqrt(Math.Max(0.0, accumulation[target])) * 2.8);
-        var newDirection = DirectionIndex(graph.ToPoint(weak.From), graph.ToPoint(target), graph.Width);
-        var oldDirection = DirectionIndex(graph.ToPoint(weak.From), graph.ToPoint(weak.To), graph.Width);
+        var newDirection = DirectionIndex(graph.ToPoint(weak.From), graph.ToPoint(target), graph.GridTopology);
+        var oldDirection = DirectionIndex(graph.ToPoint(weak.From), graph.ToPoint(weak.To), graph.GridTopology);
         var turnDelta = oldDirection < 0 || newDirection < 0 ? 0 : Math.Abs(oldDirection - newDirection);
         turnDelta = Math.Min(turnDelta, Directions.Length - turnDelta);
         var turnPenalty = turnDelta * 2.4;
@@ -140,9 +143,9 @@ internal static class RiverTopologyPlanarityResolver
     private static double EdgeStrength(RiverTopologyEdge edge, double[] accumulation) =>
         Math.Max(accumulation[edge.From], accumulation[edge.To]);
 
-    private static bool IsOrthogonalNeighbor(int first, int second, int width)
+    private static bool IsOrthogonalNeighbor(int first, int second, int width, IGridTopology gridTopology)
     {
-        var dx = Math.Abs(WrappedDeltaX(second % width - first % width, width));
+        var dx = Math.Abs(GridTopologyMath.WrappedDeltaX(gridTopology, second % width - first % width));
         var dy = Math.Abs(second / width - first / width);
         return dx + dy == 1;
     }

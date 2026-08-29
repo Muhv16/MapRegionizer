@@ -1,12 +1,23 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
 internal sealed class TectonicFeatureGenerator
 {
-    public TectonicFeatureMap Generate(MapMask mask, TectonicHistory history, CrustFieldMap crustFields, PlateDomainMap plateDomains, TectonicBoundaryMap boundaries, OrogenProvinceMap orogenProvinces, RiftProvinceMap riftProvinces, IReadOnlyList<Landmass> landmasses)
+    public TectonicFeatureMap Generate(
+        MapMask mask,
+        TectonicHistory history,
+        CrustFieldMap crustFields,
+        PlateDomainMap plateDomains,
+        TectonicBoundaryMap boundaries,
+        OrogenProvinceMap orogenProvinces,
+        RiftProvinceMap riftProvinces,
+        IReadOnlyList<Landmass> landmasses,
+        IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var length = mask.Width * mask.Height;
         var uplift = new double[length];
         var subsidence = new double[length];
@@ -23,9 +34,9 @@ internal sealed class TectonicFeatureGenerator
             if (!IsExtensionalFeature(lineament.Kind))
             {
                 if (lineament.Kind == TectonicFeatureKind.Hotspot)
-                    StampHotspotPatches(mask, lineament.Points, lineament.Intensity, lineament.Id, uplift, volcanism, heatFlow);
+                    StampHotspotPatches(mask, lineament.Points, lineament.Intensity, lineament.Id, uplift, volcanism, heatFlow, topology);
                 else
-                    StampFeature(mask, lineament.Kind, lineament.Points, lineament.Intensity, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
+                    StampFeature(mask, lineament.Kind, lineament.Points, lineament.Intensity, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply, topology);
             }
         }
 
@@ -43,7 +54,7 @@ internal sealed class TectonicFeatureGenerator
             var kind = ToFeatureKind(segment.BoundaryMode);
             features.Add(new TectonicFeature(nextId++, kind, segment.Points, 0, segment.Activity, segment.Id));
             if (!IsExtensionalMode(segment.BoundaryMode))
-                StampSegment(mask, segment, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
+                StampSegment(mask, segment, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply, topology);
         }
 
         StampOrogenProvinces(mask, orogenProvinces, uplift, seismicity);
@@ -72,11 +83,11 @@ internal sealed class TectonicFeatureGenerator
         return new TectonicFeatureMap(mask.Width, mask.Height, features, islands, uplift, subsidence, volcanism, seismicity, heatFlow, sedimentSupply);
     }
 
-    private static void StampFeature(MapMask mask, TectonicFeatureKind kind, IReadOnlyList<GridPoint> points, double intensity, double[] uplift, double[] subsidence, double[] volcanism, double[] seismicity, double[] heatFlow, double[] sedimentSupply)
+    private static void StampFeature(MapMask mask, TectonicFeatureKind kind, IReadOnlyList<GridPoint> points, double intensity, double[] uplift, double[] subsidence, double[] volcanism, double[] seismicity, double[] heatFlow, double[] sedimentSupply, IGridTopology topology)
     {
         foreach (var point in points)
         {
-            foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, 2))
+            foreach (var stamped in PointsInRadius(point, 2, topology))
             {
                 var index = stamped.Y * mask.Width + stamped.X;
                 switch (kind)
@@ -117,7 +128,7 @@ internal sealed class TectonicFeatureGenerator
         }
     }
 
-    private static void StampHotspotPatches(MapMask mask, IReadOnlyList<GridPoint> points, double intensity, int seed, double[] uplift, double[] volcanism, double[] heatFlow)
+    private static void StampHotspotPatches(MapMask mask, IReadOnlyList<GridPoint> points, double intensity, int seed, double[] uplift, double[] volcanism, double[] heatFlow, IGridTopology topology)
     {
         if (points.Count == 0)
             return;
@@ -133,9 +144,9 @@ internal sealed class TectonicFeatureGenerator
             var localStrength = intensity * ageDecay * (0.82 + Hash01(center.X, center.Y, seed + 3401) * 0.36);
             var radius = Math.Clamp(3 + (int)Math.Round(Hash01(center.X, center.Y, seed + 3407) * 4), 3, Math.Max(4, mask.Width / 80));
 
-            foreach (var stamped in PointsInRadius(mask.Width, mask.Height, center, radius))
+            foreach (var stamped in PointsInRadius(center, radius, topology))
             {
-                var distance = Math.Sqrt(WrappedDistanceSquared(center, stamped, mask.Width));
+                var distance = Math.Sqrt(WrappedDistanceSquared(center, stamped, topology));
                 var falloff = SmoothStep(Math.Clamp(1.0 - distance / Math.Max(1.0, radius), 0, 1));
                 var index = stamped.Y * mask.Width + stamped.X;
                 volcanism[index] += falloff * 0.72 * localStrength;
@@ -145,11 +156,11 @@ internal sealed class TectonicFeatureGenerator
         }
     }
 
-    private static void StampSegment(MapMask mask, PlateBoundarySegment segment, double[] uplift, double[] subsidence, double[] volcanism, double[] seismicity, double[] heatFlow, double[] sedimentSupply)
+    private static void StampSegment(MapMask mask, PlateBoundarySegment segment, double[] uplift, double[] subsidence, double[] volcanism, double[] seismicity, double[] heatFlow, double[] sedimentSupply, IGridTopology topology)
     {
         foreach (var point in segment.Points)
         {
-            foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, 2))
+            foreach (var stamped in PointsInRadius(point, 2, topology))
             {
                 var index = stamped.Y * mask.Width + stamped.X;
                 var strength = segment.Activity;
@@ -294,31 +305,25 @@ internal sealed class TectonicFeatureGenerator
         }
     }
 
-    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, int width)
+    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, IGridTopology topology)
     {
-        var dx = Math.Abs(a.X - b.X);
-        dx = Math.Min(dx, width - dx);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, a.X - b.X);
         var dy = a.Y - b.Y;
         return dx * dx + dy * dy;
     }
 
-    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    private static IEnumerable<GridPoint> PointsInRadius(GridPoint center, int radius, IGridTopology topology)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
-            var y = center.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
             for (var dx = -radius; dx <= radius; dx++)
             {
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (topology.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
 }

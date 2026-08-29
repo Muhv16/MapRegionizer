@@ -1,23 +1,58 @@
+#pragma warning disable CS0618
+
 namespace MapRegionizer.Core.Options;
 
 public sealed class MapGenerationOptions
 {
-    public double PixelSize { get; init; } = 1;
+    private MapSpatialOptions _spatial = MapSpatialOptions.LegacyDefault();
+    private bool _spatialWasConfigured;
+
+    /// <summary>Generation spatial semantics. Output coordinates are configured separately.</summary>
+    public MapSpatialOptions Spatial
+    {
+        get => _spatial;
+        init
+        {
+            _spatial = value ?? throw new ArgumentNullException(nameof(value));
+            _spatialWasConfigured = true;
+        }
+    }
+
+    /// <summary>
+    /// Legacy alias for <see cref="MapSpatialOptions.UnitsPerCell"/>. It remains
+    /// source-compatible while the spatial model migrates away from pixel terminology.
+    /// </summary>
+    [Obsolete("Use Spatial.UnitsPerCell. This alias is retained for compatibility.")]
+    public double PixelSize
+    {
+        get => Spatial.UnitsPerCell;
+        init => _spatial = _spatial with { UnitsPerCell = value };
+    }
     public int? Seed { get; init; }
     public bool Debug { get; init; }
     public ShapeExtractionOptions ShapeExtraction { get; init; } = new();
     public WaterBodyClassificationOptions WaterBodies { get; init; } = new();
     public RegionGenerationOptions Regions { get; init; } = new();
     public BoundaryDistortionOptions Boundaries { get; init; } = new();
+    [Obsolete("Use Spatial.Projection is represented by WorldModel, Coverage, GridMapping, and Topology.")]
     public MapProjectionMode ProjectionMode { get; init; } = MapProjectionMode.EquirectangularWorld;
     public TectonicPlateGenerationOptions TectonicPlates { get; init; } = new();
     public ElevationGenerationOptions Elevation { get; init; } = new();
     public HydrologyGenerationOptions Hydrology { get; init; } = new();
     public ClimateGenerationOptions Climate { get; init; } = new();
 
+    /// <summary>
+    /// Returns spatial options while honoring an explicitly supplied legacy
+    /// projection when no new spatial configuration was provided.
+    /// </summary>
+    public MapSpatialOptions EffectiveSpatial =>
+        !_spatialWasConfigured && ProjectionMode != MapProjectionMode.EquirectangularWorld
+            ? MapSpatialOptions.FromLegacy(ProjectionMode, Spatial.UnitsPerCell)
+            : Spatial;
+
     public void Validate()
     {
-        if (PixelSize <= 0) throw new ArgumentOutOfRangeException(nameof(PixelSize), "Pixel size must be greater than zero.");
+        EffectiveSpatial.Validate();
         ShapeExtraction.Validate();
         WaterBodies.Validate();
         Regions.Validate();

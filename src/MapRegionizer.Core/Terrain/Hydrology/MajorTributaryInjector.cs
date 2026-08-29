@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -22,15 +23,17 @@ internal sealed class MajorTributaryInjector
         IReadOnlyDictionary<int, IReadOnlyList<int>> forcedLongPaths,
         HydrologyGenerationOptions options,
         List<int>[]? upstreamCache = null,
-        int[]? upstreamDepthsCache = null)
+        int[]? upstreamDepthsCache = null,
+        IGridTopology? gridTopology = null)
     {
         if (options.RiverDensity <= 0 || options.MajorRiverTributaryMultiplier <= 0 || forcedLongPaths.Count == 0)
             return;
 
         var width = mask.Width;
         var height = mask.Height;
-        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height);
-        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height);
+        gridTopology ??= new CylindricalXTopology(width, height);
+        var upstream = upstreamCache ?? BuildUpstreamLists(flowDirections, width, height, gridTopology);
+        var upstreamDepths = upstreamDepthsCache ?? BuildLongestUpstreamDepths(flowDirections, upstream, lakeIds, mask, topology, width, height, gridTopology);
 
         foreach (var path in forcedLongPaths.Values.OrderByDescending(p => p.Count))
         {
@@ -62,7 +65,7 @@ internal sealed class MajorTributaryInjector
                     .Where(i => !mainstem.Contains(i))
                     .Where(i => riverCells[i] == 0 && lakeIds[i] <= 0)
                     .Where(i => IsRenderableRiverLand(new GridPoint(i % width, i / width), mask, topology, lakeIds))
-                    .Select(i => BuildLongestTributaryPath(i, upstream, upstreamDepths, accumulation, mainstem, riverCells, lakeIds, mask, topology, width))
+                    .Select(i => BuildLongestTributaryPath(i, upstream, upstreamDepths, accumulation, mainstem, riverCells, lakeIds, mask, topology, width, gridTopology))
                     .Where(p => p.Count >= 4)
                     .ToList();
                 var tributary = SelectMajorRiverTributaryPath(tributaryCandidates, accumulation, anchor, width);
@@ -121,7 +124,8 @@ internal sealed class MajorTributaryInjector
         int[] lakeIds,
         MapMask mask,
         WaterBodyTopology topology,
-        int width)
+        int width,
+        IGridTopology? gridTopology = null)
     {
         var path = new List<int>();
         var current = mouthIndex;
@@ -157,11 +161,12 @@ internal sealed class MajorTributaryInjector
                 previousDirection,
                 straightRunLength,
                 diagonalRunDirection,
-                diagonalRunLength);
+                diagonalRunLength,
+                gridTopology);
 
             if (next < 0)
                 break;
-            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength, gridTopology);
             current = next;
         }
 

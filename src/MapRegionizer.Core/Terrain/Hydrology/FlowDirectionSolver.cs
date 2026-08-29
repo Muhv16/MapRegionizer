@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -26,10 +27,12 @@ internal sealed class FlowDirectionSolver
         int[] lakeIds,
         int[] lakeNext,
         IReadOnlyList<LakeOutlet> outlets,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var directions = new int[width * height];
         Array.Fill(directions, -1);
         var outletCells = outlets.Where(o => o.HasOutlet && o.OutletCell.HasValue).Select(o => o.OutletCell!.Value).ToHashSet();
@@ -52,7 +55,7 @@ internal sealed class FlowDirectionSolver
                 if (generatedLakes.Contains(point))
                     continue;
 
-                directions[index] = ChooseDownstreamDirection(point, mask, elevation, topology, hydro, lakeIds, outletCells, options);
+                directions[index] = ChooseDownstreamDirection(point, mask, elevation, topology, hydro, lakeIds, outletCells, options, gridTopology);
             }
         }
 
@@ -67,7 +70,8 @@ internal sealed class FlowDirectionSolver
         double[] hydro,
         int[] lakeIds,
         HashSet<GridPoint> outletCells,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology gridTopology)
     {
         var width = mask.Width;
         var currentIndex = point.Y * width + point.X;
@@ -76,7 +80,7 @@ internal sealed class FlowDirectionSolver
         var bestCost = double.PositiveInfinity;
         for (var direction = 0; direction < Directions.Length; direction++)
         {
-            var neighbor = Move(point, direction, width, mask.Height);
+            var neighbor = Move(point, direction, gridTopology);
             if (neighbor is null)
                 continue;
 
@@ -143,12 +147,14 @@ internal sealed class FlowDirectionSolver
         int[] lakeIds,
         int[] flowDirections,
         double[] accumulation,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology? gridTopology = null)
     {
         const int minRun = 6;
 
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var visibleFloor = Math.Clamp(Math.Sqrt(width * height) * 0.032 / Math.Max(0.35, options.RiverDensity), 12.0, 42.0);
         var candidates = new List<int>();
         for (var i = 0; i < flowDirections.Length; i++)
@@ -178,11 +184,11 @@ internal sealed class FlowDirectionSolver
                 if (changes >= maxChanges)
                     break;
 
-                var path = TraceRenderableDownstreamPath(start, flowDirections, lakeIds, mask, topology, maxLength: 180);
+                var path = TraceRenderableDownstreamPath(start, flowDirections, lakeIds, mask, topology, gridTopology, maxLength: 180);
                 if (path.Count < minRun + 1)
                     continue;
 
-                var run = DetectLongestRun(path, width, minRun);
+                var run = DetectLongestRun(path, width, minRun, gridTopology);
                 if (!run.HasValue)
                     continue;
 
@@ -194,10 +200,10 @@ internal sealed class FlowDirectionSolver
                     continue;
 
                 var segment = path.Skip(runValue.Start).Take(runValue.Length + 1).ToList();
-                var replacement = FindLocalFlowPath(mask, elevation, topology, hydro, lakeIds, segment, flowDirections, accumulation, options, runValue.Direction);
+                var replacement = FindLocalFlowPath(mask, elevation, topology, hydro, lakeIds, segment, flowDirections, accumulation, options, runValue.Direction, gridTopology);
                 if (replacement.Count <= 2 || replacement.SequenceEqual(segment))
                     continue;
-                if (!TryCommitFlowPath(replacement, flowDirections, width, height))
+                if (!TryCommitFlowPath(replacement, flowDirections, width, height, gridTopology))
                     continue;
 
                 passChanged = true;
@@ -218,6 +224,7 @@ internal sealed class FlowDirectionSolver
         int[] lakeIds,
         MapMask mask,
         WaterBodyTopology topology,
+        IGridTopology gridTopology,
         int maxLength)
     {
         var path = new List<int>();
@@ -230,7 +237,7 @@ internal sealed class FlowDirectionSolver
                 break;
 
             path.Add(current);
-            var downstream = DownstreamIndex(current, flowDirections[current], mask.Width, mask.Height);
+            var downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 break;
 
@@ -240,19 +247,19 @@ internal sealed class FlowDirectionSolver
         return path;
     }
 
-    private static StraightRun? DetectLongestRun(IReadOnlyList<int> path, int width, int minRun)
+    private static StraightRun? DetectLongestRun(IReadOnlyList<int> path, int width, int minRun, IGridTopology topology)
     {
         if (path.Count < minRun + 1)
             return null;
 
         var best = default(StraightRun);
         var bestLength = 0;
-        var direction = DirectionBetween(path[0], path[1], width);
+        var direction = DirectionBetween(path[0], path[1], width, topology);
         var start = 0;
         var length = 1;
         for (var i = 1; i < path.Count - 1; i++)
         {
-            var nextDirection = DirectionBetween(path[i], path[i + 1], width);
+            var nextDirection = DirectionBetween(path[i], path[i + 1], width, topology);
             if (nextDirection == direction)
             {
                 length++;
@@ -286,7 +293,8 @@ internal sealed class FlowDirectionSolver
         int[] flowDirections,
         double[] accumulation,
         HydrologyGenerationOptions options,
-        int forbiddenDirection)
+        int forbiddenDirection,
+        IGridTopology gridTopology)
     {
         var width = mask.Width;
         var height = mask.Height;
@@ -297,7 +305,7 @@ internal sealed class FlowDirectionSolver
 
         for (var radius = baseRadius; radius <= 10; radius += 2)
         {
-            var path = FindLocalFlowPath(mask, elevation, topology, hydro, lakeIds, segmentPoints, start, target, flowDirections, accumulation, options, forbiddenDirection, radius);
+            var path = FindLocalFlowPath(mask, elevation, topology, hydro, lakeIds, segmentPoints, start, target, flowDirections, accumulation, options, forbiddenDirection, radius, gridTopology);
             if (path.Count >= 2 && !path.SequenceEqual(segment))
                 return path;
         }
@@ -318,7 +326,8 @@ internal sealed class FlowDirectionSolver
         double[] accumulation,
         HydrologyGenerationOptions options,
         int forbiddenDirection,
-        int radius)
+        int radius,
+        IGridTopology gridTopology)
     {
         var width = mask.Width;
         var startPoint = new GridPoint(start % width, start / width);
@@ -329,7 +338,7 @@ internal sealed class FlowDirectionSolver
             [start] = new FlowNodeInfo { Cost = 0.0, ParentIndex = -1, PreviousDirection = -1, StraightRunLength = 0, DiagonalRunDirection = -1, DiagonalRunLength = 0 }
         };
         var closed = new HashSet<int>();
-        open.Enqueue(start, Distance(startPoint, targetPoint, width));
+        open.Enqueue(start, Distance(startPoint, targetPoint, gridTopology));
         var foundIndex = -1;
         var maxExpansions = Math.Clamp(segmentPoints.Count * radius * 130, 2400, 64000);
         var expansions = 0;
@@ -352,7 +361,7 @@ internal sealed class FlowDirectionSolver
             var currentPoint = new GridPoint(currentIndex % width, currentIndex / width);
             for (var direction = 0; direction < Directions.Length; direction++)
             {
-                var moved = Move(currentPoint, direction, width, mask.Height);
+                var moved = Move(currentPoint, direction, gridTopology);
                 if (!moved.HasValue)
                     continue;
 
@@ -363,14 +372,14 @@ internal sealed class FlowDirectionSolver
                 if (next != target && !IsRenderableRiverLand(nextPoint, mask, topology, lakeIds))
                     continue;
 
-                var pathDistance = DistanceToPath(nextPoint, segmentPoints, width, radius + 0.75);
+                var pathDistance = DistanceToPath(nextPoint, segmentPoints, width, radius + 0.75, gridTopology);
                 if (pathDistance > radius && next != target)
                     continue;
 
                 var isDiagonal = Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
                 var straightRun = direction == currentInfo.PreviousDirection ? currentInfo.StraightRunLength + 1 : 1;
                 var diagonalRun = isDiagonal && direction == currentInfo.DiagonalRunDirection ? currentInfo.DiagonalRunLength + 1 : isDiagonal ? 1 : 0;
-                var nearTarget = Distance(nextPoint, targetPoint, width) <= 2.01;
+                var nearTarget = Distance(nextPoint, targetPoint, gridTopology) <= 2.01;
                 if (!nearTarget && straightRun > 5)
                     continue;
                 if (!nearTarget && isDiagonal && diagonalRun > 4)
@@ -394,7 +403,8 @@ internal sealed class FlowDirectionSolver
                     hydro,
                     accumulation,
                     elevation,
-                    options);
+                    options,
+                    gridTopology);
                 if (!stepCost.HasValue)
                     continue;
 
@@ -412,7 +422,7 @@ internal sealed class FlowDirectionSolver
                     DiagonalRunLength = diagonalRun
                 };
 
-                var heuristic = Distance(nextPoint, targetPoint, width) * 2.6 + pathDistance * 0.75;
+                var heuristic = Distance(nextPoint, targetPoint, gridTopology) * 2.6 + pathDistance * 0.75;
                 open.Enqueue(next, cost + heuristic);
             }
         }
@@ -432,7 +442,8 @@ internal sealed class FlowDirectionSolver
         double[] hydro,
         double[] accumulation,
         ElevationMap elevation,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology topology)
     {
         var width = elevation.Width;
         var currentIndex = current.Y * width + current.X;
@@ -458,7 +469,7 @@ internal sealed class FlowDirectionSolver
         };
         var straightPenalty = straightRun >= 3 ? Math.Pow(straightRun - 1, 1.9) * (7.0 + lateralStrength * 8.0) : 0.0;
         var diagonalPenalty = isDiagonal && diagonalRun >= 3 ? Math.Pow(diagonalRun - 1, 2.0) * (8.5 + lateralStrength * 9.0) : 0.0;
-        var targetDistance = Distance(next, target, width);
+        var targetDistance = Distance(next, target, topology);
 
         return 1.0
                + hydro[nextIndex] * 0.035
@@ -476,7 +487,7 @@ internal sealed class FlowDirectionSolver
                + HashUnit(next.X, next.Y, _seed + 7901) * 2.6;
     }
 
-    private static bool TryCommitFlowPath(IReadOnlyList<int> path, int[] flowDirections, int width, int height)
+    private static bool TryCommitFlowPath(IReadOnlyList<int> path, int[] flowDirections, int width, int height, IGridTopology topology)
     {
         if (path.Count < 2 || path.Count != path.Distinct().Count())
             return false;
@@ -486,17 +497,17 @@ internal sealed class FlowDirectionSolver
         {
             var from = path[i];
             var to = path[i + 1];
-            var direction = DirectionBetween(from, to, width);
-            if (direction < 0 || DownstreamIndex(from, direction, width, height) != to)
+            var direction = DirectionBetween(from, to, width, topology);
+            if (direction < 0 || DownstreamIndex(from, direction, topology) != to)
                 return false;
 
             testDirections[from] = direction;
-            if (WouldCreateCycle(from, to, testDirections, width, height))
+            if (WouldCreateCycle(from, to, testDirections, width, height, topology))
                 return false;
         }
 
         for (var i = 0; i < path.Count - 1; i++)
-            flowDirections[path[i]] = DirectionBetween(path[i], path[i + 1], width);
+            flowDirections[path[i]] = DirectionBetween(path[i], path[i + 1], width, topology);
 
         return true;
     }
@@ -517,12 +528,12 @@ internal sealed class FlowDirectionSolver
         return path;
     }
 
-    private static double DistanceToPath(GridPoint point, IReadOnlyList<GridPoint> cells, int width, double maxStopDistance)
+    private static double DistanceToPath(GridPoint point, IReadOnlyList<GridPoint> cells, int width, double maxStopDistance, IGridTopology topology)
     {
         var best = double.PositiveInfinity;
         foreach (var cell in cells)
         {
-            var distance = Distance(point, cell, width);
+            var distance = Distance(point, cell, topology);
             if (distance < best)
                 best = distance;
             if (best <= 0.001 || best <= maxStopDistance * 0.35)
@@ -532,11 +543,11 @@ internal sealed class FlowDirectionSolver
         return best;
     }
 
-    private static int DirectionBetween(int from, int to, int width)
+    private static int DirectionBetween(int from, int to, int width, IGridTopology topology)
     {
         var fromPoint = new GridPoint(from % width, from / width);
         var toPoint = new GridPoint(to % width, to / width);
-        return DirectionIndex(fromPoint, toPoint, width);
+        return DirectionIndex(fromPoint, toPoint, topology);
     }
 
     private static bool IsBacktrackLikeTurn(int previousDirection, int direction)
@@ -561,7 +572,7 @@ internal sealed class FlowDirectionSolver
         _ => 0.22
     };
 
-    internal static bool WouldCreateCycle(int from, int target, int[] flowDirections, int width, int height)
+    internal static bool WouldCreateCycle(int from, int target, int[] flowDirections, int width, int height, IGridTopology? topology = null)
     {
         var current = target;
         var guard = 0;
@@ -570,15 +581,15 @@ internal sealed class FlowDirectionSolver
             if (current == from)
                 return true;
 
-            current = DownstreamIndex(current, flowDirections[current], width, height);
+            current = DownstreamIndex(current, flowDirections[current], topology ?? new CylindricalXTopology(width, height));
         }
 
         return false;
     }
 
-    internal static bool IsOrthogonalNeighbor(int first, int second, int width)
+    internal static bool IsOrthogonalNeighbor(int first, int second, int width, IGridTopology? topology = null)
     {
-        var dx = Math.Abs(WrappedDeltaX(second % width - first % width, width));
+        var dx = Math.Abs(GridTopologyMath.WrappedDeltaX(topology ?? new CylindricalXTopology(width, 1), second % width - first % width));
         var dy = Math.Abs(second / width - first / width);
         return dx + dy == 1;
     }
@@ -591,8 +602,10 @@ internal sealed class FlowDirectionSolver
         double[] hydro,
         int[] lakeIds,
         int[] flowDirections,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(mask.Width, mask.Height);
         for (var pass = 0; pass < 4; pass++)
         {
             var changed = false;
@@ -607,7 +620,7 @@ internal sealed class FlowDirectionSolver
                 if (IsValidEndorheicTerminal(elevation, point, options))
                     continue;
 
-                var direction = ChooseSpillDirection(point, mask, elevation, topology, hydro, lakeIds, flowDirections, options);
+                var direction = ChooseSpillDirection(point, mask, elevation, topology, hydro, lakeIds, flowDirections, options, gridTopology);
                 if (direction < 0)
                     continue;
 
@@ -628,7 +641,8 @@ internal sealed class FlowDirectionSolver
         double[] hydro,
         int[] lakeIds,
         int[] flowDirections,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology gridTopology)
     {
         var width = mask.Width;
         var current = point.Y * width + point.X;
@@ -638,7 +652,7 @@ internal sealed class FlowDirectionSolver
 
         for (var direction = 0; direction < Directions.Length; direction++)
         {
-            var neighbor = Move(point, direction, width, mask.Height);
+            var neighbor = Move(point, direction, gridTopology);
             if (neighbor is null)
                 continue;
 
@@ -686,7 +700,7 @@ internal sealed class FlowDirectionSolver
         return false;
     }
 
-    internal static void BreakCycles(int[] flowDirections, int width, int height)
+    internal static void BreakCycles(int[] flowDirections, int width, int height, IGridTopology? topology = null)
     {
         var length = flowDirections.Length;
         var state = new byte[length];
@@ -714,7 +728,7 @@ internal sealed class FlowDirectionSolver
                 state[current] = 1;
                 seen[current] = path.Count;
                 path.Add(current);
-                current = DownstreamIndex(current, flowDirections[current], width, height);
+                current = DownstreamIndex(current, flowDirections[current], topology ?? new CylindricalXTopology(width, height));
             }
 
             foreach (var index in path)

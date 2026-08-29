@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Climate;
 
@@ -12,6 +13,7 @@ public sealed class ClimateGenerator
         _random = new Random(seed);
     }
 
+    /// <summary>Legacy overload using the default cylindrical/equirectangular spatial context.</summary>
     public ClimateMap Generate(
         MapMask mask,
         ElevationMap elevation,
@@ -21,23 +23,56 @@ public sealed class ClimateGenerator
         ClimateGenerationOptions options)
     {
         ArgumentNullException.ThrowIfNull(mask);
+        return Generate(
+            mask,
+            elevation,
+            waterBodyTopology,
+            waterSurfaces,
+            hydrology,
+            MapSpatialContext.Create(mask.Width, mask.Height, MapSpatialOptions.LegacyDefault()),
+            options);
+    }
+
+    public ClimateMap Generate(
+        MapMask mask,
+        ElevationMap elevation,
+        WaterBodyTopology waterBodyTopology,
+        WaterSurfaceMap waterSurfaces,
+        HydrologyMap hydrology,
+        MapSpatialContext spatialContext,
+        ClimateGenerationOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(mask);
         ArgumentNullException.ThrowIfNull(elevation);
         ArgumentNullException.ThrowIfNull(waterBodyTopology);
         ArgumentNullException.ThrowIfNull(waterSurfaces);
         ArgumentNullException.ThrowIfNull(hydrology);
+        ArgumentNullException.ThrowIfNull(spatialContext);
         ArgumentNullException.ThrowIfNull(options);
 
         var width = elevation.Width;
         var height = elevation.Height;
         if (mask.Width != width || mask.Height != height)
             throw new ArgumentException("Mask and elevation dimensions must match.", nameof(mask));
+        if (spatialContext.SpatialReference.GridWidth != width || spatialContext.SpatialReference.GridHeight != height)
+            throw new ArgumentException("Spatial context dimensions must match elevation dimensions.", nameof(spatialContext));
+
+        var topology = spatialContext.GridTopology;
+        var signedLatitudes = new double[height];
+        var latitudeNormByRow = new double[height];
+        for (var y = 0; y < height; y++)
+        {
+            var geographic = spatialContext.GridToGeographic(new GridCoordinate(0.5, y + 0.5));
+            signedLatitudes[y] = Math.Clamp(geographic.LatitudeDegrees / 90.0, -1.0, 1.0);
+            latitudeNormByRow[y] = Math.Clamp(Math.Abs(signedLatitudes[y]), 0, 1);
+        }
 
         var length = width * height;
         var water = BuildWaterMask(elevation);
         var largeWater = BuildLargeWaterMask(elevation, waterBodyTopology, waterSurfaces, options);
-        var distanceToLargeWater = ComputeDistance(width, height, largeWater);
-        var distanceToCoast = ComputeDistance(width, height, BuildCoastMask(width, height, water));
-        var riverInfluence = BuildRiverInfluence(hydrology);
+        var distanceToLargeWater = ComputeDistance(width, height, largeWater, topology);
+        var distanceToCoast = ComputeDistance(width, height, BuildCoastMask(width, height, water, topology), topology);
+        var riverInfluence = BuildRiverInfluence(hydrology, topology);
 
         var latitudeNorm = new double[length];
         var meanAnnualTemperature = new double[length];
@@ -60,16 +95,26 @@ public sealed class ClimateGenerator
         var climateClasses = new byte[length];
         var biomes = new byte[length];
 
+        // This is the one legacy compatibility read. New spatial profiles
+        // deliberately do not consult the deprecated climate-local margin.
+#pragma warning disable CS0618
+        var legacyLatitudeMargin = spatialContext.SpatialReference.LegacyCompatibility == LegacyCompatibilityProfile.None
+            ? 0.0
+            : options.PolarLatitudeMargin;
+#pragma warning restore CS0618
+
         BuildTemperatureFields(
             elevation,
             water,
             distanceToLargeWater,
+            latitudeNormByRow,
             latitudeNorm,
             meanAnnualTemperature,
             summerTemperature,
             winterTemperature,
             seasonality,
-            options);
+            options,
+            legacyLatitudeMargin);
 
         BuildMoistureFields(
             elevation,
@@ -78,6 +123,8 @@ public sealed class ClimateGenerator
             distanceToLargeWater,
             riverInfluence,
             meanAnnualTemperature,
+            signedLatitudes,
+            topology,
             atmosphericMoisture,
             precipitation,
             rainShadow,
@@ -100,10 +147,12 @@ public sealed class ClimateGenerator
             moisture,
             rainShadow,
             monsoonInfluence,
+            signedLatitudes,
+            topology,
             options);
 
-        SmoothUnitField(moisture, width, height, passes: 1, selfWeight: 0.52);
-        SmoothUnitField(precipitation, width, height, passes: 1, selfWeight: 0.66);
+        SmoothUnitField(moisture, width, height, topology, passes: 1, selfWeight: 0.52);
+        SmoothUnitField(precipitation, width, height, topology, passes: 1, selfWeight: 0.66);
         BuildBiomeMoisture(
             elevation,
             water,
@@ -219,7 +268,7 @@ public sealed class ClimateGenerator
         return result;
     }
 
-    private static bool[] BuildCoastMask(int width, int height, bool[] water)
+    private static bool[] BuildCoastMask(int width, int height, bool[] water, IGridTopology topology)
     {
         var coast = new bool[water.Length];
         for (var y = 0; y < height; y++)
@@ -230,7 +279,7 @@ public sealed class ClimateGenerator
                 if (water[index])
                     continue;
 
-                foreach (var neighbor in EnumerateNeighbors4(x, y, width, height))
+                foreach (var neighbor in topology.GetNeighbors4(new GridPoint(x, y)))
                 {
                     if (water[neighbor.Y * width + neighbor.X])
                     {
@@ -244,7 +293,7 @@ public sealed class ClimateGenerator
         return coast;
     }
 
-    private static int[] ComputeDistance(int width, int height, bool[] sources)
+    private static int[] ComputeDistance(int width, int height, bool[] sources, IGridTopology topology)
     {
         var distance = Enumerable.Repeat(int.MaxValue, width * height).ToArray();
         var queue = new Queue<GridPoint>();
@@ -266,7 +315,7 @@ public sealed class ClimateGenerator
         {
             var point = queue.Dequeue();
             var nextDistance = distance[point.Y * width + point.X] + 1;
-            foreach (var neighbor in EnumerateNeighbors4(point.X, point.Y, width, height))
+            foreach (var neighbor in topology.GetNeighbors4(point))
             {
                 var index = neighbor.Y * width + neighbor.X;
                 if (distance[index] <= nextDistance)
@@ -280,7 +329,7 @@ public sealed class ClimateGenerator
         return distance;
     }
 
-    private static double[] BuildRiverInfluence(HydrologyMap hydrology)
+    private static double[] BuildRiverInfluence(HydrologyMap hydrology, IGridTopology topology)
     {
         var width = hydrology.Width;
         var height = hydrology.Height;
@@ -299,7 +348,7 @@ public sealed class ClimateGenerator
         }
 
         foreach (var mouth in hydrology.Mouths)
-            AddInfluence(result, width, height, mouth.Cell, mouth.Kind is RiverMouthKind.Delta or RiverMouthKind.MarshDelta or RiverMouthKind.InlandDelta ? 0.95 : 0.55, 3);
+            AddInfluence(result, width, height, mouth.Cell, mouth.Kind is RiverMouthKind.Delta or RiverMouthKind.MarshDelta or RiverMouthKind.InlandDelta ? 0.95 : 0.55, 3, topology);
 
         var spread = result.ToArray();
         for (var pass = 0; pass < 2; pass++)
@@ -310,7 +359,7 @@ public sealed class ClimateGenerator
                 for (var x = 0; x < width; x++)
                 {
                     var best = result[y * width + x];
-                    foreach (var neighbor in EnumerateNeighbors8(x, y, width, height))
+                    foreach (var neighbor in topology.GetNeighbors8(new GridPoint(x, y)))
                         best = Math.Max(best, result[neighbor.Y * width + neighbor.X] * 0.58);
 
                     spread[y * width + x] = Math.Max(spread[y * width + x], best);
@@ -321,7 +370,7 @@ public sealed class ClimateGenerator
         return spread;
     }
 
-    private static void AddInfluence(double[] field, int width, int height, GridPoint center, double value, int radius)
+    private static void AddInfluence(double[] field, int width, int height, GridPoint center, double value, int radius, IGridTopology topology)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
@@ -335,8 +384,9 @@ public sealed class ClimateGenerator
                 if (distance > radius)
                     continue;
 
-                var x = WrapX(center.X + dx, width);
-                var index = y * width + x;
+                if (!topology.TryResolve(center, dx, dy, out var point))
+                    continue;
+                var index = point.Y * width + point.X;
                 field[index] = Math.Max(field[index], value * (1.0 - distance / (radius + 1.0)));
             }
         }
@@ -346,20 +396,25 @@ public sealed class ClimateGenerator
         ElevationMap elevation,
         bool[] water,
         int[] distanceToLargeWater,
+        double[] latitudeNormByRow,
         double[] latitudeNorm,
         double[] meanAnnualTemperature,
         double[] summerTemperature,
         double[] winterTemperature,
         double[] seasonality,
-        ClimateGenerationOptions options)
+        ClimateGenerationOptions options,
+        double legacyLatitudeMargin)
     {
         var width = elevation.Width;
         var height = elevation.Height;
-        var maxLatitudeNorm = 1.0 - options.PolarLatitudeMargin;
+        // Geographic latitude is supplied by SpatialContext. The deprecated
+        // margin remains only as a compatibility scaling for legacy defaults;
+        // new spatial configurations use their declared latitude coverage.
+        var maxLatitudeNorm = 1.0 - legacyLatitudeMargin;
 
         for (var y = 0; y < height; y++)
         {
-            var rowLatitude = ComputeLatitudeNorm(y, height, maxLatitudeNorm);
+            var rowLatitude = Math.Clamp(latitudeNormByRow[y] * maxLatitudeNorm, 0, 1);
             var latitudeCooling = Math.Pow(rowLatitude, options.LatitudeCurveExponent) * options.PoleCoolingCelsius;
             for (var x = 0; x < width; x++)
             {
@@ -409,6 +464,8 @@ public sealed class ClimateGenerator
         int[] distanceToLargeWater,
         double[] riverInfluence,
         double[] meanAnnualTemperature,
+        double[] signedLatitudes,
+        IGridTopology topology,
         double[] atmosphericMoisture,
         double[] precipitation,
         double[] rainShadow,
@@ -420,7 +477,7 @@ public sealed class ClimateGenerator
 
         for (var y = 0; y < height; y++)
         {
-            var wind = GetWind(y, height);
+            var wind = GetWind(signedLatitudes[y] * 90.0);
             var start = wind.X >= 0 ? 0 : width - 1;
             var end = wind.X >= 0 ? width : -1;
             var step = wind.X >= 0 ? 1 : -1;
@@ -429,10 +486,13 @@ public sealed class ClimateGenerator
             for (var x = start; x != end; x += step)
             {
                 var index = y * width + x;
-                var upwindX = WrapX(x - step, width);
+                var upwindX = x;
+                if (topology.TryResolve(new GridPoint(x, y), -step, 0, out var upwindPoint))
+                    upwindX = upwindPoint.X;
                 var upwindIndex = y * width + upwindX;
-                var verticalY = Math.Clamp(y - Math.Sign(wind.Y), 0, height - 1);
-                var verticalIndex = verticalY * width + x;
+                var verticalIndex = index;
+                if (topology.TryResolve(new GridPoint(x, y), 0, -Math.Sign(wind.Y), out var verticalPoint))
+                    verticalIndex = verticalPoint.Y * width + verticalPoint.X;
                 var incoming = previous * options.MoistureRetention +
                     outgoing[verticalIndex] * Math.Abs(wind.Y) * 0.28 +
                     LocalEvaporation(index, water, largeWater, distanceToLargeWater, riverInfluence, meanAnnualTemperature, options);
@@ -507,13 +567,15 @@ public sealed class ClimateGenerator
         double[] moisture,
         double[] rainShadow,
         double[] monsoonInfluence,
+        double[] signedLatitudes,
+        IGridTopology topology,
         ClimateGenerationOptions options)
     {
         var width = elevation.Width;
         var height = elevation.Height;
         for (var y = 0; y < height; y++)
         {
-            var signedLatitude = ComputeSignedLatitude(y, height);
+            var signedLatitude = signedLatitudes[y] * 90.0;
             for (var x = 0; x < width; x++)
             {
                 var index = y * width + x;
@@ -521,7 +583,7 @@ public sealed class ClimateGenerator
                 var tropicalBand = Math.Clamp((0.62 - latitudeNorm[index]) / 0.28, 0, 1);
                 var warmOceanNearby = Math.Max(0.0, 1.0 - distanceToLargeWater[index] / (double)options.MonsoonOceanDistanceCells) *
                     Math.Clamp((summerTemperature[index] - 16.0) / 12.0, 0, 1);
-                var exposure = ComputeCoastalMonsoonExposure(x, y, signedLatitude, width, height, largeWater, options.MonsoonCoastProbeCells);
+                var exposure = ComputeCoastalMonsoonExposure(x, y, signedLatitude, width, height, largeWater, options.MonsoonCoastProbeCells, topology);
                 var interior = Math.Clamp(distanceToCoast[index] / 12.0, 0.25, 1.0);
                 var monsoon = water[index] ? 0.0 : warmOceanNearby * tropicalBand * exposure * interior;
                 monsoonInfluence[index] = Math.Clamp(monsoon, 0, 1);
@@ -559,28 +621,27 @@ public sealed class ClimateGenerator
         int width,
         int height,
         bool[] largeWater,
-        int probeCells)
+        int probeCells,
+        IGridTopology topology)
     {
         if (probeCells <= 0)
             return 0.65;
 
-        var eastWater = DirectionalWaterProximity(x, y, 1, 0, width, height, largeWater, probeCells);
+        var eastWater = DirectionalWaterProximity(x, y, 1, 0, width, height, largeWater, probeCells, topology);
         var equatorDy = signedLatitude >= 0 ? 1 : -1;
-        var equatorWater = DirectionalWaterProximity(x, y, 0, equatorDy, width, height, largeWater, probeCells);
+        var equatorWater = DirectionalWaterProximity(x, y, 0, equatorDy, width, height, largeWater, probeCells, topology);
         var general = Math.Max(eastWater, equatorWater);
         return Math.Clamp(0.35 + general * 0.75, 0, 1);
     }
 
-    private static double DirectionalWaterProximity(int x, int y, int dx, int dy, int width, int height, bool[] water, int maxDistance)
+    private static double DirectionalWaterProximity(int x, int y, int dx, int dy, int width, int height, bool[] water, int maxDistance, IGridTopology topology)
     {
         for (var distance = 1; distance <= maxDistance; distance++)
         {
-            var yy = y + dy * distance;
-            if (yy < 0 || yy >= height)
+            if (!topology.TryResolve(new GridPoint(x, y), dx * distance, dy * distance, out var point))
                 break;
 
-            var xx = WrapX(x + dx * distance, width);
-            if (water[yy * width + xx])
+            if (water[point.Y * width + point.X])
                 return 1.0 - (distance - 1) / (double)maxDistance;
         }
 
@@ -1083,10 +1144,10 @@ public sealed class ClimateGenerator
         return count;
     }
 
-    private static WindVector GetWind(int y, int height)
+    private static WindVector GetWind(double latitudeDegrees)
     {
-        var latitudeNorm = ComputeLatitudeNorm(y, height, 1.0);
-        var signedLatitude = ComputeSignedLatitude(y, height);
+        var latitudeNorm = Math.Clamp(Math.Abs(latitudeDegrees) / 90.0, 0, 1);
+        var signedLatitude = Math.Clamp(latitudeDegrees / 90.0, -1, 1);
 
         if (latitudeNorm < 0.34)
             return new WindVector(-1, signedLatitude >= 0 ? 0.32 : -0.32);
@@ -1094,23 +1155,6 @@ public sealed class ClimateGenerator
             return new WindVector(1, signedLatitude >= 0 ? -0.14 : 0.14);
 
         return new WindVector(-1, signedLatitude >= 0 ? 0.20 : -0.20);
-    }
-
-    private static double ComputeLatitudeNorm(int y, int height, double maxLatitudeNorm)
-    {
-        if (height <= 1)
-            return 0;
-
-        var normalizedY = (y + 0.5) / height;
-        return Math.Clamp(Math.Abs(normalizedY * 2.0 - 1.0) * maxLatitudeNorm, 0, 1);
-    }
-
-    private static double ComputeSignedLatitude(int y, int height)
-    {
-        if (height <= 1)
-            return 0;
-
-        return Math.Clamp(1.0 - ((y + 0.5) / height) * 2.0, -1, 1);
     }
 
     private void AddFineClimateNoise(double[] values, double amplitude)
@@ -1122,7 +1166,7 @@ public sealed class ClimateGenerator
             values[index] = Math.Clamp(values[index] + (_random.NextDouble() - 0.5) * amplitude, 0, 1.6);
     }
 
-    private static void SmoothUnitField(double[] values, int width, int height, int passes, double selfWeight)
+    private static void SmoothUnitField(double[] values, int width, int height, IGridTopology topology, int passes, double selfWeight)
     {
         if (passes <= 0)
             return;
@@ -1137,7 +1181,7 @@ public sealed class ClimateGenerator
                 {
                     var sum = scratch[y * width + x] * selfWeight;
                     var weight = selfWeight;
-                    foreach (var neighbor in EnumerateNeighbors8(x, y, width, height))
+                    foreach (var neighbor in topology.GetNeighbors8(new GridPoint(x, y)))
                     {
                         sum += scratch[neighbor.Y * width + neighbor.X];
                         weight += 1.0;
@@ -1156,36 +1200,6 @@ public sealed class ClimateGenerator
 
         return Math.Clamp(distance / (double)Math.Max(1, maxDistance), 0, 1);
     }
-
-    private static IEnumerable<GridPoint> EnumerateNeighbors4(int x, int y, int width, int height)
-    {
-        yield return new GridPoint(WrapX(x - 1, width), y);
-        yield return new GridPoint(WrapX(x + 1, width), y);
-        if (y > 0)
-            yield return new GridPoint(x, y - 1);
-        if (y + 1 < height)
-            yield return new GridPoint(x, y + 1);
-    }
-
-    private static IEnumerable<GridPoint> EnumerateNeighbors8(int x, int y, int width, int height)
-    {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var yy = y + dy;
-            if (yy < 0 || yy >= height)
-                continue;
-
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                yield return new GridPoint(WrapX(x + dx, width), yy);
-            }
-        }
-    }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
 
     private static int GetTemperatureBand(double meanAnnualTemperature)
     {

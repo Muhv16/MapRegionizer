@@ -20,6 +20,7 @@ Current core data keys:
 
 ```text
 Mask
+SpatialContext
 Landmasses
 WaterBodies
 WaterBodyTopology
@@ -42,6 +43,12 @@ RawRegions
 Regions
 RegionRaster
 ```
+
+`SpatialContext` is an immutable initial input, available before the first
+stage; it is not produced by a stage. Every spatially dependent stage declares
+it in `Requires`, so changing generation coverage, mapping, topology, or map
+units invalidates the appropriate downstream branch while keeping the input
+available. Output coordinate choices are deliberately absent from this graph.
 
 `RegionDraft`, `RawRegions`, and `Regions` are intentionally separate:
 
@@ -87,63 +94,63 @@ Their dependencies are:
 
 ```text
 ExtractLandmassesStage
-  requires: Mask
+  requires: Mask, SpatialContext
   produces: Landmasses
 
 ExtractWaterBodiesStage
-  requires: Landmasses
+  requires: Landmasses, SpatialContext
   produces: WaterBodies
 
 ClassifyWaterBodiesStage
-  requires: Mask, Landmasses, WaterBodies
+  requires: Mask, Landmasses, WaterBodies, SpatialContext
   produces: WaterBodyTopology
 
 GenerateTectonicHistoryStage
-  requires: Mask, Landmasses, WaterBodies
+  requires: Mask, Landmasses, WaterBodies, SpatialContext
   produces: TectonicHistory
 
 GenerateCrustFieldsStage
-  requires: Mask, TectonicHistory
+  requires: Mask, TectonicHistory, SpatialContext
   produces: CrustFields
 
 GeneratePlateDomainsStage
-  requires: Mask, CrustFields, TectonicHistory
+  requires: Mask, CrustFields, TectonicHistory, SpatialContext
   produces: PlateDomains
 
 GenerateTectonicBoundariesStage
-  requires: PlateDomains, CrustFields
+  requires: PlateDomains, CrustFields, SpatialContext
   produces: TectonicBoundaries
 
 GenerateOrogenProvincesStage
-  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries
+  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries, SpatialContext
   produces: OrogenProvinces
 
 GenerateRiftProvincesStage
-  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries
+  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries, SpatialContext
   produces: RiftProvinces
 
 GenerateTectonicFeaturesStage
-  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces
+  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, SpatialContext
   produces: TectonicFeatures
 
 GenerateElevationStage
-  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology
+  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology, SpatialContext
   produces: BaseTerrain
 
 GenerateSmallLakesStage
-  requires: Mask, WaterBodyTopology, BaseTerrain
+  requires: Mask, WaterBodyTopology, BaseTerrain, SpatialContext
   produces: GeneratedLakes
 
 GenerateLakeLevelsStage
-  requires: BaseTerrain, GeneratedLakes, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures
+  requires: BaseTerrain, GeneratedLakes, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures, SpatialContext
   produces: Elevation, WaterSurfaces
 
 GenerateHydrologyStage
-  requires: Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes
+  requires: Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes, SpatialContext
   produces: Hydrology
 
 GenerateClimateStage
-  requires: Elevation, WaterSurfaces, WaterBodyTopology, Hydrology
+  requires: Elevation, WaterSurfaces, WaterBodyTopology, Hydrology, SpatialContext
   produces: Climate
 
 AssembleTectonicPlateMapStage
@@ -163,7 +170,7 @@ DistortRegionBoundariesStage
   produces: Regions
 
 RasterizeRegionsStage
-  requires: Mask, Regions
+  requires: Mask, Regions, SpatialContext
   produces: RegionRaster
 ```
 
@@ -339,6 +346,36 @@ World-generation features should be added as new data keys and stages. Tectonics
 
 `WaterSurfaces` now carries both water-level records and inland lake metadata. Inland lake/sea records include location class, origin class, depth profile, maximum depth, centroid, shoreline relief, and tectonic/volcanic influence. Artifact export writes those records to `lakes.json`; raster water levels remain in `Elevation.WaterSurfaceMeters`. `Hydrology` carries hydro surface, D8 flow, accumulation, drainage basin ids, a canonical integer visible-river topology, render polylines derived from that topology, forced long mainstem candidates, major-river side tributary expansion, guaranteed inland-sea inflows where feasible, lake outlets, and river mouths. Artifact export writes those records to `rivers.json` and `elevation-rivers.png`; river mouths are exported as visible segment endpoints, `Cells` records canonical integer paths, `Polyline` records visual geometry, and `DrainageTerminal` records the final ocean, lake, or dry-basin target.
 
+Generation owns one immutable `MapSpatialContext` per session. Its
+`MapSpatialReference` describes grid size, map units per cell, world model,
+geographic coverage, grid mapping, and edge topology; the canonical geometry
+space is always `GridMapUnits`. Generation stages consume the context's
+topology/mapping and do not depend on output coordinate choices. GeoJSON and
+river exporters accept `MapOutputOptions` and transform cloned geometry at the
+output boundary. Geographic exports include the full spatial-reference
+descriptor, including the legacy compatibility profile when applicable. Web
+Mercator output is intentionally rejected until the later
+projection milestone rather than being silently emitted with an incomplete
+transform.
+
+The Milestone 1 legacy baseline is intentionally explicit. The default
+`EquirectangularWorld` profile keeps cylindrical X topology for tectonics,
+elevation, hydrology, and climate, while land/water shape extraction remains
+an open-edge vectorization policy: components at the two X edges are not
+joined. The default climate profile also retains its historical polar margin;
+new spatial configurations use their declared latitude coverage directly.
+The pinned raster and canonical-geometry fixtures in
+`LegacySpatialRegressionTests` record these compatibility choices, including
+holes/islands and both-X-edge seam cases. Any later change to those semantics
+must update the fixture with an explicit migration decision.
+
+Grid coordinates use the documented raster orientation `(0,0)` at the
+top-left, X to the right, and Y downward. Continuous cell centers therefore
+use `(x + 0.5, y + 0.5)`; mapping code owns the inversion to north-positive
+geographic latitude. The old width/height overloads retained by a few Core
+helpers are compatibility adapters that construct the legacy cylindrical
+topology. Generation stages pass the session topology explicitly.
+
 Tectonic GeoJSON export uses `Summary` mode by default. Summary output keeps runtime-friendly plate, boundary, crust, coastal, age, feature, and island metadata, but omits large diagnostic point clouds and writes compact JSON. Use `CompactDiagnostic` to include segment points without duplicate aggregate point lists, or `Diagnostic` for dense age rows and full feature point output.
 
 Current and future terrain-oriented data keys include:
@@ -353,6 +390,9 @@ Climate
 ```
 
 Potential dependencies:
+
+The spatially dependent stages listed below also declare the initial
+`SpatialContext` input, even where it is omitted from the abbreviated diagram.
 
 ```text
 GenerateElevationStage

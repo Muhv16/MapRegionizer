@@ -28,7 +28,7 @@ internal static class RiverOverlayRenderer
             DrawHillshade = true
         });
 
-        DrawRivers(image, map.Hydrology, map.Bounds.PixelSize, options);
+        DrawRivers(image, map.Hydrology, map.Bounds.UnitsPerCell, options);
         return image;
     }
 

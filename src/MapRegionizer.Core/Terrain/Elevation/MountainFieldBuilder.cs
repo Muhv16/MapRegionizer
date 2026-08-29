@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.ElevationGridMath;
 using static MapRegionizer.Core.Terrain.ElevationNoise;
 using static MapRegionizer.Core.Terrain.ElevationSignalMath;
@@ -21,7 +22,8 @@ internal sealed class MountainFieldBuilder
             tectonicFields.ForelandMask,
             ridgeContinuity,
             mountainPassPotential,
-            foothillInfluence);
+            foothillInfluence,
+            context.GridTopology);
         ApplyOrogenProvinceFields(
             context.Mask,
             tectonicFields.OrogenProvince,
@@ -40,15 +42,16 @@ internal sealed class MountainFieldBuilder
         double[] forelandMask,
         double[] ridgeContinuity,
         double[] mountainPassPotential,
-        double[] foothillInfluence)
+        double[] foothillInfluence,
+        IGridTopology? topology = null)
     {
         var length = mask.Width * mask.Height;
         var axis = new double[length];
         for (var i = 0; i < length; i++)
             axis[i] = Math.Max(collisionMask[i], massifMask[i]);
 
-        var broadAxis = SmoothField(axis, mask.Width, mask.Height, 4);
-        var broadFoothills = SmoothField(massifMask, mask.Width, mask.Height, 8);
+        var broadAxis = SmoothField(axis, mask.Width, mask.Height, 4, topology);
+        var broadFoothills = SmoothField(massifMask, mask.Width, mask.Height, 8, topology);
 
         for (var y = 0; y < mask.Height; y++)
         {

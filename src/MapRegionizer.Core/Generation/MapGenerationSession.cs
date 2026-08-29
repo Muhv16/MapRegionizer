@@ -1,6 +1,7 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
+using MapRegionizer.Core.Spatial;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation;
@@ -33,6 +34,8 @@ public sealed class MapGenerationSession
     public GeneratedMap CurrentMap => _context.ToGeneratedMap();
     public MapMask Mask => _context.Mask;
     public MapGenerationOptions Options => _context.Options;
+    public MapSpatialContext SpatialContext => _context.SpatialContext;
+    public MapSpatialReference SpatialReference => _context.SpatialReference;
     public IReadOnlyList<Landmass> Landmasses => _context.Landmasses;
     public IReadOnlyList<WaterBody> WaterBodies => _context.WaterBodies;
     public WaterBodyTopology? WaterBodyTopology => _context.WaterBodyTopology;
@@ -69,8 +72,17 @@ public sealed class MapGenerationSession
 
     public void UpdateOptions(MapGenerationOptions options, IEnumerable<MapDataKey> dirtyRoots)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(dirtyRoots);
+
+        options.Validate();
+        var spatialChanged = !Equals(_context.Options.EffectiveSpatial, options.EffectiveSpatial);
         _context.UpdateOptions(options);
-        _pipeline.MarkDirty(_context, dirtyRoots);
+        var roots = dirtyRoots.ToHashSet();
+        if (spatialChanged)
+            roots.Add(MapDataKeys.SpatialContext);
+
+        _pipeline.MarkDirty(_context, roots);
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
+using MapRegionizer.Core.Spatial;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation;
@@ -10,7 +11,7 @@ public sealed class MapGenerationContext
     private int _nextRegionId = 1;
     private int _randomSeed;
     private Random _random;
-    private readonly HashSet<MapDataKey> _availableData = [MapDataKeys.Mask];
+    private readonly HashSet<MapDataKey> _availableData = [MapDataKeys.Mask, MapDataKeys.SpatialContext];
     private readonly HashSet<MapDataKey> _dirtyData = [];
 
     public MapGenerationContext(MapMask mask, MapGenerationOptions options, GeometryFactory geometryFactory, int randomSeed)
@@ -20,7 +21,8 @@ public sealed class MapGenerationContext
         GeometryFactory = geometryFactory;
         _randomSeed = randomSeed;
         _random = new Random(randomSeed);
-        Bounds = new MapBounds(mask.Width * options.PixelSize, mask.Height * options.PixelSize, options.PixelSize);
+        SpatialContext = MapSpatialContext.Create(mask.Width, mask.Height, options.EffectiveSpatial);
+        Bounds = new MapBounds(SpatialContext.SpatialReference.WidthInMapUnits, SpatialContext.SpatialReference.HeightInMapUnits, SpatialContext.SpatialReference.UnitsPerCell);
     }
 
     public MapMask Mask { get; }
@@ -32,6 +34,9 @@ public sealed class MapGenerationContext
     /// </summary>
     public Random Random => _random;
     public MapBounds Bounds { get; private set; }
+    /// <summary>Immutable spatial services shared by all generation stages.</summary>
+    public MapSpatialContext SpatialContext { get; private set; }
+    public MapSpatialReference SpatialReference => SpatialContext.SpatialReference;
     public List<Landmass> Landmasses { get; } = [];
     public List<WaterBody> WaterBodies { get; } = [];
     public WaterBodyTopology? WaterBodyTopology { get; set; }
@@ -72,7 +77,7 @@ public sealed class MapGenerationContext
 
     public void SetExternalRegionDraft(RegionDraft? draft) => ExternalRegionDraft = draft;
 
-    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology, Climate, RegionRaster);
+    public GeneratedMap ToGeneratedMap() => new(Bounds, Landmasses, WaterBodies, Regions, TectonicPlates, Elevation, WaterBodyTopology, WaterSurfaces, Hydrology, Climate, RegionRaster, SpatialReference);
 
     public bool Has(MapDataKey key) => _availableData.Contains(key) && !_dirtyData.Contains(key);
 
@@ -88,6 +93,13 @@ public sealed class MapGenerationContext
 
     public void MarkDirty(MapDataKey key)
     {
+        // SpatialContext is an initial input, not a generated artifact.  A
+        // spatial options update replaces the immutable context in-place and
+        // dirties its consumers, but the input itself must remain available
+        // because there is no producer stage for it.
+        if (key == MapDataKeys.SpatialContext)
+            return;
+
         if (_availableData.Contains(key))
             _dirtyData.Add(key);
     }
@@ -104,7 +116,8 @@ public sealed class MapGenerationContext
         }
 
         Options = options;
-        Bounds = new MapBounds(Mask.Width * options.PixelSize, Mask.Height * options.PixelSize, options.PixelSize);
+        SpatialContext = MapSpatialContext.Create(Mask.Width, Mask.Height, options.EffectiveSpatial);
+        Bounds = new MapBounds(SpatialContext.SpatialReference.WidthInMapUnits, SpatialContext.SpatialReference.HeightInMapUnits, SpatialContext.SpatialReference.UnitsPerCell);
     }
 
     private static int CombineSeed(int seed, string stageId)

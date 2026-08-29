@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Terrain;
 
@@ -14,8 +15,10 @@ internal sealed class LakeLevelGenerator
         TectonicFeatureMap features,
         WaterBodyTopology waterBodyTopology,
         GeneratedLakeMap generatedLakes,
-        ElevationGenerationOptions options)
+        ElevationGenerationOptions options,
+        IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var length = mask.Width * mask.Height;
         var elevation = baseTerrain.ElevationMetersSpan.ToArray();
         var baseElevation = baseTerrain.BaseElevationMetersSpan.ToArray();
@@ -29,9 +32,9 @@ internal sealed class LakeLevelGenerator
         var basinInfluence = baseTerrain.BasinInfluenceSpan.ToArray();
         var waterSurface = Enumerable.Repeat(double.NaN, length).ToArray();
 
-        var distanceToLand = ElevationGridMath.ComputeDistance(mask, sourceIsLand: true);
-        var distanceToWater = ElevationGridMath.ComputeDistance(mask, sourceIsLand: false);
-        var landEnclosure = ElevationGridMath.BuildLandEnclosureField(mask);
+        var distanceToLand = ElevationGridMath.ComputeDistance(mask, sourceIsLand: true, topology);
+        var distanceToWater = ElevationGridMath.ComputeDistance(mask, sourceIsLand: false, topology);
+        var landEnclosure = ElevationGridMath.BuildLandEnclosureField(mask, topology);
         var minDimension = Math.Max(1, Math.Min(mask.Width, mask.Height));
         var shelfWidth = Math.Max(2.0, minDimension * 0.035 * options.ShelfWidthFactor);
         var ridgeMask = new double[length];
@@ -40,15 +43,15 @@ internal sealed class LakeLevelGenerator
         var subductionMask = new double[length];
         var passiveMask = new double[length];
 
-        TectonicFieldBuilder.StampBoundaryMasks(mask, boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask);
-        ridgeMask = ElevationSignalMath.ShapeSignal(ElevationSignalMath.SmoothField(ridgeMask, mask.Width, mask.Height, 11), 0.16, 1.65);
-        subductionMask = ElevationSignalMath.DiffuseTectonicLineSignal(subductionMask, mask.Width, mask.Height, 8, 11, 0.08, 1.18, 0.24);
+        TectonicFieldBuilder.StampBoundaryMasks(mask, boundaries, ridgeMask, collisionMask, massifMask, subductionMask, passiveMask, topology);
+        ridgeMask = ElevationSignalMath.ShapeSignal(ElevationSignalMath.SmoothField(ridgeMask, mask.Width, mask.Height, 11, topology), 0.16, 1.65);
+        subductionMask = ElevationSignalMath.DiffuseTectonicLineSignal(subductionMask, mask.Width, mask.Height, 8, 11, 0.08, 1.18, 0.24, topology);
 
-        var volcanism = ElevationSignalMath.BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15);
-        var heatFlow = ElevationSignalMath.BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4);
-        var sedimentSupply = ElevationSignalMath.BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35);
-        var riftProvince = ElevationSignalMath.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetRiftInfluence, 5, 0.035, 0.92);
-        var riftGraben = ElevationSignalMath.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetGrabenMask, 2, 0.05, 1.04);
+        var volcanism = ElevationSignalMath.BuildTerrainSignal(features, features.GetVolcanism, 4, 0.13, 1.15, topology);
+        var heatFlow = ElevationSignalMath.BuildTerrainSignal(features, features.GetHeatFlow, 8, 0.22, 1.4, topology);
+        var sedimentSupply = ElevationSignalMath.BuildTerrainSignal(features, features.GetSedimentSupply, 7, 0.24, 1.35, topology);
+        var riftProvince = ElevationSignalMath.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetRiftInfluence, 5, 0.035, 0.92, topology);
+        var riftGraben = ElevationSignalMath.BuildRiftProvinceSignal(riftProvinces, riftProvinces.GetGrabenMask, 2, 0.05, 1.04, topology);
 
         var waterSurfaces = ApplyWaterSurfaceLevels(
             mask,
@@ -64,7 +67,8 @@ internal sealed class LakeLevelGenerator
             ridgeContinuity,
             foothillInfluence,
             roughness,
-            options);
+            options,
+            topology);
 
         Array.Clear(terrainClasses);
         TerrainClassifier.ClassifyTerrain(
@@ -119,9 +123,10 @@ internal sealed class LakeLevelGenerator
         double[] ridgeContinuity,
         double[] foothillInfluence,
         double[] roughness,
-        ElevationGenerationOptions options)
+        ElevationGenerationOptions options,
+        IGridTopology topology)
     {
-        var faultContext = BuildLakeFaultContext(boundaries, mask.Width, mask.Height);
+        var faultContext = BuildLakeFaultContext(boundaries, mask.Width, mask.Height, topology);
         var bodyCells = new Dictionary<int, List<GridPoint>>();
         var generatedBodies = generatedLakes.Bodies.ToDictionary(b => b.Id.Value);
         bool IsHydrologyWater(GridPoint point) => !mask.IsLand(point) || generatedLakes.Contains(point);
@@ -162,7 +167,7 @@ internal sealed class LakeLevelGenerator
             var generatedBody = generatedBodies.GetValueOrDefault(idValue);
             var classification = waterBodyTopology.GetClassification(id);
             var kind = generatedBody is not null ? WaterBodyKind.InlandLake : classification?.Kind ?? WaterBodyKind.Ocean;
-            var shoreline = FindShoreline(mask, cells, IsHydrologyWater);
+            var shoreline = FindShoreline(mask, cells, IsHydrologyWater, topology);
             var metrics = ComputeLakeMetrics(
                 id,
                 kind,
@@ -178,7 +183,8 @@ internal sealed class LakeLevelGenerator
                 roughness,
                 faultContext,
                 mask.Width,
-                options);
+                options,
+                topology);
             var margin = ComputeLakeSurfaceMargin(cells.Count, mask.Width * mask.Height, options);
             var spillElevation = shoreline.Count > 0
                 ? Percentile(shoreline.Select(p => elevation[p.Y * mask.Width + p.X]).ToList(), options.LakeSurfacePercentile)
@@ -205,7 +211,7 @@ internal sealed class LakeLevelGenerator
                 if (options.PreserveInlandWaterMask || !options.AllowLakeExpansion)
                     LiftShorelineRim(mask, shoreline, elevation, surface + margin, IsHydrologyWater);
 
-                ShapeLakeBed(mask, cells, elevation, surface, maxDepth, metrics, options);
+                ShapeLakeBed(mask, cells, elevation, surface, maxDepth, metrics, options, topology);
             }
 
             surfaces.Add(new WaterBodySurface(
@@ -230,7 +236,7 @@ internal sealed class LakeLevelGenerator
         return new WaterSurfaceMap(mask.Width, mask.Height, waterSurface, surfaces);
     }
 
-    private static LakeFaultContext BuildLakeFaultContext(TectonicBoundaryMap boundaries, int width, int height)
+    private static LakeFaultContext BuildLakeFaultContext(TectonicBoundaryMap boundaries, int width, int height, IGridTopology topology)
     {
         var influence = new double[width * height];
         var axisX = new double[width * height];
@@ -242,7 +248,7 @@ internal sealed class LakeLevelGenerator
             if (segment.Points.Count == 0)
                 continue;
 
-            var direction = ComputeSegmentDirection(segment.Points, width);
+            var direction = ComputeSegmentDirection(segment.Points, topology);
             var modeWeight = segment.BoundaryMode switch
             {
                 BoundaryMode.ContinentalRift or BoundaryMode.Transtension => 1.0,
@@ -255,9 +261,9 @@ internal sealed class LakeLevelGenerator
 
             foreach (var point in segment.Points)
             {
-                foreach (var stamped in PointsInRadius(width, height, point, radius))
+                foreach (var stamped in PointsInRadius(width, height, point, radius, topology))
                 {
-                    var distance = Distance(point, stamped, width);
+                    var distance = GridDistance(point, stamped, topology);
                     var falloff = Math.Clamp(1.0 - distance / Math.Max(1.0, radius + 0.5), 0, 1);
                     var value = strength * SmoothStep(falloff);
                     var index = stamped.Y * width + stamped.X;
@@ -274,14 +280,14 @@ internal sealed class LakeLevelGenerator
         return new LakeFaultContext(influence, axisX, axisY);
     }
 
-    private static GridVector ComputeSegmentDirection(IReadOnlyList<GridPoint> points, int width)
+    private static GridVector ComputeSegmentDirection(IReadOnlyList<GridPoint> points, IGridTopology topology)
     {
         if (points.Count < 2)
             return new GridVector(1, 0);
 
         var first = points[0];
         var last = points[^1];
-        var dx = WrappedDeltaX(last.X - first.X, width);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, last.X - first.X);
         var dy = last.Y - first.Y;
         var length = Math.Sqrt(dx * dx + dy * dy);
         return length <= 0.0001 ? new GridVector(1, 0) : new GridVector(dx / length, dy / length);
@@ -302,7 +308,8 @@ internal sealed class LakeLevelGenerator
         double[] roughness,
         LakeFaultContext faultContext,
         int width,
-        ElevationGenerationOptions options)
+        ElevationGenerationOptions options,
+        IGridTopology topology)
     {
         var centroid = ComputeCentroid(cells);
         var meanShoreline = shoreline.Count > 0
@@ -322,7 +329,7 @@ internal sealed class LakeLevelGenerator
         var faultInfluence = AverageCellSignal(cells, faultContext.Influence, width);
         var tectonicInfluence = Math.Clamp(faultInfluence * 0.75 + avgRift * 0.45 + avgGraben * 0.65, 0, 1);
         var volcanicInfluence = Math.Clamp(avgVolcanism * 0.68 + avgHeatFlow * 0.32, 0, 1);
-        var shape = ComputeLakeShape(cells, centroid, width);
+        var shape = ComputeLakeShape(cells, centroid, topology);
 
         var mountainSignal = Math.Clamp(avgRidge * 0.64 + avgFoothill * 0.44 + avgRoughness * 0.36, 0, 1);
         var location = ClassifyLakeLocation(meanShoreline, relief, mountainSignal, volcanicInfluence, options);
@@ -411,7 +418,7 @@ internal sealed class LakeLevelGenerator
         return LakeOriginKind.Erosional;
     }
 
-    private static LakeShapeMetrics ComputeLakeShape(IReadOnlyList<GridPoint> cells, GridPoint centroid, int width)
+    private static LakeShapeMetrics ComputeLakeShape(IReadOnlyList<GridPoint> cells, GridPoint centroid, IGridTopology topology)
     {
         if (cells.Count <= 1)
             return new LakeShapeMetrics(0, 0, 1, new GridVector(1, 0));
@@ -421,7 +428,7 @@ internal sealed class LakeLevelGenerator
         var xy = 0.0;
         foreach (var cell in cells)
         {
-            var dx = WrappedDeltaX(cell.X - centroid.X, width);
+            var dx = GridTopologyMath.WrappedDeltaX(topology, cell.X - centroid.X);
             var dy = cell.Y - centroid.Y;
             xx += dx * dx;
             yy += dy * dy;
@@ -486,12 +493,13 @@ internal sealed class LakeLevelGenerator
     private static List<GridPoint> FindShoreline(
         MapMask mask,
         IReadOnlyList<GridPoint> waterCells,
-        Func<GridPoint, bool> isHydrologyWater)
+        Func<GridPoint, bool> isHydrologyWater,
+        IGridTopology topology)
     {
         var shoreline = new HashSet<GridPoint>();
         foreach (var cell in waterCells)
         {
-            foreach (var neighbor in Neighbors4(cell, mask.Width, mask.Height))
+            foreach (var neighbor in topology.GetNeighbors4(cell))
             {
                 if (!isHydrologyWater(neighbor))
                     shoreline.Add(neighbor);
@@ -525,7 +533,8 @@ internal sealed class LakeLevelGenerator
         double surface,
         double maxDepth,
         LakeMetrics metrics,
-        ElevationGenerationOptions options)
+        ElevationGenerationOptions options,
+        IGridTopology topology)
     {
         if (waterCells.Count == 0)
             return;
@@ -535,7 +544,7 @@ internal sealed class LakeLevelGenerator
         var queue = new Queue<GridPoint>();
         foreach (var cell in waterCells)
         {
-            if (Neighbors4(cell, mask.Width, mask.Height).Any(n => !waterSet.Contains(n)))
+            if (topology.GetNeighbors4(cell).Any(n => !waterSet.Contains(n)))
             {
                 distances[cell] = 0;
                 queue.Enqueue(cell);
@@ -546,7 +555,7 @@ internal sealed class LakeLevelGenerator
         {
             foreach (var cell in waterCells)
             {
-                distances[cell] = Distance(cell, metrics.Centroid, mask.Width);
+                distances[cell] = GridDistance(cell, metrics.Centroid, topology);
                 queue.Enqueue(cell);
             }
         }
@@ -555,7 +564,7 @@ internal sealed class LakeLevelGenerator
         {
             var current = queue.Dequeue();
             var currentDistance = distances[current];
-            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+            foreach (var neighbor in topology.GetNeighbors4(current))
             {
                 if (!waterSet.Contains(neighbor))
                     continue;
@@ -575,8 +584,8 @@ internal sealed class LakeLevelGenerator
         {
             var index = cell.Y * mask.Width + cell.X;
             var normalized = Math.Clamp(distances[cell] / maxDistance, 0, 1);
-            var profile = ComputeLakeDepthProfile(cell, normalized, maxDistance, metrics, mask.Width);
-            profile = Math.Clamp(profile + ComputeLakeDepressionBoost(cell, basins, mask.Width), 0, 1);
+            var profile = ComputeLakeDepthProfile(cell, normalized, maxDistance, metrics, topology);
+            profile = Math.Clamp(profile + ComputeLakeDepressionBoost(cell, basins, topology), 0, 1);
             var noiseScale = metrics.Profile switch
             {
                 LakeProfileKind.VolcanicCone => 0.035,
@@ -590,7 +599,7 @@ internal sealed class LakeLevelGenerator
         }
     }
 
-    private static double ComputeLakeDepthProfile(GridPoint cell, double normalizedShoreDistance, double maxShoreDistance, LakeMetrics metrics, int width)
+    private static double ComputeLakeDepthProfile(GridPoint cell, double normalizedShoreDistance, double maxShoreDistance, LakeMetrics metrics, IGridTopology topology)
     {
         var n = Math.Clamp(normalizedShoreDistance, 0, 1);
         return metrics.Profile switch
@@ -598,14 +607,14 @@ internal sealed class LakeLevelGenerator
             LakeProfileKind.MountainBowl => 1.0 - Math.Exp(-3.1 * Math.Pow(n, 0.82)),
             LakeProfileKind.PlainGaussian => 1.0 - Math.Exp(-2.35 * n * n),
             LakeProfileKind.VolcanicCone => Math.Pow(n, 0.92),
-            LakeProfileKind.TectonicTrough => ComputeTectonicTroughProfile(cell, n, maxShoreDistance, metrics, width),
+            LakeProfileKind.TectonicTrough => ComputeTectonicTroughProfile(cell, n, maxShoreDistance, metrics, topology),
             _ => SmoothStep(n)
         };
     }
 
-    private static double ComputeTectonicTroughProfile(GridPoint cell, double normalizedShoreDistance, double maxShoreDistance, LakeMetrics metrics, int width)
+    private static double ComputeTectonicTroughProfile(GridPoint cell, double normalizedShoreDistance, double maxShoreDistance, LakeMetrics metrics, IGridTopology topology)
     {
-        var dx = WrappedDeltaX(cell.X - metrics.Centroid.X, width);
+        var dx = GridTopologyMath.WrappedDeltaX(topology, cell.X - metrics.Centroid.X);
         var dy = cell.Y - metrics.Centroid.Y;
         var axisX = metrics.Axis.X;
         var axisY = metrics.Axis.Y;
@@ -637,12 +646,12 @@ internal sealed class LakeLevelGenerator
         return basins;
     }
 
-    private static double ComputeLakeDepressionBoost(GridPoint cell, IReadOnlyList<LakeDepressionBasin> basins, int width)
+    private static double ComputeLakeDepressionBoost(GridPoint cell, IReadOnlyList<LakeDepressionBasin> basins, IGridTopology topology)
     {
         var boost = 0.0;
         foreach (var basin in basins)
         {
-            var distance = Distance(cell, basin.Center, width);
+            var distance = GridDistance(cell, basin.Center, topology);
             var influence = Math.Clamp(1.0 - distance / basin.Radius, 0, 1);
             boost += influence * influence * basin.Strength;
         }
@@ -753,49 +762,27 @@ internal sealed class LakeLevelGenerator
 
     private static double HashUnit(int x, int y, int seed) => Math.Clamp((Hash01(x, y, seed) + 1.0) * 0.5, 0, 1);
 
-    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius, IGridTopology topology)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
-            var y = center.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
             for (var dx = -radius; dx <= radius; dx++)
             {
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (topology.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }
 
-    private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height)
+    private static double GridDistance(GridPoint a, GridPoint b, IGridTopology topology)
     {
-        yield return new GridPoint(WrapX(point.X - 1, width), point.Y);
-        yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
-        if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-        if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-    }
-
-    private static double Distance(GridPoint a, GridPoint b, int width)
-    {
-        var dx = Math.Abs(a.X - b.X);
-        dx = Math.Min(dx, Math.Max(0, width - dx));
+        var dx = GridTopologyMath.WrappedDeltaX(topology, a.X - b.X);
         var dy = a.Y - b.Y;
         return Math.Sqrt(dx * dx + dy * dy);
     }
-
-    private static double WrappedDeltaX(int dx, int width)
-    {
-        if (Math.Abs(dx) <= width / 2.0)
-            return dx;
-
-        return dx > 0 ? dx - width : dx + width;
-    }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
 
     private sealed record LakeFaultContext(double[] Influence, double[] AxisX, double[] AxisY);
 

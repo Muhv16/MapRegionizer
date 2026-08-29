@@ -5,7 +5,7 @@ namespace MapRegionizer.Core.Generation.Stages;
 public sealed class ExtractWaterBodiesStage : IMapGenerationStage
 {
     public string Id => MapStageIds.ExtractWaterBodies;
-    public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey> { MapDataKeys.Landmasses };
+    public IReadOnlySet<MapDataKey> Requires { get; } = new HashSet<MapDataKey> { MapDataKeys.Landmasses, MapDataKeys.SpatialContext };
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.WaterBodies };
 
     public void Execute(MapGenerationContext context)

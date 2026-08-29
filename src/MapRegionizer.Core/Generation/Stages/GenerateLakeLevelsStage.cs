@@ -15,7 +15,8 @@ public sealed class GenerateLakeLevelsStage : IMapGenerationStage
         MapDataKeys.CrustFields,
         MapDataKeys.TectonicBoundaries,
         MapDataKeys.RiftProvinces,
-        MapDataKeys.TectonicFeatures
+        MapDataKeys.TectonicFeatures,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey>
@@ -34,7 +35,7 @@ public sealed class GenerateLakeLevelsStage : IMapGenerationStage
         var riftProvinces = context.RiftProvinces ?? throw new InvalidOperationException("Rift provinces are required.");
         var features = context.TectonicFeatures ?? throw new InvalidOperationException("Tectonic features are required.");
         var generator = new LakeLevelGenerator();
-        var elevation = generator.Generate(context.Mask, baseTerrain, crustFields, boundaries, riftProvinces, features, waterBodyTopology, generatedLakes, context.Options.Elevation);
+        var elevation = generator.Generate(context.Mask, baseTerrain, crustFields, boundaries, riftProvinces, features, waterBodyTopology, generatedLakes, context.Options.Elevation, context.SpatialContext.GridTopology);
         context.Elevation = elevation;
         context.WaterSurfaces = elevation.WaterSurfaces ?? throw new InvalidOperationException("Lake level generation did not produce water surfaces.");
     }

@@ -20,6 +20,16 @@ For every valid map state:
 
 `DistortRegionBoundariesStage` must preserve all these invariants. It changes only shared internal borders; the landmass boundary is never distorted.
 
+## Spatial reference and canonical coordinates
+
+Region polygons are generated, canonicalized, edited, and validated only in
+the canonical `GridMapUnits` space described by `GeneratedMap.SpatialReference`.
+`UnitsPerCell` is the scale from continuous cell coordinates to that space;
+the deprecated `PixelSize` name is only a compatibility alias. Geographic or
+projected coordinates are output concerns and must be requested through an
+adapter such as `GeoJsonMapWriter` with `MapOutputOptions`; they never
+participate in shared-border detection, coverage validation, or distortion.
+
 ## Coordinate precision
 
 Landmass and region topology uses one fixed precision: six decimal places (`1e-6` map units). Reverse-coordinate comparison, directed replacement lookup, adjacency, coverage checks, and validation all use this precision.

@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Terrain;
 
@@ -10,7 +11,8 @@ internal sealed record HydrologyGenerationContext(
     GeneratedLakeMap GeneratedLakes,
     WaterSurfaceMap WaterSurfaces,
     HydrologyGenerationOptions Options,
-    int Seed)
+    int Seed,
+    IGridTopology GridTopology)
 {
     public int Width => Mask.Width;
     public int Height => Mask.Height;

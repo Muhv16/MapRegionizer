@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation.Stages;
@@ -12,7 +13,8 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
     {
         MapDataKeys.Mask,
         MapDataKeys.Landmasses,
-        MapDataKeys.WaterBodies
+        MapDataKeys.WaterBodies,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.WaterBodyTopology };
@@ -23,14 +25,18 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
             context.Mask,
             context.WaterBodies,
             context.Options,
-            context.GeometryFactory);
+            context.GeometryFactory,
+            context.SpatialContext.SpatialReference.LegacyCompatibility is (LegacyCompatibilityProfile.Flat or LegacyCompatibilityProfile.Regional)
+                ? new OpenRectangularTopology(context.Mask.Width, context.Mask.Height)
+                : context.SpatialContext.GridTopology);
     }
 
     private static WaterBodyTopology BuildTopology(
         MapMask mask,
         IReadOnlyList<WaterBody> waterBodies,
         MapGenerationOptions options,
-        GeometryFactory geometryFactory)
+        GeometryFactory geometryFactory,
+        IGridTopology gridTopology)
     {
         var width = mask.Width;
         var height = mask.Height;
@@ -38,17 +44,16 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
         var waterBodyIds = new int[length];
         var waterBodyKinds = new byte[length];
         var classifications = new List<WaterBodyClassification>();
-        var wrapX = options.ProjectionMode == MapProjectionMode.EquirectangularWorld;
-        var components = FindWaterComponents(mask, wrapX);
+        var components = FindWaterComponents(mask, gridTopology);
         var edgeConnectedComponents = components
             .Where(component => TouchesMapEdge(component, width, height))
             .ToList();
-        var oceanDistances = ComputeOceanDistances(mask, edgeConnectedComponents, wrapX);
+        var oceanDistances = ComputeOceanDistances(mask, edgeConnectedComponents, gridTopology);
         var usedIds = new HashSet<int>();
 
         foreach (var component in components)
         {
-            var id = FindWaterBodyId(component, waterBodies, usedIds, options.PixelSize, geometryFactory);
+            var id = FindWaterBodyId(component, waterBodies, usedIds, options.EffectiveSpatial.UnitsPerCell, geometryFactory);
             usedIds.Add(id.Value);
 
             var touchesEdge = TouchesMapEdge(component, width, height);
@@ -90,7 +95,7 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
     private static int[] ComputeOceanDistances(
         MapMask mask,
         IReadOnlyList<IReadOnlyList<GridPoint>> oceanComponents,
-        bool wrapX)
+        IGridTopology gridTopology)
     {
         var distances = Enumerable.Repeat(-1, mask.Width * mask.Height).ToArray();
         var queue = new Queue<GridPoint>();
@@ -113,7 +118,7 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
             var current = queue.Dequeue();
             var currentDistance = distances[current.Y * mask.Width + current.X];
 
-            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height, wrapX))
+            foreach (var neighbor in gridTopology.GetNeighbors4(current))
             {
                 var index = neighbor.Y * mask.Width + neighbor.X;
                 if (distances[index] >= 0)
@@ -139,7 +144,7 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
         return false;
     }
 
-    private static IReadOnlyList<IReadOnlyList<GridPoint>> FindWaterComponents(MapMask mask, bool wrapX)
+    private static IReadOnlyList<IReadOnlyList<GridPoint>> FindWaterComponents(MapMask mask, IGridTopology gridTopology)
     {
         var unvisited = new HashSet<GridPoint>();
         for (var y = 0; y < mask.Height; y++)
@@ -166,7 +171,7 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
                 var current = queue.Dequeue();
                 component.Add(current);
 
-                foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height, wrapX))
+                foreach (var neighbor in gridTopology.GetNeighbors4(current))
                 {
                     if (!unvisited.Remove(neighbor))
                         continue;
@@ -240,22 +245,4 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
         return new GeometryFactory().CreatePoint(new Coordinate(sumX / component.Count * pixelSize, sumY / component.Count * pixelSize));
     }
 
-    private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height, bool wrapX)
-    {
-        if (point.X > 0)
-            yield return new GridPoint(point.X - 1, point.Y);
-        else if (wrapX)
-            yield return new GridPoint(width - 1, point.Y);
-
-        if (point.X < width - 1)
-            yield return new GridPoint(point.X + 1, point.Y);
-        else if (wrapX)
-            yield return new GridPoint(0, point.Y);
-
-        if (point.Y > 0)
-            yield return new GridPoint(point.X, point.Y - 1);
-
-        if (point.Y < height - 1)
-            yield return new GridPoint(point.X, point.Y + 1);
-    }
 }

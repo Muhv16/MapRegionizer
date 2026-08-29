@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -68,10 +69,11 @@ internal sealed class HydrologyMapAssembler
         return lakeIds;
     }
 
-    internal static LandComponentMap BuildLandComponents(MapMask mask, GeneratedLakeMap generatedLakes)
+    internal static LandComponentMap BuildLandComponents(MapMask mask, GeneratedLakeMap generatedLakes, IGridTopology? gridTopology = null)
     {
         var width = mask.Width;
         var height = mask.Height;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var componentIds = new int[width * height];
         var components = new List<LandComponent>();
         var nextId = 1;
@@ -95,7 +97,7 @@ internal sealed class HydrologyMapAssembler
                 {
                     var current = queue.Dequeue();
                     cells.Add(current);
-                    foreach (var neighbor in Neighbors8(current, width, height))
+                    foreach (var neighbor in gridTopology.GetNeighbors8(current))
                     {
                         var index = neighbor.Y * width + neighbor.X;
                         if (componentIds[index] != 0 || !IsRiverSourceLand(mask, generatedLakes, neighbor))
@@ -113,17 +115,18 @@ internal sealed class HydrologyMapAssembler
         return new LandComponentMap(componentIds, components);
     }
 
-    internal static byte[] BuildRiverCellRaster(int width, int height, IReadOnlyList<RiverSegment> rivers)
+    internal static byte[] BuildRiverCellRaster(int width, int height, IReadOnlyList<RiverSegment> rivers, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var riverCells = new byte[width * height];
         foreach (var river in rivers)
         {
             foreach (var cell in river.Cells)
             {
-                if (cell.Y < 0 || cell.Y >= height)
+                if (!gridTopology.TryResolve(new GridPoint(0, cell.Y), cell.X, 0, out var resolved))
                     continue;
 
-                riverCells[cell.Y * width + WrapX(cell.X, width)] = 1;
+                riverCells[resolved.Y * width + resolved.X] = 1;
             }
         }
 

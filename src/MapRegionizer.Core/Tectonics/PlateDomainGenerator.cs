@@ -1,19 +1,23 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
 internal sealed class PlateDomainGenerator
 {
     private readonly Random _random;
+    private IGridTopology? _topology;
 
-    public PlateDomainGenerator(Random random)
+    public PlateDomainGenerator(Random random, IGridTopology? topology = null)
     {
         _random = random;
+        _topology = topology;
     }
 
     public PlateDomainMap Generate(MapMask mask, CrustFieldMap crustFields, TectonicHistory history, TectonicPlateGenerationOptions options)
     {
+        _topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var seeds = CreateSeeds(mask, crustFields, history, options);
         var plateArray = AssignByConstrainedFloodFill(mask, crustFields, history, seeds.Major, options);
         ApplyMicroplates(mask, plateArray, seeds.Micro, options);
@@ -203,7 +207,7 @@ internal sealed class PlateDomainGenerator
         {
             var (current, seed) = queue.Dequeue();
             var currentIndex = current.Y * width + current.X;
-            foreach (var neighbor in Neighbors4(current, width, height))
+            foreach (var neighbor in _topology!.GetNeighbors4(current))
             {
                 var index = neighbor.Y * width + neighbor.X;
                 var crustPenalty = seed.PreferredCrust == crustFields.GetCrust(neighbor) ? 0.0 : 1.6 + options.LandWaterTransitionPenalty * 6.0;
@@ -290,7 +294,7 @@ internal sealed class PlateDomainGenerator
             selectedSet.Add(current);
             selected.Add(current);
 
-            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+            foreach (var neighbor in _topology!.GetNeighbors4(current))
             {
                 if (queued.Contains(neighbor))
                     continue;
@@ -340,7 +344,7 @@ internal sealed class PlateDomainGenerator
             selectedSet.Add(current);
             selected.Add(current);
 
-            foreach (var neighbor in Neighbors4(current, mask.Width, mask.Height))
+            foreach (var neighbor in _topology!.GetNeighbors4(current))
             {
                 if (queued.Contains(neighbor))
                     continue;
@@ -374,12 +378,12 @@ internal sealed class PlateDomainGenerator
         return currentPlate == sourcePlate ? -0.12 : 0.22;
     }
 
-    private static IEnumerable<GridPoint> CloseSmallGaps(MapMask mask, HashSet<GridPoint> selected, DomainSeed seed, int maxRadius)
+    private IEnumerable<GridPoint> CloseSmallGaps(MapMask mask, HashSet<GridPoint> selected, DomainSeed seed, int maxRadius)
     {
         var result = selected.ToHashSet();
         foreach (var point in selected.ToArray())
         {
-            foreach (var neighbor in Neighbors8(point, mask.Width, mask.Height))
+            foreach (var neighbor in _topology!.GetNeighbors8(point))
             {
                 if (result.Contains(neighbor))
                     continue;
@@ -387,7 +391,7 @@ internal sealed class PlateDomainGenerator
                 if (WrappedDistanceSquared(seed.Point, neighbor, mask.Width) > maxRadius * maxRadius)
                     continue;
 
-                var selectedNeighbors = Neighbors8(neighbor, mask.Width, mask.Height).Count(result.Contains);
+                var selectedNeighbors = _topology!.GetNeighbors8(neighbor).Count(result.Contains);
                 if (selectedNeighbors >= 5)
                     result.Add(neighbor);
             }
@@ -396,9 +400,9 @@ internal sealed class PlateDomainGenerator
         return result;
     }
 
-    private static double MicroplateScore(MapMask mask, GridPoint point, DomainSeed seed, GridVector axis, GridVector normal, double majorAxis, double minorAxis)
+    private double MicroplateScore(MapMask mask, GridPoint point, DomainSeed seed, GridVector axis, GridVector normal, double majorAxis, double minorAxis)
     {
-        var dx = WrappedDeltaX(point.X - seed.Point.X, mask.Width);
+        var dx = GridTopologyMath.WrappedDeltaX(_topology!, point.X - seed.Point.X);
         var dy = point.Y - seed.Point.Y;
         var along = Math.Abs(dx * axis.X + dy * axis.Y) / Math.Max(1.0, majorAxis);
         var across = Math.Abs(dx * normal.X + dy * normal.Y) / Math.Max(1.0, minorAxis);
@@ -408,7 +412,7 @@ internal sealed class PlateDomainGenerator
         return along * along + across * across + warp + asymmetry;
     }
 
-    private static double[] BuildBoundaryInfluence(MapMask mask, TectonicHistory history)
+    private double[] BuildBoundaryInfluence(MapMask mask, TectonicHistory history)
     {
         var barrier = new double[mask.Width * mask.Height];
         foreach (var point in history.Lineaments
@@ -427,7 +431,7 @@ internal sealed class PlateDomainGenerator
         return barrier;
     }
 
-    private static void ValidateAndFixPlateDomains(MapMask mask, short[] plateArray, IReadOnlyList<DomainSeed> seeds, TectonicPlateGenerationOptions options)
+    private void ValidateAndFixPlateDomains(MapMask mask, short[] plateArray, IReadOnlyList<DomainSeed> seeds, TectonicPlateGenerationOptions options)
     {
         var microplateIds = seeds.Where(s => s.IsMicroplate).Select(s => (short)s.Id.Value).ToHashSet();
         var microplateSeeds = seeds.Where(s => s.IsMicroplate).ToDictionary(s => (short)s.Id.Value);
@@ -480,7 +484,7 @@ internal sealed class PlateDomainGenerator
         }
     }
 
-    private static void ValidateMicroplateTopology(MapMask mask, short[] plateArray, IReadOnlyDictionary<short, DomainSeed> microplateSeeds, TectonicPlateGenerationOptions options)
+    private void ValidateMicroplateTopology(MapMask mask, short[] plateArray, IReadOnlyDictionary<short, DomainSeed> microplateSeeds, TectonicPlateGenerationOptions options)
     {
         if (microplateSeeds.Count == 0)
             return;
@@ -530,7 +534,7 @@ internal sealed class PlateDomainGenerator
         }
     }
 
-    private static PlateMetrics MeasurePlate(MapMask mask, short[] plateArray, short plateId)
+    private PlateMetrics MeasurePlate(MapMask mask, short[] plateArray, short plateId)
     {
         var area = 0;
         var perimeter = 0;
@@ -553,7 +557,7 @@ internal sealed class PlateDomainGenerator
                 maxX = Math.Max(maxX, x);
                 minY = Math.Min(minY, y);
                 maxY = Math.Max(maxY, y);
-                foreach (var neighbor in Neighbors4(new GridPoint(x, y), mask.Width, mask.Height))
+                foreach (var neighbor in _topology!.GetNeighbors4(new GridPoint(x, y)))
                 {
                     var neighborPlate = plateArray[neighbor.Y * mask.Width + neighbor.X];
                     if (neighborPlate == plateId)
@@ -575,7 +579,7 @@ internal sealed class PlateDomainGenerator
         return new PlateMetrics(area, perimeter, aspectRatio, compactness, neighborCounts);
     }
 
-    private static bool MergePlateIntoBestNeighbor(MapMask mask, short[] plateArray, short plateId)
+    private bool MergePlateIntoBestNeighbor(MapMask mask, short[] plateArray, short plateId)
     {
         var pixels = new List<int>();
         for (var index = 0; index < plateArray.Length; index++)
@@ -587,7 +591,7 @@ internal sealed class PlateDomainGenerator
         return pixels.Count > 0 && ReassignPixels(mask, plateArray, pixels, plateId);
     }
 
-    private static List<List<int>> FindFragments(MapMask mask, short[] plateArray, short plateId)
+    private List<List<int>> FindFragments(MapMask mask, short[] plateArray, short plateId)
     {
         var visited = new bool[plateArray.Length];
         var fragments = new List<List<int>>();
@@ -606,7 +610,7 @@ internal sealed class PlateDomainGenerator
                 var current = queue.Dequeue();
                 fragment.Add(current);
                 var point = new GridPoint(current % mask.Width, current / mask.Width);
-                foreach (var neighbor in Neighbors4(point, mask.Width, mask.Height))
+                foreach (var neighbor in _topology!.GetNeighbors4(point))
                 {
                     var neighborIndex = neighbor.Y * mask.Width + neighbor.X;
                     if (visited[neighborIndex] || plateArray[neighborIndex] != plateId)
@@ -623,13 +627,13 @@ internal sealed class PlateDomainGenerator
         return fragments;
     }
 
-    private static bool ReassignPixels(MapMask mask, short[] plateArray, IReadOnlyList<int> pixels, short excludedPlateId)
+    private bool ReassignPixels(MapMask mask, short[] plateArray, IReadOnlyList<int> pixels, short excludedPlateId)
     {
         var counts = new Dictionary<short, int>();
         foreach (var pixel in pixels)
         {
             var point = new GridPoint(pixel % mask.Width, pixel / mask.Width);
-            foreach (var neighbor in Neighbors8(point, mask.Width, mask.Height))
+            foreach (var neighbor in _topology!.GetNeighbors8(point))
             {
                 var neighborPlate = plateArray[neighbor.Y * mask.Width + neighbor.X];
                 if (neighborPlate == excludedPlateId)
@@ -740,7 +744,7 @@ internal sealed class PlateDomainGenerator
         return Math.Clamp((int)Math.Round(chaoticCount * (1.0 - earthLikeFactor) + earthLikeCount * earthLikeFactor), 6, 24);
     }
 
-    private static void SmoothPlateMap(MapMask mask, short[] plateArray, int passes)
+    private void SmoothPlateMap(MapMask mask, short[] plateArray, int passes)
     {
         var changes = new List<(int Index, short Plate)>();
         for (var pass = 0; pass < passes; pass++)
@@ -751,7 +755,7 @@ internal sealed class PlateDomainGenerator
                 for (var x = 0; x < mask.Width; x++)
                 {
                     var counts = new Dictionary<short, int>();
-                    foreach (var neighbor in Neighbors8(new GridPoint(x, y), mask.Width, mask.Height))
+                    foreach (var neighbor in _topology!.GetNeighbors8(new GridPoint(x, y)))
                     {
                         var neighborPlate = plateArray[neighbor.Y * mask.Width + neighbor.X];
                         counts[neighborPlate] = counts.GetValueOrDefault(neighborPlate) + 1;
@@ -774,11 +778,11 @@ internal sealed class PlateDomainGenerator
     }
 
     private static bool IsContinentalLike(CrustKind crust) => crust is CrustKind.Continental or CrustKind.Shelf or CrustKind.Rift or CrustKind.Terrane;
-    private static GridVector EstimateLineamentAxis(IReadOnlyList<GridPoint> points, int index, int width)
+    private GridVector EstimateLineamentAxis(IReadOnlyList<GridPoint> points, int index, int width)
     {
         var left = points[Math.Max(0, index - 3)];
         var right = points[Math.Min(points.Count - 1, index + 3)];
-        var dx = WrappedDeltaX(right.X - left.X, width);
+        var dx = GridTopologyMath.WrappedDeltaX(_topology!, right.X - left.X);
         var dy = right.Y - left.Y;
         return Normalize(new GridVector(dx, dy));
     }
@@ -789,18 +793,9 @@ internal sealed class PlateDomainGenerator
         return length <= 0.000001 ? new GridVector(1, 0) : new GridVector(vector.X / length, vector.Y / length);
     }
 
-    private static int WrappedDeltaX(int dx, int width)
+    private double WrappedDistanceSquared(GridPoint a, GridPoint b, int width)
     {
-        if (Math.Abs(dx) <= width / 2)
-            return dx;
-
-        return dx > 0 ? dx - width : dx + width;
-    }
-
-    private static double WrappedDistanceSquared(GridPoint a, GridPoint b, int width)
-    {
-        var dx = Math.Abs(a.X - b.X);
-        dx = Math.Min(dx, width - dx);
+        var dx = Math.Abs(GridTopologyMath.WrappedDeltaX(_topology!, a.X - b.X));
         var dy = a.Y - b.Y;
         return dx * dx + dy * dy;
     }
@@ -812,32 +807,7 @@ internal sealed class PlateDomainGenerator
         return 1.0 - ((value * (value * value * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0;
     }
 
-    private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height)
-    {
-        yield return new GridPoint(WrapX(point.X - 1, width), point.Y);
-        yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
-        if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-        if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-    }
-
-    private static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
-    {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-                yield return new GridPoint(WrapX(point.X + dx, width), y);
-            }
-        }
-    }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
-    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    private IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
@@ -850,7 +820,8 @@ internal sealed class PlateDomainGenerator
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (_topology!.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }

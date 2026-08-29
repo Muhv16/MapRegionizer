@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.ElevationGridMath;
 using static MapRegionizer.Core.Terrain.ElevationNoise;
 using static MapRegionizer.Core.Terrain.ElevationSignalMath;
@@ -8,8 +9,9 @@ namespace MapRegionizer.Core.Terrain;
 
 internal static class ElevationGridMath
 {
-    internal static double[] ComputeDistance(MapMask mask, bool sourceIsLand)
+    internal static double[] ComputeDistance(MapMask mask, bool sourceIsLand, IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var width = mask.Width;
         var height = mask.Height;
         var length = width * height;
@@ -48,42 +50,26 @@ internal static class ElevationGridMath
             if (queuedDistance > distances[currentIndex])
                 continue;
 
-            for (var dy = -1; dy <= 1; dy++)
+            foreach (var neighbor in topology.GetNeighbors8(current))
             {
-                var ny = current.Y + dy;
-                if (ny < 0 || ny >= height)
+                var dx = GridTopologyMath.WrappedDeltaX(topology, neighbor.X - current.X);
+                var dy = neighbor.Y - current.Y;
+                var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+                var nextDistance = queuedDistance + cost;
+                var neighborIndex = neighbor.Y * width + neighbor.X;
+
+                if (nextDistance >= distances[neighborIndex])
                     continue;
 
-                var nrow = ny * width;
-
-                for (var dx = -1; dx <= 1; dx++)
-                {
-                    if (dx == 0 && dy == 0)
-                        continue;
-
-                    var nx = current.X + dx;
-                    if (nx < 0)
-                        nx = width - 1;
-                    else if (nx >= width)
-                        nx = 0;
-
-                    var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
-                    var nextDistance = queuedDistance + cost;
-                    var neighborIndex = nrow + nx;
-
-                    if (nextDistance >= distances[neighborIndex])
-                        continue;
-
-                    distances[neighborIndex] = nextDistance;
-                    queue.Enqueue(new GridPoint(nx, ny), nextDistance);
-                }
+                distances[neighborIndex] = nextDistance;
+                queue.Enqueue(neighbor, nextDistance);
             }
         }
 
         return distances;
     }
 
-    internal static double[] BuildLandEnclosureField(MapMask mask)
+    internal static double[] BuildLandEnclosureField(MapMask mask, IGridTopology? topology = null)
     {
         var values = new double[mask.Width * mask.Height];
         for (var y = 0; y < mask.Height; y++)
@@ -92,88 +78,50 @@ internal static class ElevationGridMath
                 values[y * mask.Width + x] = mask.IsLand(new GridPoint(x, y)) ? 1.0 : 0.0;
         }
 
-        return SmoothField(SmoothField(values, mask.Width, mask.Height, 8), mask.Width, mask.Height, 8);
+        return SmoothField(SmoothField(values, mask.Width, mask.Height, 8, topology), mask.Width, mask.Height, 8, topology);
     }
 
-    internal static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    internal static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius, IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(width, height);
         for (var dy = -radius; dy <= radius; dy++)
         {
-            var y = center.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
             for (var dx = -radius; dx <= radius; dx++)
             {
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (topology.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }
 
-    internal static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height)
-    {
-        yield return new GridPoint(WrapX(point.X - 1, width), point.Y);
-        yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
-        if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-        if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-    }
+    // Width/height overloads are legacy adapters. Spatially-aware generation
+    // passes the session topology explicitly.
+    internal static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height, IGridTopology? topology = null) =>
+        (topology ?? new CylindricalXTopology(width, height)).GetNeighbors4(point);
 
-    internal static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
+    internal static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height, IGridTopology? topology = null) =>
+        (topology ?? new CylindricalXTopology(width, height)).GetNeighbors8(point);
+
+    internal static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, int width, int height, IGridTopology? topology = null)
     {
-        for (var dy = -1; dy <= 1; dy++)
+        topology ??= new CylindricalXTopology(width, height);
+        foreach (var neighbor in topology.GetNeighbors8(point))
         {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                yield return new GridPoint(WrapX(point.X + dx, width), y);
-            }
+            var dx = GridTopologyMath.WrappedDeltaX(topology, neighbor.X - point.X);
+            var dy = neighbor.Y - point.Y;
+            var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+            yield return (neighbor, cost);
         }
     }
 
-    internal static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, int width, int height)
+    internal static double Distance(GridPoint a, GridPoint b, int width, IGridTopology? topology = null)
     {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
-                yield return (new GridPoint(WrapX(point.X + dx, width), y), cost);
-            }
-        }
-    }
-
-    internal static double Distance(GridPoint a, GridPoint b, int width)
-    {
-        var dx = Math.Abs(a.X - b.X);
-        dx = Math.Min(dx, Math.Max(0, width - dx));
+        var dx = GridTopologyMath.WrappedDeltaX(topology ?? new CylindricalXTopology(width, Math.Max(a.Y, b.Y) + 1), a.X - b.X);
         var dy = a.Y - b.Y;
         return Math.Sqrt(dx * dx + dy * dy);
     }
-
-    internal static double WrappedDeltaX(int dx, int width)
-    {
-        if (Math.Abs(dx) <= width / 2.0)
-            return dx;
-
-        return dx > 0 ? dx - width : dx + width;
-    }
-
-    internal static int WrapX(int x, int width) => (x % width + width) % width;
 
 }

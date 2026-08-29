@@ -10,14 +10,15 @@ public sealed class GenerateTectonicHistoryStage : IMapGenerationStage
     {
         MapDataKeys.Mask,
         MapDataKeys.Landmasses,
-        MapDataKeys.WaterBodies
+        MapDataKeys.WaterBodies,
+        MapDataKeys.SpatialContext
     };
 
     public IReadOnlySet<MapDataKey> Produces { get; } = new HashSet<MapDataKey> { MapDataKeys.TectonicHistory };
 
     public void Execute(MapGenerationContext context)
     {
-        var generator = new TectonicHistoryGenerator(context.Random);
+        var generator = new TectonicHistoryGenerator(context.Random, context.SpatialContext.GridTopology);
         context.TectonicHistory = generator.Generate(context.Mask, context.Landmasses, context.WaterBodies, context.Options.TectonicPlates);
     }
 }

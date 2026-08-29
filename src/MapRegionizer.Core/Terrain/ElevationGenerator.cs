@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Terrain;
 
@@ -27,9 +28,10 @@ internal sealed class ElevationGenerator
         RiftProvinceMap riftProvinces,
         TectonicFeatureMap features,
         WaterBodyTopology? waterBodyTopology,
-        ElevationGenerationOptions options)
+        ElevationGenerationOptions options,
+        IGridTopology? topology = null)
     {
-        var context = ElevationInput.Prepare(mask, crustFields, plateDomains, boundaries, orogenProvinces, riftProvinces, features, waterBodyTopology, options);
+        var context = ElevationInput.Prepare(mask, crustFields, plateDomains, boundaries, orogenProvinces, riftProvinces, features, waterBodyTopology, options, topology);
 
         var tectonicFields = _tectonicFieldBuilder.Build(context);
         var coastalFields = _coastalFieldBuilder.Build(context);

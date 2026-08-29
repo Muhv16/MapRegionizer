@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
@@ -12,8 +13,13 @@ internal sealed class CrustFieldGenerator
         _random = random;
     }
 
-    public CrustFieldMap Generate(MapMask mask, TectonicHistory history, TectonicPlateGenerationOptions options)
+    public CrustFieldMap Generate(
+        MapMask mask,
+        TectonicHistory history,
+        TectonicPlateGenerationOptions options,
+        IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var length = mask.Width * mask.Height;
         var crust = new byte[length];
         var coastal = new byte[length];
@@ -22,11 +28,11 @@ internal sealed class CrustFieldGenerator
         var lastRifting = Fill(length, double.NaN);
         var lastOrogeny = Fill(length, double.NaN);
         var lastVolcanism = Fill(length, double.NaN);
-        var distanceToLand = ComputeDistance(mask, sourceIsLand: true);
-        var distanceToWater = ComputeDistance(mask, sourceIsLand: false);
-        var ridgeDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Ridge);
-        var trenchDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Trench);
-        var arcDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Arc);
+        var distanceToLand = ComputeDistance(mask, sourceIsLand: true, topology);
+        var distanceToWater = ComputeDistance(mask, sourceIsLand: false, topology);
+        var ridgeDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Ridge, topology);
+        var trenchDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Trench, topology);
+        var arcDistance = DistanceToLineaments(mask, history, TectonicFeatureKind.Arc, topology);
         var shelfWidth = Math.Max(2, (int)Math.Round(Math.Min(mask.Width, mask.Height) * 0.025 * options.ShelfWidthFactor));
         var innerShelfWidth = Math.Max(1, shelfWidth / 2);
         var activeMarginWidth = Math.Max(1, shelfWidth);
@@ -85,7 +91,7 @@ internal sealed class CrustFieldGenerator
             }
         }
 
-        StampLineaments(mask, history, crust, coastal, oceanicAge, continentalAge, lastRifting, lastOrogeny, lastVolcanism, shelfWidth);
+        StampLineaments(mask, history, crust, coastal, oceanicAge, continentalAge, lastRifting, lastOrogeny, lastVolcanism, shelfWidth, topology);
         return new CrustFieldMap(mask.Width, mask.Height, crust, coastal, oceanicAge, continentalAge, lastRifting, lastOrogeny, lastVolcanism);
     }
 
@@ -99,7 +105,8 @@ internal sealed class CrustFieldGenerator
         double[] lastRifting,
         double[] lastOrogeny,
         double[] lastVolcanism,
-        int shelfWidth)
+        int shelfWidth,
+        IGridTopology topology)
     {
         foreach (var lineament in history.Lineaments)
         {
@@ -117,7 +124,7 @@ internal sealed class CrustFieldGenerator
 
             foreach (var point in lineament.Points)
             {
-                foreach (var stamped in PointsInRadius(mask.Width, mask.Height, point, radius))
+                foreach (var stamped in PointsInRadius(point, radius, topology))
                 {
                     var index = stamped.Y * mask.Width + stamped.X;
                     switch (lineament.Kind)
@@ -166,7 +173,7 @@ internal sealed class CrustFieldGenerator
         }
     }
 
-    private static double[] ComputeDistance(MapMask mask, bool sourceIsLand)
+    private static double[] ComputeDistance(MapMask mask, bool sourceIsLand, IGridTopology topology)
     {
         var distance = Enumerable.Repeat(double.PositiveInfinity, mask.Width * mask.Height).ToArray();
         var queue = new PriorityQueue<GridPoint, double>();
@@ -188,7 +195,7 @@ internal sealed class CrustFieldGenerator
         {
             var current = queue.Dequeue();
             var currentDistance = distance[current.Y * mask.Width + current.X];
-            foreach (var (neighbor, cost) in Neighbors8WithCost(current, mask.Width, mask.Height))
+            foreach (var (neighbor, cost) in Neighbors8WithCost(current, topology))
             {
                 var index = neighbor.Y * mask.Width + neighbor.X;
                 var nextDistance = currentDistance + cost;
@@ -203,7 +210,7 @@ internal sealed class CrustFieldGenerator
         return distance;
     }
 
-    private static double[] DistanceToLineaments(MapMask mask, TectonicHistory history, TectonicFeatureKind kind)
+    private static double[] DistanceToLineaments(MapMask mask, TectonicHistory history, TectonicFeatureKind kind, IGridTopology topology)
     {
         var distance = Enumerable.Repeat(double.PositiveInfinity, mask.Width * mask.Height).ToArray();
         var queue = new PriorityQueue<GridPoint, double>();
@@ -221,7 +228,7 @@ internal sealed class CrustFieldGenerator
         {
             var current = queue.Dequeue();
             var currentDistance = distance[current.Y * mask.Width + current.X];
-            foreach (var (neighbor, cost) in Neighbors8WithCost(current, mask.Width, mask.Height))
+            foreach (var (neighbor, cost) in Neighbors8WithCost(current, topology))
             {
                 var index = neighbor.Y * mask.Width + neighbor.X;
                 var nextDistance = currentDistance + cost;
@@ -270,50 +277,29 @@ internal sealed class CrustFieldGenerator
 
     private static double Lerp(double a, double b, double amount) => a + (b - a) * amount;
 
-    private static IEnumerable<GridPoint> PointsInRadius(int width, int height, GridPoint center, int radius)
+    private static IEnumerable<GridPoint> PointsInRadius(GridPoint center, int radius, IGridTopology topology)
     {
         for (var dy = -radius; dy <= radius; dy++)
         {
-            var y = center.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
             for (var dx = -radius; dx <= radius; dx++)
             {
                 if (dx * dx + dy * dy > radius * radius)
                     continue;
 
-                yield return new GridPoint(WrapX(center.X + dx, width), y);
+                if (topology.TryResolve(center, dx, dy, out var point))
+                    yield return point;
             }
         }
     }
 
-    private static IEnumerable<GridPoint> Neighbors4(GridPoint point, int width, int height)
+    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, IGridTopology topology)
     {
-        yield return new GridPoint(WrapX(point.X - 1, width), point.Y);
-        yield return new GridPoint(WrapX(point.X + 1, width), point.Y);
-        if (point.Y > 0) yield return new GridPoint(point.X, point.Y - 1);
-        if (point.Y < height - 1) yield return new GridPoint(point.X, point.Y + 1);
-    }
-
-    private static IEnumerable<(GridPoint Point, double Cost)> Neighbors8WithCost(GridPoint point, int width, int height)
-    {
-        for (var dy = -1; dy <= 1; dy++)
+        foreach (var neighbor in topology.GetNeighbors8(point))
         {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
-                yield return (new GridPoint(WrapX(point.X + dx, width), y), cost);
-            }
+            var dx = GridTopologyMath.WrappedDeltaX(topology, neighbor.X - point.X);
+            var dy = neighbor.Y - point.Y;
+            var cost = dx != 0 && dy != 0 ? 1.4142135623730951 : 1.0;
+            yield return (neighbor, cost);
         }
     }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
 }

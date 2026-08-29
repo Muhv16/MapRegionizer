@@ -20,9 +20,9 @@ internal sealed class WaterShapeExtractor
         var fullMap = _geometryFactory.CreatePolygon(_geometryFactory.CreateLinearRing(new[]
         {
             new Coordinate(0, 0),
-            new Coordinate(width * options.PixelSize, 0),
-            new Coordinate(width * options.PixelSize, height * options.PixelSize),
-            new Coordinate(0, height * options.PixelSize),
+            new Coordinate(width * options.EffectiveSpatial.UnitsPerCell, 0),
+            new Coordinate(width * options.EffectiveSpatial.UnitsPerCell, height * options.EffectiveSpatial.UnitsPerCell),
+            new Coordinate(0, height * options.EffectiveSpatial.UnitsPerCell),
             new Coordinate(0, 0)
         }));
 

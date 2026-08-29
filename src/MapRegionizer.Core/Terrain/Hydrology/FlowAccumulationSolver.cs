@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -53,13 +54,14 @@ internal sealed class FlowAccumulationSolver
         return runoff;
     }
 
-    internal static double[] AccumulateFlow(int[] flowDirections, double[] localRunoff, int width, int height)
+    internal static double[] AccumulateFlow(int[] flowDirections, double[] localRunoff, int width, int height, IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(width, height);
         var length = flowDirections.Length;
         var indegree = new int[length];
         for (var index = 0; index < length; index++)
         {
-            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            var downstream = DownstreamIndex(index, flowDirections[index], topology);
             if (downstream >= 0)
                 indegree[downstream]++;
         }
@@ -75,7 +77,7 @@ internal sealed class FlowAccumulationSolver
         while (queue.Count > 0)
         {
             var index = queue.Dequeue();
-            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            var downstream = DownstreamIndex(index, flowDirections[index], topology);
             if (downstream < 0)
                 continue;
 
@@ -95,8 +97,10 @@ internal sealed class FlowAccumulationSolver
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var depth = new int[flowDirections.Length];
         var remaining = new int[flowDirections.Length];
         var queue = new Queue<int>();
@@ -123,7 +127,7 @@ internal sealed class FlowAccumulationSolver
         while (queue.Count > 0)
         {
             var index = queue.Dequeue();
-            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            var downstream = DownstreamIndex(index, flowDirections[index], gridTopology);
             if (downstream < 0)
                 continue;
 
@@ -151,8 +155,10 @@ internal sealed class FlowAccumulationSolver
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var point = new GridPoint(index % width, index / width);
         if (!IsRenderableRiverLand(point, mask, topology, lakeIds) || !allowedRiverBasins.Contains(basinIds[index]))
             return false;
@@ -160,7 +166,7 @@ internal sealed class FlowAccumulationSolver
             basin.TargetKind is DrainageTargetKind.EndorheicDryBasin)
             return false;
 
-        var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+        var downstream = DownstreamIndex(index, flowDirections[index], gridTopology);
         if (downstream < 0)
             return false;
 
@@ -179,8 +185,10 @@ internal sealed class FlowAccumulationSolver
         int[] lakeIds,
         MapMask mask,
         WaterBodyTopology topology,
-        int width)
+        int width,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, Math.Max(1, mask.Height));
         var path = new List<int>();
         var current = mouthIndex;
         var seen = new HashSet<int>();
@@ -207,12 +215,13 @@ internal sealed class FlowAccumulationSolver
                 previousDirection,
                 straightRunLength,
                 diagonalRunDirection,
-                diagonalRunLength);
+                diagonalRunLength,
+                gridTopology);
 
             if (next < 0)
                 break;
 
-            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength, gridTopology);
             current = next;
         }
 
@@ -235,7 +244,8 @@ internal sealed class FlowAccumulationSolver
         int previousDirection,
         int straightRunLength,
         int diagonalRunDirection,
-        int diagonalRunLength)
+        int diagonalRunLength,
+        IGridTopology? topology = null)
     {
         var list = candidates.ToList();
         if (list.Count == 0)
@@ -253,7 +263,7 @@ internal sealed class FlowAccumulationSolver
         }
 
         return list
-            .OrderByDescending(i => ShapeAwareUpstreamScore(i, currentIndex, upstreamDepths, accumulation, width, preferDepth, previousDirection, straightRunLength, diagonalRunDirection, diagonalRunLength))
+            .OrderByDescending(i => ShapeAwareUpstreamScore(i, currentIndex, upstreamDepths, accumulation, width, preferDepth, previousDirection, straightRunLength, diagonalRunDirection, diagonalRunLength, topology))
             .FirstOrDefault(-1);
     }
 
@@ -267,9 +277,10 @@ internal sealed class FlowAccumulationSolver
         int previousDirection,
         int straightRunLength,
         int diagonalRunDirection,
-        int diagonalRunLength)
+        int diagonalRunLength,
+        IGridTopology? topology = null)
     {
-        var direction = DirectionBetween(upstreamIndex, currentIndex, width);
+        var direction = DirectionBetween(upstreamIndex, currentIndex, width, topology);
         var isDiagonal = direction >= 0 && Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
         var nextStraightRun = direction == previousDirection ? straightRunLength + 1 : 1;
         var nextDiagonalRun = isDiagonal && direction == diagonalRunDirection ? diagonalRunLength + 1 : isDiagonal ? 1 : 0;
@@ -309,9 +320,10 @@ internal sealed class FlowAccumulationSolver
         ref int previousDirection,
         ref int straightRunLength,
         ref int diagonalRunDirection,
-        ref int diagonalRunLength)
+        ref int diagonalRunLength,
+        IGridTopology? topology = null)
     {
-        var direction = DirectionBetween(upstreamIndex, currentIndex, width);
+        var direction = DirectionBetween(upstreamIndex, currentIndex, width, topology);
         var isDiagonal = direction >= 0 && Directions[direction].Dx != 0 && Directions[direction].Dy != 0;
         straightRunLength = direction == previousDirection ? straightRunLength + 1 : 1;
         diagonalRunLength = isDiagonal && direction == diagonalRunDirection ? diagonalRunLength + 1 : isDiagonal ? 1 : 0;
@@ -319,19 +331,19 @@ internal sealed class FlowAccumulationSolver
         previousDirection = direction;
     }
 
-    internal static int DirectionBetween(int from, int to, int width)
+    internal static int DirectionBetween(int from, int to, int width, IGridTopology? topology = null)
     {
         var fromPoint = new GridPoint(from % width, from / width);
         var toPoint = new GridPoint(to % width, to / width);
-        return DirectionIndex(fromPoint, toPoint, width);
+        return DirectionIndex(fromPoint, toPoint, topology ?? new CylindricalXTopology(width, Math.Max(fromPoint.Y, toPoint.Y) + 1));
     }
 
-    internal static List<int>[] BuildUpstreamLists(int[] flowDirections, int width, int height)
+    internal static List<int>[] BuildUpstreamLists(int[] flowDirections, int width, int height, IGridTopology? topology = null)
     {
         var upstream = Enumerable.Range(0, flowDirections.Length).Select(_ => new List<int>()).ToArray();
         for (var index = 0; index < flowDirections.Length; index++)
         {
-            var downstream = DownstreamIndex(index, flowDirections[index], width, height);
+            var downstream = DownstreamIndex(index, flowDirections[index], topology ?? new CylindricalXTopology(width, height));
             if (downstream >= 0 && downstream < flowDirections.Length)
                 upstream[downstream].Add(index);
         }
@@ -349,7 +361,8 @@ internal sealed class FlowAccumulationSolver
         int[] lakeIds,
         double minSourceAccumulation,
         int width,
-        bool preferDepth)
+        bool preferDepth,
+        IGridTopology? topology = null)
     {
         var path = new List<int>();
         var current = mouthIndex;
@@ -377,11 +390,12 @@ internal sealed class FlowAccumulationSolver
                 previousDirection,
                 straightRunLength,
                 diagonalRunDirection,
-                diagonalRunLength);
+                diagonalRunLength,
+                topology);
             if (next < 0)
                 break;
 
-            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength, topology);
             current = next;
         }
 

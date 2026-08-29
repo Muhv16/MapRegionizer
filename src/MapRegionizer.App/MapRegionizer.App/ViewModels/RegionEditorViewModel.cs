@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Media.Imaging;
@@ -71,7 +73,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
         RefreshFromDraft();
     }
 
-    public MapBounds Bounds => new(_mask.Width * _options.PixelSize, _mask.Height * _options.PixelSize, _options.PixelSize);
+    public MapBounds Bounds => new(_mask.Width * _options.EffectiveSpatial.UnitsPerCell, _mask.Height * _options.EffectiveSpatial.UnitsPerCell, _options.EffectiveSpatial.UnitsPerCell);
     public IReadOnlyList<RegionEditorTool> Tools { get; } = Enum.GetValues<RegionEditorTool>();
     public ObservableCollection<RegionEditorRegionViewModel> Regions { get; } = [];
     public IReadOnlyList<MapRegion> DisplayRegions => _displayRegions;
@@ -253,7 +255,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
         _firstPoint = null;
         _splitPreviewPoint = null;
         this.RaisePropertyChanged(nameof(SplitPreviewLine));
-        if (RegionDraftEditor.TrySplit(_draft, SelectedRegionId.Value, cut, Bounds.PixelSize * 8, out var draft, out var diagnostic)) CommitOrDiagnose(draft, diagnostic);
+        if (RegionDraftEditor.TrySplit(_draft, SelectedRegionId.Value, cut, Bounds.UnitsPerCell * 8, out var draft, out var diagnostic)) CommitOrDiagnose(draft, diagnostic);
         else Diagnostics = diagnostic!.Message;
     }
 
@@ -271,7 +273,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
         if (_vertexToMove is null)
         {
             var vertex = _topology.Vertices.Where(vertex => !vertex.IsCoastal).OrderBy(vertex => Distance(vertex.Position, point)).FirstOrDefault();
-            if (vertex is null || Distance(vertex.Position, point) > Bounds.PixelSize * 8) { Diagnostics = "Выберите внутреннюю вершину."; return; }
+            if (vertex is null || Distance(vertex.Position, point) > Bounds.UnitsPerCell * 8) { Diagnostics = "Выберите внутреннюю вершину."; return; }
             _vertexToMove = vertex.Id; Diagnostics = "Укажите новое положение вершины."; return;
         }
         if (_topology.TryMoveVertex(_vertexToMove.Value, point, out var draft, out var diagnostic)) CommitOrDiagnose(draft, diagnostic);
@@ -434,7 +436,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
     {
         if (_topology is null) return;
         var edge = _topology.Edges.Where(edge => !edge.IsCoastal).OrderBy(edge => DistanceToEdge(edge, point)).FirstOrDefault();
-        if (edge is null || DistanceToEdge(edge, point) > Bounds.PixelSize * 5) { Diagnostics = "Выберите общую внутреннюю границу."; return; }
+        if (edge is null || DistanceToEdge(edge, point) > Bounds.UnitsPerCell * 5) { Diagnostics = "Выберите общую внутреннюю границу."; return; }
         var start = _topology.Vertices.Single(vertex => vertex.Id == edge.StartVertexId).Position;
         var end = _topology.Vertices.Single(vertex => vertex.Id == edge.EndVertexId).Position;
         var projection = Project(point, start, end);
@@ -446,7 +448,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
     {
         if (_topology is null) return;
         var vertex = _topology.Vertices.Where(vertex => !vertex.IsCoastal).OrderBy(vertex => Distance(vertex.Position, point)).FirstOrDefault();
-        if (vertex is null || Distance(vertex.Position, point) > Bounds.PixelSize * 8) { Diagnostics = "Выберите внутреннюю вершину для удаления."; return; }
+        if (vertex is null || Distance(vertex.Position, point) > Bounds.UnitsPerCell * 8) { Diagnostics = "Выберите внутреннюю вершину для удаления."; return; }
         if (_topology.TryDeleteVertex(vertex.Id, out var draft, out var diagnostic)) CommitOrDiagnose(draft, diagnostic);
         else Diagnostics = diagnostic!.Message;
     }
@@ -592,7 +594,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
     }
     private static MapGenerationOptions CloneWithDistortion(MapGenerationOptions options, bool enabled) => new()
     {
-        PixelSize = options.PixelSize,
+        PixelSize = options.EffectiveSpatial.UnitsPerCell,
         Seed = options.Seed,
         ProjectionMode = options.ProjectionMode,
         ShapeExtraction = options.ShapeExtraction,

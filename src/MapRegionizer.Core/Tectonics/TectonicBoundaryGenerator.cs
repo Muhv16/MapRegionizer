@@ -1,12 +1,18 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Tectonics;
 
 internal sealed class TectonicBoundaryGenerator
 {
-    public TectonicBoundaryMap Generate(PlateDomainMap plateDomains, CrustFieldMap crustFields, TectonicPlateGenerationOptions options)
+    public TectonicBoundaryMap Generate(
+        PlateDomainMap plateDomains,
+        CrustFieldMap crustFields,
+        TectonicPlateGenerationOptions options,
+        IGridTopology? topology = null)
     {
+        topology ??= new CylindricalXTopology(plateDomains.Width, plateDomains.Height);
         var domains = plateDomains.Domains.ToDictionary(d => d.Id);
         var samples = new List<BoundarySample>();
 
@@ -16,13 +22,14 @@ internal sealed class TectonicBoundaryGenerator
             {
                 var point = new GridPoint(x, y);
                 var current = plateDomains.GetPlate(point);
-                AddSampleIfBoundary(point, new GridPoint(x + 1 == plateDomains.Width ? 0 : x + 1, y), current, plateDomains, crustFields, domains, samples);
-                if (y < plateDomains.Height - 1)
-                    AddSampleIfBoundary(point, new GridPoint(x, y + 1), current, plateDomains, crustFields, domains, samples);
+                if (topology.TryResolve(point, 1, 0, out var right))
+                    AddSampleIfBoundary(point, right, current, plateDomains, crustFields, domains, samples);
+                if (topology.TryResolve(point, 0, 1, out var down))
+                    AddSampleIfBoundary(point, down, current, plateDomains, crustFields, domains, samples);
             }
         }
 
-        var segments = BuildSegments(samples, plateDomains.Width, plateDomains.Height, options.MinBoundarySegmentLength);
+        var segments = BuildSegments(samples, topology, options.MinBoundarySegmentLength);
         return new TectonicBoundaryMap(plateDomains.Width, plateDomains.Height, segments);
     }
 
@@ -210,7 +217,7 @@ internal sealed class TectonicBoundaryGenerator
         return null;
     }
 
-    private static IReadOnlyList<PlateBoundarySegment> BuildSegments(IReadOnlyList<BoundarySample> samples, int width, int height, int minSegmentLength)
+    private static IReadOnlyList<PlateBoundarySegment> BuildSegments(IReadOnlyList<BoundarySample> samples, IGridTopology topology, int minSegmentLength)
     {
         var result = new List<PlateBoundarySegment>();
         var nextId = 1;
@@ -240,7 +247,7 @@ internal sealed class TectonicBoundaryGenerator
                     foreach (var sample in pointToSamples[current])
                         componentSamples.Add(sample);
 
-                    foreach (var neighbor in Neighbors8(current, width, height))
+                    foreach (var neighbor in topology.GetNeighbors8(current))
                     {
                         if (!remaining.Remove(neighbor))
                             continue;
@@ -510,23 +517,6 @@ internal sealed class TectonicBoundaryGenerator
         return length == 0 ? new GridVector(0, 0) : new GridVector(dx / length, dy / length);
     }
 
-    private static IEnumerable<GridPoint> Neighbors8(GridPoint point, int width, int height)
-    {
-        for (var dy = -1; dy <= 1; dy++)
-        {
-            var y = point.Y + dy;
-            if (y < 0 || y >= height)
-                continue;
-            for (var dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0)
-                    continue;
-                yield return new GridPoint(WrapX(point.X + dx, width), y);
-            }
-        }
-    }
-
-    private static int WrapX(int x, int width) => (x % width + width) % width;
     private sealed record BoundarySample(
         GridPoint PointA,
         GridPoint PointB,

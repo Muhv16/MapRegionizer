@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using NetTopologySuite.Geometries;

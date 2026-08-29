@@ -20,9 +20,41 @@ public sealed record GeneratedMap(
     WaterSurfaceMap? WaterSurfaces = null,
     HydrologyMap? Hydrology = null,
     ClimateMap? Climate = null,
-    RegionRaster? RegionRaster = null);
+    RegionRaster? RegionRaster = null,
+    MapSpatialReference? SpatialReference = null);
 
-public sealed record MapBounds(double Width, double Height, double PixelSize);
+/// <summary>
+/// Map extents in canonical map units. The constructor keeps the historical
+/// <c>PixelSize</c> parameter name so named-argument callers remain source
+/// compatible; the canonical property is <see cref="UnitsPerCell"/>.
+/// </summary>
+public sealed record MapBounds
+{
+    public MapBounds(double Width, double Height, double PixelSize)
+    {
+        this.Width = Width;
+        this.Height = Height;
+        UnitsPerCell = PixelSize;
+    }
+
+    public double Width { get; init; }
+    public double Height { get; init; }
+    public double UnitsPerCell { get; init; }
+
+    [Obsolete("Use UnitsPerCell. This alias is retained for compatibility.")]
+    public double PixelSize
+    {
+        get => UnitsPerCell;
+        init => UnitsPerCell = value;
+    }
+
+    public void Deconstruct(out double width, out double height, out double unitsPerCell)
+    {
+        width = Width;
+        height = Height;
+        unitsPerCell = UnitsPerCell;
+    }
+}
 
 public readonly record struct MapPoint(double X, double Y);
 

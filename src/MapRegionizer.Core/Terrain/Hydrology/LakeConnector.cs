@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -52,8 +53,10 @@ internal sealed class LakeConnector
         WaterBodyTopology topology,
         WaterSurfaceMap waterSurfaces,
         Dictionary<int, List<GridPoint>> lakeCells,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var result = new List<LakeOutlet>();
         foreach (var body in waterSurfaces.Bodies.Where(b => b.Kind is WaterBodyKind.InlandLake or WaterBodyKind.InlandSea).OrderBy(b => b.Id.Value))
         {
@@ -61,11 +64,11 @@ internal sealed class LakeConnector
                 continue;
 
             var waterSet = cells.ToHashSet();
-            var shoreline = FindShoreline(mask.Width, mask.Height, cells, waterSet.Contains);
+            var shoreline = FindShoreline(mask.Width, mask.Height, cells, waterSet.Contains, gridTopology);
             var candidates = new List<(GridPoint Cell, GridPoint Downstream, double Score, double Breach)>();
             foreach (var cell in shoreline)
             {
-                var (bestDownstream, bestScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell);
+                var (bestDownstream, bestScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell, gridTopology);
                 var breach = Math.Max(0.0, elevation.GetBedElevation(cell) - body.SpillElevationMeters);
                 var shorelineScore = elevation.GetBedElevation(cell) + elevation.GetRidgeContinuity(cell) * 58.0 - elevation.GetBasinInfluence(cell) * 24.0 + bestScore * 0.18;
                 candidates.Add((cell, bestDownstream, shorelineScore, breach));
@@ -123,10 +126,12 @@ internal sealed class LakeConnector
         int[] flowDirections,
         double[] accumulation,
         List<LakeOutlet> outlets,
-        HydrologyGenerationOptions options)
+        HydrologyGenerationOptions options,
+        IGridTopology? gridTopology = null)
     {
         var changed = false;
         var width = mask.Width;
+        gridTopology ??= new CylindricalXTopology(width, mask.Height);
         var outletByLake = outlets
             .Select((outlet, index) => (outlet, index))
             .ToDictionary(x => x.outlet.LakeId.Value, x => x.index);
@@ -141,7 +146,7 @@ internal sealed class LakeConnector
             if (!lakeCells.TryGetValue(body.Id.Value, out var cells) || cells.Count == 0)
                 continue;
 
-            var inflows = FindLakeInflowCells(mask, topology, lakeIds, flowDirections, accumulation, body.Id.Value, minimumInflow);
+            var inflows = FindLakeInflowCells(mask, topology, lakeIds, flowDirections, accumulation, body.Id.Value, minimumInflow, gridTopology);
             if (inflows.Count == 0)
                 continue;
             var hasExistingOutlet = outletByLake.TryGetValue(body.Id.Value, out var existingIndex) && outlets[existingIndex].HasOutlet;
@@ -162,7 +167,7 @@ internal sealed class LakeConnector
 
             var waterSet = cells.ToHashSet();
             var inflowSet = inflows.ToHashSet();
-            var shoreline = FindShoreline(width, mask.Height, cells, waterSet.Contains)
+            var shoreline = FindShoreline(width, mask.Height, cells, waterSet.Contains, gridTopology)
                 .Where(cell => !inflowSet.Contains(cell))
                 .ToList();
             var separated = shoreline
@@ -177,11 +182,11 @@ internal sealed class LakeConnector
             var bestScore = double.PositiveInfinity;
             foreach (var cell in shoreline)
             {
-                var (downstream, downstreamScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell);
+                var (downstream, downstreamScore) = ScoreLakeOutletDownstream(mask, elevation, body, waterSet, cell, gridTopology);
                 var breach = Math.Max(0.0, elevation.GetBedElevation(cell) - body.SpillElevationMeters);
                 var separationBonus = Math.Min(8.0, inflows.Min(inflow => ChebyshevDistance(cell, inflow))) * 5.0;
                 if (isCrowdedShallowLake)
-                    separationBonus += Math.Min(24.0, inflows.Average(inflow => Distance(cell, inflow, width))) * 3.5;
+                    separationBonus += Math.Min(24.0, inflows.Average(inflow => Distance(cell, inflow, gridTopology))) * 3.5;
                 var score = elevation.GetBedElevation(cell)
                             + elevation.GetRidgeContinuity(cell) * 58.0
                             - elevation.GetBasinInfluence(cell) * 24.0
@@ -237,8 +242,10 @@ internal sealed class LakeConnector
         int[] flowDirections,
         double[] accumulation,
         int lakeId,
-        double minimumInflow)
+        double minimumInflow,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var inflows = new List<GridPoint>();
         for (var index = 0; index < flowDirections.Length; index++)
         {
@@ -247,7 +254,7 @@ internal sealed class LakeConnector
             var point = new GridPoint(index % mask.Width, index / mask.Width);
             if (!IsRenderableRiverLand(point, mask, topology, lakeIds))
                 continue;
-            var downstream = DownstreamIndex(index, flowDirections[index], mask.Width, mask.Height);
+            var downstream = DownstreamIndex(index, flowDirections[index], gridTopology);
             if (downstream >= 0 && lakeIds[downstream] == lakeId)
                 inflows.Add(point);
         }
@@ -260,11 +267,13 @@ internal sealed class LakeConnector
         ElevationMap elevation,
         WaterBodySurface body,
         HashSet<GridPoint> waterSet,
-        GridPoint cell)
+        GridPoint cell,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(mask.Width, mask.Height);
         var bestDownstream = cell;
         var bestScore = double.PositiveInfinity;
-        foreach (var neighbor in Neighbors8(cell, mask.Width, mask.Height))
+        foreach (var neighbor in gridTopology.GetNeighbors8(cell))
         {
             if (waterSet.Contains(neighbor))
                 continue;
@@ -288,8 +297,9 @@ internal sealed class LakeConnector
         return (bestDownstream, bestScore);
     }
 
-    internal static int[] BuildLakeRouting(int width, int height, Dictionary<int, List<GridPoint>> lakeCells, IReadOnlyList<LakeOutlet> outlets)
+    internal static int[] BuildLakeRouting(int width, int height, Dictionary<int, List<GridPoint>> lakeCells, IReadOnlyList<LakeOutlet> outlets, IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var lakeNext = new int[width * height];
         Array.Fill(lakeNext, -1);
         var byLake = outlets.Where(o => o.HasOutlet && o.OutletCell.HasValue).ToDictionary(o => o.LakeId.Value);
@@ -306,11 +316,11 @@ internal sealed class LakeConnector
             var queue = new Queue<GridPoint>();
             foreach (var cell in cells)
             {
-                if (!Neighbors8(cell, width, height).Contains(outletCell))
+                if (!gridTopology.GetNeighbors8(cell).Contains(outletCell))
                     continue;
 
                 distances[cell] = 0;
-                lakeNext[cell.Y * width + cell.X] = DirectionIndex(cell, outletCell, width);
+                lakeNext[cell.Y * width + cell.X] = DirectionIndex(cell, outletCell, gridTopology);
                 queue.Enqueue(cell);
             }
 
@@ -318,13 +328,13 @@ internal sealed class LakeConnector
             {
                 var current = queue.Dequeue();
                 var currentDistance = distances[current];
-                foreach (var neighbor in Neighbors8(current, width, height))
+                foreach (var neighbor in gridTopology.GetNeighbors8(current))
                 {
                     if (!waterSet.Contains(neighbor) || distances[neighbor] <= currentDistance + 1)
                         continue;
 
                     distances[neighbor] = currentDistance + 1;
-                    lakeNext[neighbor.Y * width + neighbor.X] = DirectionIndex(neighbor, current, width);
+                    lakeNext[neighbor.Y * width + neighbor.X] = DirectionIndex(neighbor, current, gridTopology);
                     queue.Enqueue(neighbor);
                 }
             }

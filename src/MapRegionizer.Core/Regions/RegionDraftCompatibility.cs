@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 
@@ -17,7 +19,7 @@ public static class RegionDraftCompatibility
         bool applyBoundaryDistortion) => new(
         RegionDraftDocument.CurrentSchemaVersion,
         options.ProjectionMode,
-        new MapBounds(mask.Width * options.PixelSize, mask.Height * options.PixelSize, options.PixelSize),
+        new MapBounds(mask.Width * options.EffectiveSpatial.UnitsPerCell, mask.Height * options.EffectiveSpatial.UnitsPerCell, options.EffectiveSpatial.UnitsPerCell),
         CreateMaskFingerprint(mask),
         CreateLandmassFingerprint(landmasses),
         applyBoundaryDistortion,
@@ -35,7 +37,7 @@ public static class RegionDraftCompatibility
         if (document.ProjectionMode != options.ProjectionMode)
             throw new InvalidOperationException("Region draft projection mode does not match the current generation.");
 
-        var expectedBounds = new MapBounds(mask.Width * options.PixelSize, mask.Height * options.PixelSize, options.PixelSize);
+        var expectedBounds = new MapBounds(mask.Width * options.EffectiveSpatial.UnitsPerCell, mask.Height * options.EffectiveSpatial.UnitsPerCell, options.EffectiveSpatial.UnitsPerCell);
         if (document.Bounds != expectedBounds)
             throw new InvalidOperationException("Region draft bounds or pixel size do not match the current generation.");
         if (!string.Equals(document.MaskFingerprint, CreateMaskFingerprint(mask), StringComparison.Ordinal))

@@ -35,8 +35,8 @@ internal static class TectonicPlateRenderer
         foreach (var landmass in map.Landmasses)
             RenderingGeometry.FillPolygon(image, landmass.Shape, options.LandColor, options.Scale);
 
-        DrawPlateBoundaries(image, map.TectonicPlates, map.Bounds.PixelSize, options);
-        DrawPlateIds(image, map.TectonicPlates, map.Bounds.PixelSize, options);
+        DrawPlateBoundaries(image, map.TectonicPlates, map.Bounds.UnitsPerCell, options);
+        DrawPlateIds(image, map.TectonicPlates, map.Bounds.UnitsPerCell, options);
 
         return image;
     }

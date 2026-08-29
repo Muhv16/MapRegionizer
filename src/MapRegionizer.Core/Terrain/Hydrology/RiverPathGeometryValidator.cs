@@ -1,5 +1,5 @@
 using MapRegionizer.Core.Domain;
-using static MapRegionizer.Core.Terrain.HydrologyGridMath;
+using MapRegionizer.Core.Spatial;
 
 namespace MapRegionizer.Core.Terrain;
 
@@ -8,8 +8,13 @@ internal static class RiverPathGeometryValidator
     private const double GeometryEpsilon = 0.000001;
     private const double TouchTolerance = 0.000001;
 
+    // Width-only overloads retain compatibility for callers outside the
+    // pipeline; topology-aware river generation uses the overload below.
     internal static bool IsSimpleCellPath(IReadOnlyList<GridPoint> cells, int width) =>
-        !HasDuplicateCells(cells) && !TryFindCellSelfIntersection(cells, width, out _);
+        IsSimpleCellPath(cells, width, topology: null);
+
+    internal static bool IsSimpleCellPath(IReadOnlyList<GridPoint> cells, int width, IGridTopology? topology) =>
+        !HasDuplicateCells(cells) && !TryFindCellSelfIntersection(cells, width, topology, out _);
 
     internal static bool HasDuplicateCells(IReadOnlyList<GridPoint> cells)
     {
@@ -41,17 +46,24 @@ internal static class RiverPathGeometryValidator
         return false;
     }
 
-    internal static bool TryFindCellSelfIntersection(IReadOnlyList<GridPoint> cells, int width, out SegmentPair crossing)
+    internal static bool TryFindCellSelfIntersection(IReadOnlyList<GridPoint> cells, int width, out SegmentPair crossing) =>
+        TryFindCellSelfIntersection(cells, width, topology: null, out crossing);
+
+    internal static bool TryFindCellSelfIntersection(
+        IReadOnlyList<GridPoint> cells,
+        int width,
+        IGridTopology? topology,
+        out SegmentPair crossing)
     {
         for (var i = 0; i < cells.Count - 1; i++)
         {
-            var first = CellSegment(cells[i], cells[i + 1], width);
+            var first = CellSegment(cells[i], cells[i + 1], width, topology);
             if (!first.HasValue)
                 continue;
 
             for (var j = i + 2; j < cells.Count - 1; j++)
             {
-                var second = CellSegment(cells[j], cells[j + 1], width);
+                var second = CellSegment(cells[j], cells[j + 1], width, topology);
                 if (!second.HasValue)
                     continue;
                 if (SegmentsShareOnlyAllowedEndpoint(first.Value.A, first.Value.B, second.Value.A, second.Value.B, i, j))
@@ -69,18 +81,28 @@ internal static class RiverPathGeometryValidator
     }
 
     internal static bool IsSimplePolyline(IReadOnlyList<MapPoint> polyline, int width) =>
-        !TryFindPolylineSelfIntersection(polyline, width, out _);
+        IsSimplePolyline(polyline, width, topology: null);
+
+    internal static bool IsSimplePolyline(IReadOnlyList<MapPoint> polyline, int width, IGridTopology? topology) =>
+        !TryFindPolylineSelfIntersection(polyline, width, topology, out _);
 
     internal static bool TryFindPolylineSelfIntersection(IReadOnlyList<MapPoint> polyline, int width, out SegmentPair crossing)
+        => TryFindPolylineSelfIntersection(polyline, width, topology: null, out crossing);
+
+    internal static bool TryFindPolylineSelfIntersection(
+        IReadOnlyList<MapPoint> polyline,
+        int width,
+        IGridTopology? topology,
+        out SegmentPair crossing)
     {
         for (var i = 0; i < polyline.Count - 1; i++)
         {
-            if (IsWrapBreak(polyline[i], polyline[i + 1], width))
+            if (IsWrapBreak(polyline[i], polyline[i + 1], width, topology))
                 continue;
 
             for (var j = i + 2; j < polyline.Count - 1; j++)
             {
-                if (IsWrapBreak(polyline[j], polyline[j + 1], width))
+                if (IsWrapBreak(polyline[j], polyline[j + 1], width, topology))
                     continue;
                 if (SegmentsShareOnlyAllowedEndpoint(polyline[i], polyline[i + 1], polyline[j], polyline[j + 1], i, j))
                     continue;
@@ -96,16 +118,22 @@ internal static class RiverPathGeometryValidator
         return false;
     }
 
-    private static (MapPoint A, MapPoint B)? CellSegment(GridPoint a, GridPoint b, int width)
+    private static (MapPoint A, MapPoint B)? CellSegment(GridPoint a, GridPoint b, int width, IGridTopology? topology)
     {
-        if (Math.Abs(WrappedDeltaX(b.X - a.X, width)) > 1)
+        if (topology is not null)
+        {
+            if (!topology.GetNeighbors8(a).Contains(b))
+                return null;
+        }
+        else if (Math.Abs(CylindricalXTopology.WrappedDeltaX(b.X - a.X, width)) > 1)
             return null;
 
-        return (new MapPoint(a.X + 0.5, a.Y + 0.5), new MapPoint(b.X + 0.5, b.Y + 0.5));
+        var dx = GridTopologyMath.WrappedDeltaX(topology ?? new CylindricalXTopology(width, Math.Max(a.Y, b.Y) + 1), b.X - a.X);
+        return (new MapPoint(a.X + 0.5, a.Y + 0.5), new MapPoint(a.X + 0.5 + dx, b.Y + 0.5));
     }
 
-    private static bool IsWrapBreak(MapPoint a, MapPoint b, int width) =>
-        Math.Abs(b.X - a.X) > width / 2.0;
+    private static bool IsWrapBreak(MapPoint a, MapPoint b, int width, IGridTopology? topology) =>
+        topology is CylindricalXTopology && Math.Abs(b.X - a.X) > width / 2.0;
 
     private static bool SegmentsShareOnlyAllowedEndpoint(MapPoint a, MapPoint b, MapPoint c, MapPoint d, int firstIndex, int secondIndex)
     {

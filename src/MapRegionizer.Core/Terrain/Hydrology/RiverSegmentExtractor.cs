@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.HydrologyGridMath;
 using static MapRegionizer.Core.Terrain.HydrologyTerrainRules;
 using static MapRegionizer.Core.Terrain.HydrologyRenderRules;
@@ -17,8 +18,19 @@ internal sealed class RiverSegmentExtractor
         _channelPathTracer = channelPathTracer;
     }
 
-    internal static List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height, int maxEndorheicCount = int.MaxValue)
+    internal IGridTopology? GridTopology => _channelPathTracer.GridTopology;
+
+    internal static List<RiverSegment> FinalizeVisibleRivers(IReadOnlyList<RiverSegment> rivers, int width, int height, int maxEndorheicCount = int.MaxValue) =>
+        FinalizeVisibleRivers(rivers, width, height, maxEndorheicCount, new CylindricalXTopology(width, height));
+
+    internal static List<RiverSegment> FinalizeVisibleRivers(
+        IReadOnlyList<RiverSegment> rivers,
+        int width,
+        int height,
+        int maxEndorheicCount,
+        IGridTopology gridTopology)
     {
+        ArgumentNullException.ThrowIfNull(gridTopology);
         if (rivers.Count == 0)
             return [];
 
@@ -26,7 +38,7 @@ internal sealed class RiverSegmentExtractor
         var accepted = new List<RiverSegment>();
         foreach (var river in rivers.OrderByDescending(r => r.Discharge).ThenByDescending(r => r.Cells.Count))
         {
-            if (ShouldSuppressNearStrongerRiver(river, accepted, width, radius))
+            if (ShouldSuppressNearStrongerRiver(river, accepted, width, radius, gridTopology))
                 continue;
 
             accepted.Add(river);
@@ -55,7 +67,7 @@ internal sealed class RiverSegmentExtractor
         {
             var parent = accepted
                 .Where(other => other.Id != river.Id)
-                .Where(other => other.Cells.Any(c => Distance(c, river.Mouth, width) <= 1.01))
+                .Where(other => other.Cells.Any(c => Distance(c, river.Mouth, gridTopology) <= 1.01))
                 .OrderByDescending(other => other.Discharge)
                 .FirstOrDefault();
             parentById[river.Id] = parent?.Id;
@@ -116,25 +128,34 @@ internal sealed class RiverSegmentExtractor
             .ToList();
     }
 
-    internal static bool ShouldSuppressNearStrongerRiver(RiverSegment candidate, IReadOnlyList<RiverSegment> strongerRivers, int width, int radius)
+    internal static bool ShouldSuppressNearStrongerRiver(RiverSegment candidate, IReadOnlyList<RiverSegment> strongerRivers, int width, int radius) =>
+        ShouldSuppressNearStrongerRiver(candidate, strongerRivers, width, radius, new CylindricalXTopology(width, Math.Max(candidate.Source.Y, candidate.Mouth.Y) + 1));
+
+    internal static bool ShouldSuppressNearStrongerRiver(
+        RiverSegment candidate,
+        IReadOnlyList<RiverSegment> strongerRivers,
+        int width,
+        int radius,
+        IGridTopology gridTopology)
     {
+        ArgumentNullException.ThrowIfNull(gridTopology);
         if (candidate.Cells.Count < 6)
             return false;
 
-        var candidateSide = RiverTargetSide(candidate, width);
+        var candidateSide = RiverTargetSide(candidate, gridTopology);
         foreach (var stronger in strongerRivers)
         {
             if (candidate.LandComponentId != stronger.LandComponentId)
                 continue;
             if (candidate.Discharge > stronger.Discharge * 0.72)
                 continue;
-            if (candidateSide != RiverTargetSide(stronger, width))
+            if (candidateSide != RiverTargetSide(stronger, gridTopology))
                 continue;
 
             var near = 0;
             foreach (var cell in candidate.Cells)
             {
-                if (stronger.Cells.Any(other => Distance(cell, other, width) <= radius))
+                if (stronger.Cells.Any(other => Distance(cell, other, gridTopology) <= radius))
                     near++;
             }
 
@@ -145,16 +166,6 @@ internal sealed class RiverSegmentExtractor
         return false;
     }
 
-    internal static MountainSourceSide RiverTargetSide(RiverSegment river, int width)
-    {
-        var dx = WrappedDeltaX(river.Mouth.X - river.Source.X, width);
-        var dy = river.Mouth.Y - river.Source.Y;
-        if (Math.Abs(dx) > Math.Abs(dy))
-            return dx < 0 ? MountainSourceSide.West : MountainSourceSide.East;
-        if (dy != 0)
-            return dy < 0 ? MountainSourceSide.North : MountainSourceSide.South;
-        return MountainSourceSide.None;
-    }
     internal List<RiverSegment> ExtractRivers(
         MapMask mask,
         ElevationMap elevation,
@@ -220,7 +231,7 @@ internal sealed class RiverSegmentExtractor
 
         var remainingBranches = Enumerable.Range(0, riverTopology.CellsSpan.Length)
             .Where(i => riverTopology.Contains(i) && !visited[i])
-            .Where(i => HasImmediateRenderableOutlet(i, riverTopology, flowDirections, lakeIds, mask, topology, visited, width, height) ||
+            .Where(i => HasImmediateRenderableOutlet(i, riverTopology, flowDirections, lakeIds, mask, topology, visited, width, height, riverTopology.GridTopology) ||
                         upstreamDepths[i] >= 6)
             .OrderByDescending(i => upstreamDepths[i])
             .ThenByDescending(i => accumulation[i])
@@ -244,10 +255,10 @@ internal sealed class RiverSegmentExtractor
 
             var minSourceAccumulation = Math.Max(3.0, accumulation[mouthIndex] * (isTributary ? 0.022 : 0.008));
             var path = forcedPath is null
-                ? BuildMainstemPath(mouthIndex, upstream, upstreamDepths, accumulation, visited, riverTopology, lakeIds, minSourceAccumulation, width, preferDepth: true)
+                ? BuildMainstemPath(mouthIndex, upstream, upstreamDepths, accumulation, visited, riverTopology, lakeIds, minSourceAccumulation, width, preferDepth: true, riverTopology.GridTopology)
                 : forcedPath.Where(i => riverTopology.Contains(i) && (!visited[i] || i == mouthIndex)).ToList();
             if (forcedPath is not null && !IsValidMouthToSourcePath(path, riverTopology))
-                path = BuildMainstemPath(mouthIndex, upstream, upstreamDepths, accumulation, visited, riverTopology, lakeIds, minSourceAccumulation, width, preferDepth: true);
+                path = BuildMainstemPath(mouthIndex, upstream, upstreamDepths, accumulation, visited, riverTopology, lakeIds, minSourceAccumulation, width, preferDepth: true, riverTopology.GridTopology);
             if (path.Count == 0)
                 return false;
 
@@ -263,7 +274,7 @@ internal sealed class RiverSegmentExtractor
                 var guard = 0;
                 while (current != segmentOutletIndex && guard++ < flowDirections.Length)
                 {
-                    var downstream = DownstreamIndex(current, flowDirections[current], width, height);
+                    var downstream = DownstreamIndex(current, flowDirections[current], riverTopology.GridTopology);
                     if (downstream < 0 || downstream == current)
                         break;
                     current = downstream;
@@ -273,7 +284,7 @@ internal sealed class RiverSegmentExtractor
             }
             var segmentEndsInWater = segmentOutletIndex != mouthIndex && IsWaterTarget(segmentOutlet, mask, topology, lakeIds);
             var segmentEndsInConfluence = segmentOutletIndex != mouthIndex && !segmentEndsInWater;
-            var terminalIndex = FindMouthTargetIndex(mouthIndex, flowDirections, lakeIds, mask, topology, width, height);
+            var terminalIndex = FindMouthTargetIndex(mouthIndex, flowDirections, lakeIds, mask, topology, width, height, riverTopology.GridTopology);
             var terminal = new GridPoint(terminalIndex % width, terminalIndex / width);
             var target = ResolveTarget(terminal, mask, topology, waterSurfaces, lakeIds);
             if (target.Kind == DrainageTargetKind.EndorheicDryBasin &&
@@ -289,7 +300,7 @@ internal sealed class RiverSegmentExtractor
                 return false;
             if (!forceLong && cells.Count < 3 && !segmentEndsInWater && !segmentEndsInConfluence)
                 return false;
-            if (!forceLong && cells.Count <= 2 && Distance(source, segmentOutlet, width) > 2.25)
+            if (!forceLong && cells.Count <= 2 && Distance(source, segmentOutlet, riverTopology.GridTopology) > 2.25)
                 return false;
             var dynamicShortLimit = Math.Clamp((int)Math.Round(Math.Sqrt(width * height) / 34.0), 5, 8);
             if (!forceLong && cells.Count <= dynamicShortLimit && accumulation[mouthIndex] < 120.0 && !segmentEndsInConfluence)
@@ -361,13 +372,15 @@ internal sealed class RiverSegmentExtractor
         WaterBodyTopology topology,
         bool[] visited,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
+        gridTopology ??= new CylindricalXTopology(width, height);
         var topologyDownstream = riverTopology.GetDownstream(mouthIndex);
         if (topologyDownstream >= 0)
             return visited[topologyDownstream];
 
-        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], width, height);
+        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], gridTopology);
         if (downstream < 0)
             return true;
 
@@ -384,11 +397,13 @@ internal sealed class RiverSegmentExtractor
         WaterBodyTopology topology,
         bool[] visited,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
         // Walk D8 flow directions from mouthIndex until we find water.
         // If no water found, fall back to topology confluence or mouthIndex.
         var waterIndex = -1;
+        gridTopology ??= new CylindricalXTopology(width, height);
         var confluenceIndex = -1;
         var current = mouthIndex;
         var guard = 0;
@@ -398,7 +413,7 @@ internal sealed class RiverSegmentExtractor
             if (dir < 0 || dir >= 8)
                 break;
 
-            var downstream = DownstreamIndex(current, dir, width, height);
+            var downstream = DownstreamIndex(current, dir, gridTopology);
             if (downstream < 0)
                 break;
 
@@ -439,7 +454,8 @@ internal sealed class RiverSegmentExtractor
         int[] lakeIds,
         double minSourceAccumulation,
         int width,
-        bool preferDepth)
+        bool preferDepth,
+        IGridTopology? gridTopology = null)
     {
         var path = new List<int>();
         var current = mouthIndex;
@@ -467,11 +483,12 @@ internal sealed class RiverSegmentExtractor
                 previousDirection,
                 straightRunLength,
                 diagonalRunDirection,
-                diagonalRunLength);
+                diagonalRunLength,
+                gridTopology);
             if (next < 0)
                 break;
 
-            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength);
+            UpdateShapeState(next, current, width, ref previousDirection, ref straightRunLength, ref diagonalRunDirection, ref diagonalRunLength, gridTopology);
             current = next;
         }
 
@@ -594,9 +611,11 @@ internal sealed class RiverSegmentExtractor
         MapMask mask,
         WaterBodyTopology topology,
         int width,
-        int height)
+        int height,
+        IGridTopology? gridTopology = null)
     {
-        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], width, height);
+        gridTopology ??= new CylindricalXTopology(width, height);
+        var downstream = DownstreamIndex(mouthIndex, flowDirections[mouthIndex], gridTopology);
         if (downstream < 0)
             return mouthIndex;
 
@@ -612,7 +631,7 @@ internal sealed class RiverSegmentExtractor
             if (IsWaterTarget(point, mask, topology, lakeIds))
                 return current;
 
-            downstream = DownstreamIndex(current, flowDirections[current], width, height);
+            downstream = DownstreamIndex(current, flowDirections[current], gridTopology);
             if (downstream < 0)
                 return current;
             current = downstream;

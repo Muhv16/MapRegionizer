@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 namespace MapRegionizer.App.ViewModels;
 
 using Avalonia;
@@ -1364,7 +1366,7 @@ public sealed class MainViewModel : ReactiveObject
         _suppressDirty = true;
         try
         {
-            PixelSize = options.PixelSize;
+            PixelSize = options.EffectiveSpatial.UnitsPerCell;
             Seed = options.Seed;
             ProjectionMode = options.ProjectionMode;
             SimplifyTolerance = options.ShapeExtraction.SimplifyTolerance;
@@ -1453,7 +1455,9 @@ public sealed class MainViewModel : ReactiveObject
             LakeOutletStrictness = options.Hydrology.LakeOutletStrictness;
             PreserveRiverCoastline = options.Hydrology.PreserveCoastline;
             AllowRiverCarving = options.Hydrology.AllowRiverCarving;
+#pragma warning disable CS0618
             ClimatePolarLatitudeMargin = options.Climate.PolarLatitudeMargin;
+#pragma warning restore CS0618
             ClimateEquatorTemperatureCelsius = options.Climate.EquatorTemperatureCelsius;
             ClimatePoleCoolingCelsius = options.Climate.PoleCoolingCelsius;
             ClimateLatitudeCurveExponent = options.Climate.LatitudeCurveExponent;

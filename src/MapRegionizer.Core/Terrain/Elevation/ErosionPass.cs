@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.ElevationGridMath;
 using static MapRegionizer.Core.Terrain.ElevationNoise;
 using static MapRegionizer.Core.Terrain.ElevationSignalMath;
@@ -10,7 +11,7 @@ internal sealed class ErosionPass
 {
     public ElevationRasterSet Apply(ElevationRasterSet rasters, ElevationInput context, TectonicFields tectonicFields)
     {
-        SmoothElevation(context.Mask, rasters.Elevation, tectonicFields.RidgeMask, tectonicFields.CollisionMask, context.Options, rasters.ErosionMask);
+        SmoothElevation(context.Mask, rasters.Elevation, tectonicFields.RidgeMask, tectonicFields.CollisionMask, context.Options, rasters.ErosionMask, context.GridTopology);
         LiftInteriorLowlands(context.Mask, rasters.Elevation, context.DistanceToWater, context.ShelfWidth);
         EnforceConstraints(context.Mask, context.WaterBodyTopology, rasters.Elevation, context.Options);
         return rasters;
@@ -21,8 +22,9 @@ internal sealed class ErosionPass
     double[] elevation,
     double[] ridgeMask,
     double[] collisionMask,
-    ElevationGenerationOptions options,
-    double[] erosionMask)
+        ElevationGenerationOptions options,
+        double[] erosionMask,
+        IGridTopology? topology = null)
     {
         if (options.Erosion <= 0)
             return;
@@ -34,6 +36,7 @@ internal sealed class ErosionPass
 
         var source = elevation.ToArray();
         var target = new double[length];
+        topology ??= new CylindricalXTopology(width, height);
 
         for (var pass = 0; pass < passes; pass++)
         {
@@ -50,32 +53,13 @@ internal sealed class ErosionPass
                     var sameSurfaceSum = 0.0;
                     var sameSurfaceWeight = 0.0;
 
-                    for (var dy = -1; dy <= 1; dy++)
+                    foreach (var neighbor in topology.GetNeighbors8(point))
                     {
-                        var ny = y + dy;
-                        if (ny < 0 || ny >= height)
+                        if (mask.IsLand(neighbor) != isLand)
                             continue;
 
-                        var nrow = ny * width;
-
-                        for (var dx = -1; dx <= 1; dx++)
-                        {
-                            if (dx == 0 && dy == 0)
-                                continue;
-
-                            var nx = x + dx;
-                            if (nx < 0)
-                                nx = width - 1;
-                            else if (nx >= width)
-                                nx = 0;
-
-                            var neighbor = new GridPoint(nx, ny);
-                            if (mask.IsLand(neighbor) != isLand)
-                                continue;
-
-                            sameSurfaceSum += source[nrow + nx];
-                            sameSurfaceWeight += 1.0;
-                        }
+                        sameSurfaceSum += source[neighbor.Y * width + neighbor.X];
+                        sameSurfaceWeight += 1.0;
                     }
 
                     if (sameSurfaceWeight <= 0)

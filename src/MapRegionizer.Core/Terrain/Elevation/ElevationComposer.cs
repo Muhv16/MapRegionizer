@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Spatial;
 using static MapRegionizer.Core.Terrain.ElevationGridMath;
 using static MapRegionizer.Core.Terrain.ElevationNoise;
 using static MapRegionizer.Core.Terrain.ElevationSignalMath;
@@ -108,7 +109,7 @@ internal sealed class ElevationComposer
         ApplyLargeBasins(context.Mask, elevation, basinFields.BasinInfluence, context.DistanceToWater, coastalFields.ShelfWidth);
         ApplyMountainCrossSection(context.Mask, elevation, mountainFields.RidgeContinuity, mountainFields.MountainPassPotential, mountainFields.FoothillInfluence, basinFields.BasinInfluence, context.DistanceToWater, coastalFields.ShelfWidth);
         ApplyBathymetricStructure(context.Mask, context.WaterBodyTopology, elevation, context.DistanceToLand, context.LandEnclosure, coastalFields.ShelfWidth, tectonicFields.RidgeMask, tectonicFields.SubductionMask, tectonicFields.RiftProvince, tectonicFields.RiftGraben, context.CrustFields, context.Options);
-        ApplyIslandProfiles(context.Mask, context.Features.Islands, elevation, roughness, context.DistanceToLand, context.Options);
+        ApplyIslandProfiles(context.Mask, context.Features.Islands, elevation, roughness, context.DistanceToLand, context.Options, context.GridTopology);
 
         return new ElevationRasterSet(
             elevation,
@@ -415,9 +416,10 @@ internal sealed class ElevationComposer
         }
     }
 
-    internal void ApplyIslandProfiles(MapMask mask, IReadOnlyList<TectonicIsland> islands, double[] elevation, double[] roughness, double[] distanceToLand, ElevationGenerationOptions options)
+    internal void ApplyIslandProfiles(MapMask mask, IReadOnlyList<TectonicIsland> islands, double[] elevation, double[] roughness, double[] distanceToLand, ElevationGenerationOptions options, IGridTopology? topology = null)
     {
         var smallIslandAreaScale = Math.Max(1.0, Math.Min(mask.Width, mask.Height) * 0.10);
+        var effectiveTopology = topology ?? new CylindricalXTopology(mask.Width, mask.Height);
 
         foreach (var island in islands)
         {
@@ -429,10 +431,10 @@ internal sealed class ElevationComposer
             var axisX = Math.Cos(angle);
             var axisY = Math.Sin(angle);
 
-            foreach (var point in PointsInRadius(mask.Width, mask.Height, island.Center, stampRadius))
+            foreach (var point in PointsInRadius(mask.Width, mask.Height, island.Center, stampRadius, effectiveTopology))
             {
                 var index = point.Y * mask.Width + point.X;
-                var dx = WrappedDeltaX(point.X - island.Center.X, mask.Width);
+                var dx = GridTopologyMath.WrappedDeltaX(effectiveTopology, point.X - island.Center.X);
                 var dy = point.Y - island.Center.Y;
                 var radialDistance = Math.Sqrt(dx * dx + dy * dy);
                 var radial = Math.Clamp(1.0 - radialDistance / Math.Max(1.0, radius), 0, 1);
