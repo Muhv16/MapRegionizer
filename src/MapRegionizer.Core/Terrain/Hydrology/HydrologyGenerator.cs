@@ -149,7 +149,7 @@ internal sealed class HydrologyGenerator
         {
             for (var x = 0; x < context.Width; x++)
             {
-                if (x != 0 && x != context.Width - 1 && y != 0 && y != context.Height - 1)
+                if (!GridTopologyMath.IsOpenBoundary(context.GridTopology, new GridPoint(x, y)))
                     continue;
                 var worldX = context.WorldOriginX + x;
                 var worldY = context.WorldOriginY + y;
@@ -183,7 +183,7 @@ internal sealed class HydrologyGenerator
         if (context.Boundary is null || context.Boundary is IsolatedHydrologyBoundaryContext)
             return false;
 
-        if (terminal.X != 0 && terminal.X != context.Width - 1 && terminal.Y != 0 && terminal.Y != context.Height - 1)
+        if (!GridTopologyMath.IsOpenBoundary(context.GridTopology, terminal))
             return false;
 
         var worldX = context.WorldOriginX + terminal.X;
@@ -208,7 +208,7 @@ internal sealed class HydrologyGenerator
         return rivers.Select(river =>
         {
             var terminal = river.DrainageTerminal;
-            if (terminal.X != 0 && terminal.X != context.Width - 1 && terminal.Y != 0 && terminal.Y != context.Height - 1)
+            if (!GridTopologyMath.IsOpenBoundary(context.GridTopology, terminal))
                 return river;
 
             var target = context.Boundary.GetExternalDownstreamTarget(

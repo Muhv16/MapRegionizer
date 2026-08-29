@@ -594,9 +594,8 @@ public sealed class RegionEditorViewModel : ReactiveObject
     }
     private static MapGenerationOptions CloneWithDistortion(MapGenerationOptions options, bool enabled) => new()
     {
-        PixelSize = options.EffectiveSpatial.UnitsPerCell,
+        Spatial = options.EffectiveSpatial,
         Seed = options.Seed,
-        ProjectionMode = options.ProjectionMode,
         ShapeExtraction = options.ShapeExtraction,
         WaterBodies = options.WaterBodies,
         Regions = options.Regions,

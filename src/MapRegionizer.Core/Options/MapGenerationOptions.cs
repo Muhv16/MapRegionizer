@@ -48,22 +48,30 @@ public sealed class MapGenerationOptions
     public HydrologyGenerationOptions Hydrology { get; init; } = new();
     public ClimateGenerationOptions Climate { get; init; } = new();
 
-    internal MapGenerationOptions WithSpatial(MapSpatialOptions spatial) => new()
+    /// <summary>
+    /// Returns a copy with the supplied generation-space descriptor. Output
+    /// coordinate choices are intentionally not part of this object.
+    /// </summary>
+    public MapGenerationOptions WithSpatial(MapSpatialOptions spatial)
     {
-        Spatial = spatial,
-        Seed = Seed,
-        WorldSeed = WorldSeed,
-        Debug = Debug,
-        ShapeExtraction = ShapeExtraction,
-        WaterBodies = WaterBodies,
-        Regions = Regions,
-        Boundaries = Boundaries,
-        ProjectionMode = ProjectionMode,
-        TectonicPlates = TectonicPlates,
-        Elevation = Elevation,
-        Hydrology = Hydrology,
-        Climate = Climate
-    };
+        ArgumentNullException.ThrowIfNull(spatial);
+        return new MapGenerationOptions
+        {
+            Spatial = spatial,
+            Seed = Seed,
+            WorldSeed = WorldSeed,
+            Debug = Debug,
+            ShapeExtraction = ShapeExtraction,
+            WaterBodies = WaterBodies,
+            Regions = Regions,
+            Boundaries = Boundaries,
+            ProjectionMode = ProjectionMode,
+            TectonicPlates = TectonicPlates,
+            Elevation = Elevation,
+            Hydrology = Hydrology,
+            Climate = Climate
+        };
+    }
 
     /// <summary>
     /// Returns spatial options while honoring an explicitly supplied legacy

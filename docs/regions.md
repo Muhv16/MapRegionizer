@@ -63,9 +63,26 @@ Positive, unique IDs supplied by a draft are retained. Missing IDs are allocated
 
 ## Portable editable GeoJSON
 
-`RegionDraftGeoJson` is the portable, versioned authoring format; `regions.geojson` remains the unchanged final-output format. The document is a GeoJSON `FeatureCollection` with extension members `schemaVersion`, `projectionMode`, `bounds`, `maskFingerprint`, `landmassFingerprint`, and `applyBoundaryDistortion`. Each feature keeps `regionId`, `landmassId`, `origin`, geometry, and optional `name` and string `metadata`.
+`RegionDraftGeoJson` is the portable, versioned authoring format; `regions.geojson` remains the unchanged final-output format. The document is a GeoJSON `FeatureCollection` with extension members `schemaVersion`, `spatialReference`, `bounds`, `maskFingerprint`, `landmassFingerprint`, and `applyBoundaryDistortion`. Each feature keeps `regionId`, `landmassId`, `origin`, geometry, and optional `name` and string `metadata`.
 
-Version `1.0` accepts imports only when schema version, projection mode, bounds/pixel size, logical source-mask fingerprint, and landmass-geometry fingerprint all match. A failed check stops the import before the draft is applied; transferring edits to a changed coastline is deliberately a later explicit operation.
+New documents use schema `2.0`. `spatialReference` is the complete canonical
+generation descriptor: world model (including optional planet radius), grid
+mapping, edge topology, geographic coverage, grid dimensions, `unitsPerCell`,
+canonical coordinate space (`GridMapUnits`), projected-cell policy, and the
+historical `LegacyCompatibilityProfile` when one applies. `projectionMode` may
+still be emitted as an optional hint for older tools, but it is not part of the
+v2 identity. Output coordinate choices are likewise absent from draft
+compatibility: geographic and Web Mercator exports are views of the same
+canonical draft.
+
+The reader retains schema `1.0` compatibility. A v1 document still requires
+its historical `projectionMode`, bounds/pixel size, logical source-mask
+fingerprint, and landmass-geometry fingerprint. It is materialized through the
+corresponding `LegacyCompatibilityProfile` (`Flat` and `Regional` keep their
+historical cylindrical/full-coverage behavior) and can be rewritten as v2 via
+`RegionDraftGeoJson.Write`. A failed compatibility check stops the import
+before the draft is applied; transferring edits to a changed coastline is
+deliberately a later explicit operation.
 
 ## Desktop editor
 

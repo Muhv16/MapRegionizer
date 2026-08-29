@@ -12,10 +12,12 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using MapRegionizer.App.Services;
 using MapRegionizer.App.Views;
+using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
 using MapRegionizer.GeoJson;
+using MapRegionizer.ImageSharp;
 using MapRegionizer.Runner;
 using ReactiveUI;
 using System;
@@ -36,12 +38,14 @@ public sealed class MainViewModel : ReactiveObject
     private readonly GenerationWorkspaceService _workspace = new();
     private readonly GenerationExecutionService _execution = new();
     private readonly MapPreviewService _preview = new();
+    private readonly SpatialConfigurationViewModel _spatialConfiguration;
     private readonly UserSettings _settings;
     private CancellationTokenSource? _generationCts;
     private bool _sessionResetRequired = true;
     private bool _suppressDirty;
 
     private string _maskPath = string.Empty;
+    private string _worldMaskPath = string.Empty;
     private string _outputDirectory = string.Empty;
     private string _statusMessage = string.Empty;
     private string _validationMessage = string.Empty;
@@ -57,11 +61,12 @@ public sealed class MainViewModel : ReactiveObject
     private BottomInspectorTab _selectedInspectorTab;
     private string _selectedLanguage = "ru-RU";
     private string _selectedTheme = "System";
+    private string _worldMaskCoverageKey = string.Empty;
+    private string? _worldMaskCoverageError;
 
     private double _pixelSize = 1;
     private int? _seed;
     private string _seedText = string.Empty;
-    private MapProjectionMode _projectionMode = MapProjectionMode.EquirectangularWorld;
     private double _simplifyTolerance = 1;
     private uint _targetArea = 400;
     private double _pointsMultiplier = 4;
@@ -192,9 +197,11 @@ public sealed class MainViewModel : ReactiveObject
 
     public MainViewModel()
     {
+        _spatialConfiguration = new SpatialConfigurationViewModel(_localization);
         _settings = _settingsService.Load();
 
         BrowseMaskCommand = ReactiveCommand.CreateFromTask(BrowseMaskAsync);
+        BrowseWorldMaskCommand = ReactiveCommand.CreateFromTask(BrowseWorldMaskAsync);
         BrowseOutputCommand = ReactiveCommand.CreateFromTask(BrowseOutputAsync);
         RunFullCommand = ReactiveCommand.CreateFromTask(RunFullAsync);
         RunRegionsOnlyCommand = ReactiveCommand.CreateFromTask(RunRegionsOnlyAsync);
@@ -219,6 +226,7 @@ public sealed class MainViewModel : ReactiveObject
         InitializeStages();
         InitializePreviewLayers();
         InitializeSettingsSections();
+        _spatialConfiguration.PropertyChanged += OnSpatialConfigurationChanged;
         LoadSettings();
 
         _localization.LanguageChanged += (_, _) => RefreshLocalization();
@@ -229,7 +237,6 @@ public sealed class MainViewModel : ReactiveObject
     public LocalizationService L => _localization;
     public IReadOnlyList<string> LanguageOptions => _localization.SupportedLanguages;
     public IReadOnlyList<string> ThemeOptions { get; } = ["System", "Light", "Dark"];
-    public IReadOnlyList<MapProjectionMode> ProjectionModes { get; } = Enum.GetValues<MapProjectionMode>();
     public IReadOnlyList<TectonicPlateJsonExportMode> TectonicJsonModes { get; } = Enum.GetValues<TectonicPlateJsonExportMode>();
     public IReadOnlyList<ElevationJsonExportMode> ElevationJsonModes { get; } = Enum.GetValues<ElevationJsonExportMode>();
     public IReadOnlyList<ClimateJsonExportMode> ClimateJsonModes { get; } = Enum.GetValues<ClimateJsonExportMode>();
@@ -247,6 +254,7 @@ public sealed class MainViewModel : ReactiveObject
     public IEnumerable<SettingsSectionViewModel> AdvancedSettingsSections => SettingsSections.Where(s => s.Kind == SettingsSectionKind.Advanced).OrderBy(s => s.Order);
 
     public ReactiveCommand<Unit, Unit> BrowseMaskCommand { get; }
+    public ReactiveCommand<Unit, Unit> BrowseWorldMaskCommand { get; }
     public ReactiveCommand<Unit, Unit> BrowseOutputCommand { get; }
     public ReactiveCommand<Unit, Unit> RunFullCommand { get; }
     public ReactiveCommand<Unit, Unit> RunRegionsOnlyCommand { get; }
@@ -266,7 +274,10 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> ApplyDiagnosticPresetCommand { get; }
 
     public string MaskPath { get => _maskPath; set => SetMaskPath(value); }
+    public string WorldMaskPath { get => _worldMaskPath; set => SetWorldMaskPath(value); }
     public string MaskFileName => string.IsNullOrWhiteSpace(MaskPath) ? string.Empty : Path.GetFileName(MaskPath);
+    public string WorldMaskFileName => string.IsNullOrWhiteSpace(WorldMaskPath) ? string.Empty : Path.GetFileName(WorldMaskPath);
+    public SpatialConfigurationViewModel SpatialConfiguration => _spatialConfiguration;
     public string OutputDirectory { get => _outputDirectory; set => SetAndSave(ref _outputDirectory, value); }
     public string StatusMessage { get => _statusMessage; set => this.RaiseAndSetIfChanged(ref _statusMessage, value); }
     public string ValidationMessage { get => _validationMessage; set => this.RaiseAndSetIfChanged(ref _validationMessage, value); }
@@ -420,7 +431,16 @@ public sealed class MainViewModel : ReactiveObject
         }
     }
 
-    public double PixelSize { get => _pixelSize; set => SetOptionAndReset(ref _pixelSize, value); }
+    [Obsolete("Use SpatialConfiguration.UnitsPerCell. The alias remains for existing profiles.")]
+    public double PixelSize
+    {
+        get => _pixelSize;
+        set
+        {
+            SetOptionAndReset(ref _pixelSize, value);
+            _spatialConfiguration.UnitsPerCell = value;
+        }
+    }
     public int? Seed
     {
         get => _seed;
@@ -447,7 +467,6 @@ public sealed class MainViewModel : ReactiveObject
                 Seed = parsed;
         }
     }
-    public MapProjectionMode ProjectionMode { get => _projectionMode; set => SetOptionAndReset(ref _projectionMode, value); }
     public double SimplifyTolerance { get => _simplifyTolerance; set => SetOption(ref _simplifyTolerance, value, MapDataKeys.Landmasses); }
     public uint TargetArea
     {
@@ -607,6 +626,28 @@ public sealed class MainViewModel : ReactiveObject
             MaskPath = path;
     }
 
+    private async Task BrowseWorldMaskAsync()
+    {
+        var window = GetMainWindow();
+        if (window is null)
+            return;
+
+        var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = L["WorldMask"],
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Images") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif"] },
+                FilePickerFileTypes.All
+            ]
+        });
+
+        var file = result.Count == 0 ? null : result[0];
+        if (file?.Path.LocalPath is { Length: > 0 } path)
+            WorldMaskPath = path;
+    }
+
     private async Task BrowseOutputAsync()
     {
         var window = GetMainWindow();
@@ -637,7 +678,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
             _sessionResetRequired = false;
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -714,7 +755,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
             _sessionResetRequired = false;
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -789,7 +830,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
             await _execution.RunUntilAsync(session, frozenVisibleRegions ? MapDataKeys.Regions : MapDataKeys.RawRegions, CancellationToken.None);
@@ -836,7 +877,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
 
@@ -883,7 +924,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
 
@@ -929,7 +970,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(MaskPath, options, _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
 
@@ -983,7 +1024,8 @@ public sealed class MainViewModel : ReactiveObject
                 TectonicJsonMode,
                 ElevationJsonMode,
                 ClimateJsonMode,
-                BuildExportRenderOptions()));
+                BuildExportRenderOptions(),
+                SpatialConfiguration.BuildOutputOptions()));
 
             ArtifactSummary = FormatArtifactSummary(result.Artifacts);
             StatusMessage = L["StatusExported"];
@@ -1193,11 +1235,18 @@ public sealed class MainViewModel : ReactiveObject
             ValidationMessage = L["ValidationMask"];
         else if (string.IsNullOrWhiteSpace(OutputDirectory))
             ValidationMessage = L["ValidationOutput"];
+        else if (SpatialConfiguration.GenerationMode == RegionalGenerationMode.Automatic &&
+                 (string.IsNullOrWhiteSpace(WorldMaskPath) || !File.Exists(WorldMaskPath)))
+            ValidationMessage = L["ValidationWorldMask"];
+        else if (SpatialConfiguration.GenerationMode == RegionalGenerationMode.Automatic &&
+                 !TryValidateWorldMaskCoverage(out var worldMaskCoverageError))
+            ValidationMessage = $"{L["ValidationWorldMaskCoverage"]} {worldMaskCoverageError}";
         else
         {
             try
             {
                 BuildOptions().Validate();
+                SpatialConfiguration.BuildOutputOptions().Validate();
                 if (ExportScale <= 0)
                     throw new ArgumentOutOfRangeException(nameof(ExportScale), "Export scale must be greater than zero.");
                 if (ExportRegionBorderWidth < 0)
@@ -1220,9 +1269,8 @@ public sealed class MainViewModel : ReactiveObject
     {
         return new MapGenerationOptions
         {
-            PixelSize = PixelSize,
+            Spatial = _spatialConfiguration.BuildSpatialOptions(),
             Seed = Seed,
-            ProjectionMode = ProjectionMode,
             ShapeExtraction = new ShapeExtractionOptions { SimplifyTolerance = SimplifyTolerance },
             WaterBodies = new WaterBodyClassificationOptions
             {
@@ -1361,14 +1409,33 @@ public sealed class MainViewModel : ReactiveObject
         };
     }
 
+    /// <summary>
+    /// Materializes only adapter inputs and delegates all spatial validation
+    /// and request semantics to the Core-facing configuration VM.
+    /// </summary>
+    private MapGenerationRequest BuildGenerationRequest(MapGenerationOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var originX = SpatialConfiguration.IsAutomatic ? SpatialConfiguration.RequestedOriginX : 0;
+        var originY = SpatialConfiguration.IsAutomatic ? SpatialConfiguration.RequestedOriginY : 0;
+        var mask = ImageMaskReader.ReadAt(
+            MaskPath,
+            originX,
+            originY);
+        IMapMaskSource? worldMaskSource = string.IsNullOrWhiteSpace(WorldMaskPath)
+            ? null
+            : new ImageMapMaskSource(WorldMaskPath);
+        return _spatialConfiguration.BuildRequest(mask, options, worldMaskSource);
+    }
+
     private void LoadOptions(MapGenerationOptions options)
     {
         _suppressDirty = true;
         try
         {
             PixelSize = options.EffectiveSpatial.UnitsPerCell;
+            _spatialConfiguration.LoadSpatialOptions(options.EffectiveSpatial);
             Seed = options.Seed;
-            ProjectionMode = options.ProjectionMode;
             SimplifyTolerance = options.ShapeExtraction.SimplifyTolerance;
             TargetArea = options.Regions.TargetArea;
             PointsMultiplier = options.Regions.PointsMultiplier;
@@ -1578,12 +1645,18 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             MaskPath = _settings.LastMaskPath;
+            WorldMaskPath = _settings.WorldMaskPath;
             OutputDirectory = string.IsNullOrWhiteSpace(_settings.LastOutputDirectory)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MapRegionizer")
                 : _settings.LastOutputDirectory;
             SelectedLanguage = LanguageOptions.Contains(_settings.Language) ? _settings.Language : "ru-RU";
             SelectedTheme = ThemeOptions.Contains(_settings.Theme) ? _settings.Theme : "System";
             LoadOptions(_settings.GenerationOptions);
+            SpatialConfiguration.GenerationMode = _settings.GenerationMode;
+            SpatialConfiguration.WorkingHaloCells = _settings.WorkingHaloCells;
+            SpatialConfiguration.RequestedOriginX = _settings.RequestedOriginX;
+            SpatialConfiguration.RequestedOriginY = _settings.RequestedOriginY;
+            SpatialConfiguration.LoadOutputOptions(_settings.OutputOptions);
             ExportScale = _settings.ExportScale;
             ExportRegionBorderWidth = _settings.ExportRegionBorderWidth;
             ExportTectonicBoundaryWidth = _settings.ExportTectonicBoundaryWidth;
@@ -1905,6 +1978,92 @@ public sealed class MainViewModel : ReactiveObject
         SaveSettings();
     }
 
+    private void SetWorldMaskPath(string value)
+    {
+        if (string.Equals(_worldMaskPath, value, StringComparison.Ordinal))
+            return;
+
+        this.RaiseAndSetIfChanged(ref _worldMaskPath, value ?? string.Empty);
+        this.RaisePropertyChanged(nameof(WorldMaskFileName));
+        InvalidateWorldMaskCoverageCache();
+        if (_suppressDirty)
+            return;
+
+        _sessionResetRequired = true;
+        _workspace.Reset();
+        RefreshStageStates();
+        RefreshLayerAvailability();
+        ValidateAll();
+        SaveSettings();
+    }
+
+    private bool TryValidateWorldMaskCoverage(out string error)
+    {
+        var key = string.Join("|", WorldMaskPath, MaskPath,
+            SpatialConfiguration.RequestedOriginX,
+            SpatialConfiguration.RequestedOriginY,
+            SpatialConfiguration.WorkingHaloCells);
+        if (string.Equals(key, _worldMaskCoverageKey, StringComparison.Ordinal))
+        {
+            error = _worldMaskCoverageError ?? string.Empty;
+            return _worldMaskCoverageError is null;
+        }
+
+        _worldMaskCoverageKey = key;
+        try
+        {
+            var selectedMask = ImageMaskReader.Read(MaskPath);
+            var requested = new GridWindow(
+                SpatialConfiguration.RequestedOriginX,
+                SpatialConfiguration.RequestedOriginY,
+                selectedMask.Width,
+                selectedMask.Height);
+            var working = requested.Expand(SpatialConfiguration.WorkingHaloCells);
+            var worldSource = new ImageMapMaskSource(WorldMaskPath);
+            _worldMaskCoverageError = worldSource.WorldWindow.Contains(working)
+                ? null
+                : $"{worldSource.WorldWindow} does not cover working window {working}.";
+        }
+        catch (Exception ex)
+        {
+            _worldMaskCoverageError = ex.Message;
+        }
+
+        error = _worldMaskCoverageError ?? string.Empty;
+        return _worldMaskCoverageError is null;
+    }
+
+    private void InvalidateWorldMaskCoverageCache()
+    {
+        _worldMaskCoverageKey = string.Empty;
+        _worldMaskCoverageError = null;
+    }
+
+    private void OnSpatialConfigurationChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_suppressDirty)
+            return;
+
+        // Output coordinate selection belongs to the exporter only; changing
+        // it must not invalidate a generated session or alter generation
+        // options. Generation-space and working-domain changes do.
+        if (e.PropertyName is nameof(SpatialConfigurationViewModel.OutputCoordinates)
+            or nameof(SpatialConfigurationViewModel.OutputLatitudeOverflowPolicy)
+            or nameof(SpatialConfigurationViewModel.OutputAntimeridianPolicy))
+        {
+            ValidateAll();
+            SaveSettings();
+            return;
+        }
+
+        _sessionResetRequired = true;
+        RefreshStageStates();
+        RefreshLayerAvailability();
+        StatusMessage = L["StatusSessionReset"];
+        ValidateAll();
+        SaveSettings();
+    }
+
     private void SetAndSave<T>(ref T field, T value)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
@@ -1923,10 +2082,16 @@ public sealed class MainViewModel : ReactiveObject
         _settings.Language = SelectedLanguage;
         _settings.Theme = SelectedTheme;
         _settings.LastMaskPath = MaskPath;
+        _settings.WorldMaskPath = WorldMaskPath;
         _settings.LastOutputDirectory = OutputDirectory;
         _settings.LastPreviewLayer = SelectedPreviewLayer?.Kind.ToString() ?? PreviewLayerKind.Overview.ToString();
         _settings.HasCompletedOnboarding = !ShowOnboarding;
         _settings.GenerationOptions = BuildOptions();
+        _settings.GenerationMode = SpatialConfiguration.GenerationMode;
+        _settings.WorkingHaloCells = SpatialConfiguration.WorkingHaloCells;
+        _settings.RequestedOriginX = SpatialConfiguration.RequestedOriginX;
+        _settings.RequestedOriginY = SpatialConfiguration.RequestedOriginY;
+        _settings.OutputOptions = SpatialConfiguration.BuildOutputOptions();
         _settings.ExportScale = ExportScale;
         _settings.ExportRegionBorderWidth = ExportRegionBorderWidth;
         _settings.ExportTectonicBoundaryWidth = ExportTectonicBoundaryWidth;

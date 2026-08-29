@@ -1,6 +1,7 @@
 #pragma warning disable CS0618
 
 using MapRegionizer.Core.Options;
+using MapRegionizer.Core.Domain;
 using MapRegionizer.GeoJson;
 
 namespace MapRegionizer.Runner;
@@ -8,6 +9,10 @@ namespace MapRegionizer.Runner;
 public sealed class MapGenerationRunOptions
 {
     public string MaskPath { get; set; } = string.Empty;
+    /// <summary>Optional wider mask used to provide Automatic working-domain data.</summary>
+    public string? WorldMaskPath { get; set; }
+    public int RequestedOriginX { get; set; }
+    public int RequestedOriginY { get; set; }
     public string OutputDirectory { get; set; } = string.Empty;
     public double PixelSize { get; set; } = 1;
     public double SimplifyTolerance { get; set; } = 1;
@@ -21,6 +26,31 @@ public sealed class MapGenerationRunOptions
     public double MinLineLengthToCurve { get; set; } = 7;
     public int? Seed { get; set; }
     public MapProjectionMode ProjectionMode { get; set; } = MapProjectionMode.EquirectangularWorld;
+
+    // New spatial configuration.  SpatialConfigurationEnabled is intentionally
+    // explicit so old JSON/CLI profiles continue to resolve their historical
+    // MapProjectionMode semantics until a user opts into the independent model.
+    public bool SpatialConfigurationEnabled { get; set; }
+    public WorldModelKind WorldModel { get; set; } = WorldModelKind.Spherical;
+    public MapCoverageKind CoverageKind { get; set; } = MapCoverageKind.Global;
+    public GridMappingKind GridMapping { get; set; } = GridMappingKind.Equirectangular;
+    public GridTopologyKind Topology { get; set; } = GridTopologyKind.CylindricalX;
+    public double UnitsPerCell { get; set; } = 1.0;
+    public double WestLongitude { get; set; } = -180;
+    public double EastLongitude { get; set; } = 180;
+    public double SouthLatitude { get; set; } = -90;
+    public double NorthLatitude { get; set; } = 90;
+    public RegionalGenerationMode GenerationMode { get; set; } = RegionalGenerationMode.Legacy;
+    public int WorkingHaloCells { get; set; }
+
+    // Output is deliberately kept separate from generation options.
+    public OutputCoordinateSystem OutputCoordinates { get; set; } = OutputCoordinateSystem.GridMapUnits;
+    public LatitudeOverflowPolicy OutputLatitudeOverflowPolicy { get; set; } = LatitudeOverflowPolicy.Reject;
+    public AntimeridianOutputPolicy OutputAntimeridianPolicy { get; set; } = AntimeridianOutputPolicy.Auto;
+    public bool OutputAdaptiveDensification { get; set; } = true;
+    public double OutputProjectionErrorTolerance { get; set; } = 1.0;
+    public int OutputMaxDensificationDepth { get; set; } = 12;
+    public double OutputMinDensificationSegmentLength { get; set; } = 0.01;
     public double OceanSeaMinAreaRatio { get; set; } = 0.12;
     public double InlandSeaMinAreaRatio { get; set; } = 0.015;
     public int OceanSeaNearOceanMaxDistanceCells { get; set; } = 13;
@@ -137,9 +167,15 @@ public sealed class MapGenerationRunOptions
 
     public MapGenerationOptions ToGenerationOptions()
     {
+        var spatial = SpatialConfigurationEnabled || GenerationMode != RegionalGenerationMode.Legacy
+            ? BuildSpatialOptions()
+            : MapSpatialOptions.FromLegacy(ProjectionMode, PixelSize);
+
         return new MapGenerationOptions
         {
-            Spatial = MapSpatialOptions.FromLegacy(ProjectionMode, PixelSize),
+            Spatial = spatial,
+            // Keep the legacy property populated for old summary/config
+            // consumers.  New generation code reads Spatial instead.
             Seed = Seed,
             Debug = Debug,
             ProjectionMode = ProjectionMode,
@@ -284,13 +320,53 @@ public sealed class MapGenerationRunOptions
         };
     }
 
+    public MapOutputOptions ToOutputOptions() => new()
+    {
+        CoordinateSystem = OutputCoordinates,
+        LatitudeOverflowPolicy = OutputLatitudeOverflowPolicy,
+        AntimeridianPolicy = OutputAntimeridianPolicy,
+        EnableAdaptiveDensification = OutputAdaptiveDensification,
+        ProjectionErrorTolerance = OutputProjectionErrorTolerance,
+        MaxDensificationDepth = OutputMaxDensificationDepth,
+        MinDensificationSegmentLength = OutputMinDensificationSegmentLength
+    };
+
+    private MapSpatialOptions BuildSpatialOptions()
+    {
+        var coverage = CoverageKind == MapCoverageKind.Global
+            ? MapCoverage.Global(SouthLatitude, NorthLatitude)
+            : MapCoverage.Regional(WestLongitude, EastLongitude, SouthLatitude, NorthLatitude);
+        var topology = Topology;
+        if (CoverageKind == MapCoverageKind.Regional && topology == GridTopologyKind.CylindricalX)
+            topology = GridTopologyKind.OpenRectangular;
+
+        return new MapSpatialOptions
+        {
+            WorldModel = WorldModel == WorldModelKind.Spherical
+                ? WorldModelDescriptor.Spherical()
+                : WorldModelDescriptor.Planar(),
+            Coverage = coverage,
+            GridMapping = GridMapping,
+            Topology = topology,
+            UnitsPerCell = UnitsPerCell,
+            LegacyCompatibility = LegacyCompatibilityProfile.None
+        };
+    }
+
     public MapGenerationRequestOptions ToRequestOptions()
     {
         return new MapGenerationRequestOptions
         {
             MaskPath = MaskPath,
+            WorldMaskPath = WorldMaskPath,
+            RequestedOriginX = RequestedOriginX,
+            RequestedOriginY = RequestedOriginY,
             OutputDirectory = OutputDirectory,
             GenerationOptions = ToGenerationOptions(),
+            GenerationMode = GenerationMode,
+            WorkingHaloCells = WorkingHaloCells,
+            SpatialConfigurationEnabled = SpatialConfigurationEnabled,
+            OutputOptions = ToOutputOptions(),
             Debug = Debug,
             RasterizeRegions = RasterizeRegions,
             RegionDraftPath = RegionDraftPath,

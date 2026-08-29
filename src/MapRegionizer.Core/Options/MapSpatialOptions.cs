@@ -96,7 +96,8 @@ public sealed record MapSpatialOptions
             throw new ArgumentException("Regional coverage uses open X edges; cylindrical topology is reserved for full-world coverage.", nameof(Topology));
     }
 
-    internal MapSpatialReference CreateReference(int width, int height)
+    /// <summary>Creates the immutable canonical descriptor for a raster size.</summary>
+    public MapSpatialReference CreateReference(int width, int height)
     {
         var reference = new MapSpatialReference
         {

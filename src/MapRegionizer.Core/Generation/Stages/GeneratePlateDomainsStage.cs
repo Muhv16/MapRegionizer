@@ -24,7 +24,8 @@ public sealed class GeneratePlateDomainsStage : IMapGenerationStage, ISpatialBou
     {
         var history = context.TectonicHistory ?? throw new InvalidOperationException("Tectonic history is required.");
         var crustFields = context.CrustFields ?? throw new InvalidOperationException("Crust fields are required.");
-        if (context.GenerationMode == RegionalGenerationMode.Automatic && context.TectonicWorldContext is not null)
+        if ((context.GenerationMode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom) &&
+            context.TectonicWorldContext is not null)
         {
             context.PlateDomains = WorldPlateDomainSampler.Sample(context.Mask, crustFields, context.TectonicWorldContext, context.Options.TectonicPlates);
             return;

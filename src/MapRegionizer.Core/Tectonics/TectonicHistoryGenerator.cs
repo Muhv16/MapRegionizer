@@ -83,7 +83,9 @@ internal sealed class TectonicHistoryGenerator
         foreach (var landmass in landmasses)
         {
             var centroid = landmass.Shape.Centroid.Coordinate;
-            centers.Add(new GridPoint(ClampX((int)Math.Round(centroid.X), mask.Width), Math.Clamp((int)Math.Round(centroid.Y), 0, mask.Height - 1)));
+            centers.Add(new GridPoint(
+                ResolveX((int)Math.Round(centroid.X), mask.Width),
+                Math.Clamp((int)Math.Round(centroid.Y), 0, mask.Height - 1)));
         }
 
         if (centers.Count == 0 && mask.LandPoints.Count > 0)
@@ -305,15 +307,14 @@ internal sealed class TectonicHistoryGenerator
         return origin;
     }
 
-    private static int ClampX(int x, int width) => Math.Clamp(x, 0, width - 1);
-
     private int ResolveX(int x, int width)
     {
-        if (_topology is CylindricalXTopology cylindrical)
-            return CylindricalXTopology.NormalizeX(x, cylindrical.Width);
+        // Ask the configured topology to resolve the horizontal displacement.
+        // For an open topology, falling back to the nearest in-window cell is
+        // a bounded path-construction policy, not a hidden world wrap.
+        if (_topology!.TryResolve(new GridPoint(0, 0), x, 0, out var resolved))
+            return resolved.X;
 
-        // This is a bounded path-construction policy, not neighbour
-        // resolution. Topology.GetNeighbors* still rejects open X edges.
         return Math.Clamp(x, 0, width - 1);
     }
     private static IEnumerable<GridPoint> EnumeratePoints(int width, int height)

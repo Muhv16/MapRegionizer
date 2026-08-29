@@ -499,3 +499,31 @@ water, and downstream targets from a coarse-world provider. Incoming flow is
 propagated through the local flow graph before visible river extraction, and
 external elevation/water are used only for boundary classification rather than
 inventing local runoff.
+
+## Consumer boundaries
+
+Portable region drafts use schema `2.0` and persist the complete
+`MapSpatialReference` descriptor. Schema `1.0` remains readable and is
+materialized through its historical `LegacyCompatibilityProfile`; writing a
+document read from v1 performs the explicit migration to v2. Draft
+compatibility compares only canonical generation identity (world model,
+coverage, mapping, topology, grid size, and units). `MapOutputOptions` is never
+part of that identity.
+
+`GeoJsonMapWriter` and the river exporter accept a `GeneratedMap` plus
+`MapOutputOptions`. They clone canonical `GridMapUnits` geometry, transform it
+to requested grid/geographic/Web Mercator coordinates, and apply antimeridian
+splitting before serialization. Geographic output should be treated as
+longitude/latitude only when requested; projected or fictional-world output is
+marked in `spatialReference` metadata and is not silently advertised as WGS84.
+The Core map is not mutated by exporting.
+
+The Avalonia App and CLI assemble the same Core request model. `Automatic`
+requires a world mask source that covers the complete working window (requested
+window plus halo); `Isolated` uses the selected mask as a self-contained local
+simulation; `Custom` is reserved for callers that supply both boundary
+contexts. Requested origin values keep a local image aligned to the world grid.
+Output coordinate controls affect only artifact export and do not invalidate or
+alter generation options. World edge decisions are obtained from
+`IGridTopology`, leaving the generation stages independent of future pole
+topologies.

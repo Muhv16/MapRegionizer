@@ -26,15 +26,32 @@ public sealed class MapGenerationRunner
         var outputDirectory = Path.GetFullPath(options.OutputDirectory);
         Directory.CreateDirectory(outputDirectory);
 
-        var mask = ImageMaskReader.Read(maskPath);
+        var mask = ImageMaskReader.ReadAt(maskPath, options.RequestedOriginX, options.RequestedOriginY);
         var importedDocument = options.RegionDraftPath is null ? null : RegionDraftGeoJson.ReadFromFile(options.RegionDraftPath);
         var generationOptions = WithRegionDistortion(
             options.GenerationOptions,
             options.RegionDraftDistortionEnabled ?? importedDocument?.ApplyBoundaryDistortion);
+        IMapMaskSource? worldMaskSource = options.GenerationMode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom
+            ? new ImageMapMaskSource(options.WorldMaskPath!)
+            : null;
+        var request = options.ToGenerationRequest(mask, generationOptions, worldMaskSource);
+        if (worldMaskSource is not null)
+        {
+            // Fail before constructing the session when a requested origin or
+            // finite halo lies outside the supplied world image. The same
+            // source instance is then passed to Core, so this validation does
+            // not hide a second, differently loaded world mask.
+            _ = worldMaskSource.GetMask(request.WorkingDomain.Window);
+        }
+        // Request construction may normalize legacy/new topology combinations
+        // at the Core boundary. Use that validated option set for artifacts and
+        // draft identity so a caller cannot generate successfully and then
+        // fail while exporting the same run.
+        generationOptions = request.Options;
         if (options.Debug)
-            return RunWithDiagnostics(options, generationOptions, importedDocument, mask, maskPath, outputDirectory);
+            return RunWithDiagnostics(options, generationOptions, request, importedDocument, mask, maskPath, outputDirectory);
 
-        var session = Generate(mask, generationOptions, options.RasterizeRegions, importedDocument);
+        var session = Generate(request, options.RasterizeRegions, importedDocument);
         return WriteResults(
             session,
             maskPath,
@@ -48,6 +65,7 @@ public sealed class MapGenerationRunner
     private static MapGenerationRunResult RunWithDiagnostics(
         MapGenerationRequestOptions options,
         MapGenerationOptions generationOptions,
+        MapGenerationRequest request,
         RegionDraftDocument? importedDocument,
         MapMask mask,
         string maskPath,
@@ -57,7 +75,7 @@ public sealed class MapGenerationRunner
         WriteMemLine("baseline", baseline, baseline);
 
         var afterGen = MemorySnapshot.Capture();
-        var session = Generate(mask, generationOptions, options.RasterizeRegions, importedDocument);
+        var session = Generate(request, options.RasterizeRegions, importedDocument);
         WriteMemLine("generation", afterGen, MemorySnapshot.Capture());
 
         var afterArtifacts = MemorySnapshot.Capture();
@@ -75,19 +93,24 @@ public sealed class MapGenerationRunner
     }
 
     private static MapGenerationSession Generate(
-        MapMask mask,
-        MapGenerationOptions options,
+        MapGenerationRequest request,
         bool rasterizeRegions,
         RegionDraftDocument? importedDocument)
     {
         var builder = MapGenerationPipelineBuilder.CreateDefault();
         if (rasterizeRegions)
             builder.AddRegionRasterization();
-        var session = MapGenerationSession.Create(mask, options, builder.Build());
+        var session = MapGenerationSession.Create(request, builder.Build());
         if (importedDocument is not null)
         {
             session.RunUntil(MapDataKeys.Landmasses);
-            RegionDraftCompatibility.EnsureCompatible(importedDocument, mask, options, session.Landmasses);
+            var requestedMask = request.MaskSource?.GetMask(request.RequestedDomain.Window)
+                ?? throw new InvalidOperationException("A mask source is required for an imported region draft.");
+            RegionDraftCompatibility.EnsureCompatible(
+                importedDocument,
+                requestedMask,
+                request.Options,
+                session.CurrentMap.Landmasses);
             session.SetRegionDraft(importedDocument.Draft);
         }
         session.RunFull();
@@ -110,7 +133,8 @@ public sealed class MapGenerationRunner
             generationOptions,
             requestOptions.TectonicJsonMode,
             requestOptions.ElevationJsonMode,
-            requestOptions.ClimateJsonMode);
+            requestOptions.ClimateJsonMode,
+            outputOptions: requestOptions.OutputOptions);
         if (string.IsNullOrWhiteSpace(requestOptions.RegionDraftOutputPath))
             return result;
 
@@ -183,11 +207,20 @@ public sealed class MapGenerationRunner
         if (!File.Exists(options.MaskPath))
             throw new FileNotFoundException("Mask file was not found.", options.MaskPath);
 
+        if (options.GenerationMode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom)
+        {
+            if (string.IsNullOrWhiteSpace(options.WorldMaskPath))
+                throw new ArgumentException("Automatic and custom regional generation require a world mask source (--world-mask).", nameof(options));
+            if (!File.Exists(options.WorldMaskPath))
+                throw new FileNotFoundException("World mask file was not found.", options.WorldMaskPath);
+        }
+
         if (string.IsNullOrWhiteSpace(options.OutputDirectory))
             throw new ArgumentException("Output directory is required.", nameof(options));
 
         if (!string.IsNullOrWhiteSpace(options.RegionDraftPath) && !File.Exists(options.RegionDraftPath))
             throw new FileNotFoundException("Region draft file was not found.", options.RegionDraftPath);
         options.GenerationOptions.Validate();
+        options.OutputOptions.Validate();
     }
 }

@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.GeoJson;
 using MapRegionizer.Runner;
@@ -101,6 +102,20 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "m":
                 options.MaskPath = value;
                 break;
+            case "world-mask":
+            case "world-input":
+                options.WorldMaskPath = value;
+                break;
+            case "requested-origin-x":
+            case "region-origin-x":
+                options.RequestedOriginX = ParseInt(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "requested-origin-y":
+            case "region-origin-y":
+                options.RequestedOriginY = ParseInt(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
             case "out":
             case "output":
             case "o":
@@ -108,6 +123,10 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
                 break;
             case "pixel-size":
                 options.PixelSize = ParseDouble(value, name);
+                break;
+            case "units-per-cell":
+                options.UnitsPerCell = ParseDouble(value, name);
+                options.SpatialConfigurationEnabled = true;
                 break;
             case "simplify-tolerance":
                 options.SimplifyTolerance = ParseDouble(value, name);
@@ -138,6 +157,81 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
                 break;
             case "projection":
                 options.ProjectionMode = ParseProjection(value, name);
+                break;
+            case "world-model":
+                options.WorldModel = ParseEnum<WorldModelKind>(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "coverage":
+            case "extent":
+                options.CoverageKind = ParseEnum<MapCoverageKind>(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "grid-mapping":
+            case "grid-projection":
+                options.GridMapping = ParseGridMapping(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "topology":
+                options.Topology = ParseTopology(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "generation-mode":
+            case "regional-mode":
+            case "influence":
+                options.GenerationMode = ParseEnum<RegionalGenerationMode>(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "west":
+            case "region-west":
+                options.WestLongitude = ParseDouble(value, name);
+                options.CoverageKind = MapCoverageKind.Regional;
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "east":
+            case "region-east":
+                options.EastLongitude = ParseDouble(value, name);
+                options.CoverageKind = MapCoverageKind.Regional;
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "south":
+            case "region-south":
+                options.SouthLatitude = ParseDouble(value, name);
+                options.CoverageKind = MapCoverageKind.Regional;
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "north":
+            case "region-north":
+                options.NorthLatitude = ParseDouble(value, name);
+                options.CoverageKind = MapCoverageKind.Regional;
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "working-halo":
+                options.WorkingHaloCells = ParseInt(value, name);
+                options.SpatialConfigurationEnabled = true;
+                break;
+            case "output-coordinates":
+            case "output-coordinate-system":
+                options.OutputCoordinates = ParseOutputCoordinates(value, name);
+                break;
+            case "output-latitude-overflow":
+                options.OutputLatitudeOverflowPolicy = ParseEnum<LatitudeOverflowPolicy>(value, name);
+                break;
+            case "output-antimeridian":
+            case "antimeridian":
+                options.OutputAntimeridianPolicy = ParseEnum<AntimeridianOutputPolicy>(value, name);
+                break;
+            case "output-densification":
+                options.OutputAdaptiveDensification = ParseBool(value, name);
+                break;
+            case "output-projection-tolerance":
+                options.OutputProjectionErrorTolerance = ParseDouble(value, name);
+                break;
+            case "output-densification-depth":
+                options.OutputMaxDensificationDepth = ParseInt(value, name);
+                break;
+            case "output-min-segment-length":
+                options.OutputMinDensificationSegmentLength = ParseDouble(value, name);
                 break;
             case "plate-count":
                 options.PlateCount = ParseInt(value, name);
@@ -370,11 +464,24 @@ static void PrintGenerateUsage()
     Console.WriteLine();
     Console.WriteLine("Required:");
     Console.WriteLine("  --mask, --input, -m <path>       Source mask image. White pixels are land.");
+    Console.WriteLine("  --world-mask <path>              Wider world mask for Automatic/Custom regional influence.");
     Console.WriteLine("  --out, --output, -o <directory>  Output artifact directory.");
     Console.WriteLine();
     Console.WriteLine("Options:");
     Console.WriteLine("  --config <json>                  Load MapGenerationRunOptions JSON before later overrides.");
     Console.WriteLine("  --seed <int>                     Deterministic generation seed.");
+    Console.WriteLine("  --world-model spherical|planar   New world model (enables spatial configuration).");
+    Console.WriteLine("  --coverage global|regional       Geographic coverage kind.");
+    Console.WriteLine("  --grid-mapping equirectangular|web-mercator");
+    Console.WriteLine("  --topology open|cylindrical      Grid edge topology.");
+    Console.WriteLine("  --generation-mode legacy|automatic|isolated|custom");
+    Console.WriteLine("  --requested-origin-x/y <int>     World-grid origin of the selected mask (for regional requests).");
+    Console.WriteLine("  --west/--east <degrees>          Region longitude interval; antimeridian is supported.");
+    Console.WriteLine("  --south/--north <degrees>        Region latitude bounds.");
+    Console.WriteLine("  --units-per-cell <number>        Canonical grid map-unit scale.");
+    Console.WriteLine("  --output-coordinates grid|geographic|web-mercator");
+    Console.WriteLine("  --output-latitude-overflow reject|clip");
+    Console.WriteLine("  --output-antimeridian auto|unwrap|split");
     Console.WriteLine("  --target-area <uint>             Target region area. Default: 400.");
     Console.WriteLine("  --points-multiplier <number>     Region point multiplier. Default: 4.");
     Console.WriteLine("  --min-area-ratio <number>        Minimum area ratio. Default: 0.75.");
@@ -418,4 +525,43 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --write-region-draft <geojson>   Export canonical raw regions as an editable draft.");
     Console.WriteLine("  --region-distortion <bool>       Override the draft's boundary-distortion setting.");
     Console.WriteLine("  --debug                          Print memory diagnostics per stage.");
+}
+
+static OutputCoordinateSystem ParseOutputCoordinates(string value, string name)
+{
+    var normalized = value.Replace("-", string.Empty, StringComparison.Ordinal)
+        .Replace("_", string.Empty, StringComparison.Ordinal)
+        .Replace("/", string.Empty, StringComparison.Ordinal);
+
+    return normalized.ToLowerInvariant() switch
+    {
+        "grid" or "gridmapunits" => OutputCoordinateSystem.GridMapUnits,
+        "geographic" or "geographiclongitudelatitude" or "lonlat" => OutputCoordinateSystem.GeographicLongitudeLatitude,
+        "webmercator" or "webmercator3857" or "epsg3857" => OutputCoordinateSystem.WebMercator3857,
+        _ => throw new ArgumentException($"Option {name} expects grid, geographic, or web-mercator.")
+    };
+}
+
+static GridMappingKind ParseGridMapping(string value, string name)
+{
+    var normalized = value.Replace("-", string.Empty, StringComparison.Ordinal)
+        .Replace("_", string.Empty, StringComparison.Ordinal);
+    return normalized.ToLowerInvariant() switch
+    {
+        "equirectangular" or "equirectangularworld" => GridMappingKind.Equirectangular,
+        "webmercator" or "webmercator3857" => GridMappingKind.WebMercator,
+        _ => throw new ArgumentException($"Option {name} expects equirectangular or web-mercator.")
+    };
+}
+
+static GridTopologyKind ParseTopology(string value, string name)
+{
+    var normalized = value.Replace("-", string.Empty, StringComparison.Ordinal)
+        .Replace("_", string.Empty, StringComparison.Ordinal);
+    return normalized.ToLowerInvariant() switch
+    {
+        "open" or "openrectangular" => GridTopologyKind.OpenRectangular,
+        "cylindrical" or "cylindricalx" => GridTopologyKind.CylindricalX,
+        _ => throw new ArgumentException($"Option {name} expects open or cylindrical.")
+    };
 }

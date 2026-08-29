@@ -24,17 +24,20 @@ public static class MapGenerationArtifactWriter
         TectonicPlateJsonExportMode tectonicJsonMode = TectonicPlateJsonExportMode.Summary,
         ElevationJsonExportMode elevationJsonMode = ElevationJsonExportMode.Summary,
         ClimateJsonExportMode climateJsonMode = ClimateJsonExportMode.Summary,
-        MapArtifactRenderOptions? renderOptions = null)
+        MapArtifactRenderOptions? renderOptions = null,
+        MapOutputOptions? outputOptions = null)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(options);
         renderOptions ??= new MapArtifactRenderOptions();
+        outputOptions ??= new MapOutputOptions();
+        outputOptions.Validate();
 
         outputDirectory = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(outputDirectory);
 
         var artifacts = BuildArtifactPaths(outputDirectory, map);
-        WriteArtifacts(map, artifacts, outputDirectory, tectonicJsonMode, elevationJsonMode, climateJsonMode, renderOptions);
+        WriteArtifacts(map, artifacts, outputDirectory, tectonicJsonMode, elevationJsonMode, climateJsonMode, renderOptions, outputOptions);
 
         var summary = BuildSummary(map, artifacts, Path.GetFullPath(maskPath), outputDirectory, options, tectonicJsonMode, elevationJsonMode, climateJsonMode);
         WriteSummary(summary);
@@ -101,7 +104,8 @@ public static class MapGenerationArtifactWriter
         TectonicPlateJsonExportMode tectonicJsonMode,
         ElevationJsonExportMode elevationJsonMode,
         ClimateJsonExportMode climateJsonMode,
-        MapArtifactRenderOptions renderOptions)
+        MapArtifactRenderOptions renderOptions,
+        MapOutputOptions outputOptions)
     {
         MapImageRenderer.RenderToFile(map, artifacts.ResultImage, new MapRenderOptions
         {
@@ -162,7 +166,7 @@ public static class MapGenerationArtifactWriter
             {
                 Scale = renderOptions.Scale
             });
-            RiverJsonWriter.WriteToFile(map, artifacts.RiversJson);
+            RiverJsonWriter.WriteToFile(map, artifacts.RiversJson, outputOptions);
         }
 
         if (artifacts.ClimateJson is not null)
@@ -181,9 +185,9 @@ public static class MapGenerationArtifactWriter
             });
         }
 
-        GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson);
-        GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson);
-        GeoJsonMapWriter.WriteWaterBodiesToFile(map, artifacts.WaterBodiesGeoJson);
+        GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson, outputOptions);
+        GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson, outputOptions);
+        GeoJsonMapWriter.WriteWaterBodiesToFile(map, artifacts.WaterBodiesGeoJson, outputOptions);
 
         if (map.RegionRaster is not null)
             RegionRasterArtifactWriter.Write(map, artifacts.RegionsBin!, artifacts.RegionsSummaryJson!);

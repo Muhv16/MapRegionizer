@@ -35,6 +35,10 @@ public sealed class TectonicWorldContext
     public const int WorldWidth = 4096;
     public const int WorldHeight = 2048;
 
+    // The latent tectonic world has one explicit cylindrical topology. All
+    // world-edge normalization stays behind that topology object; consumers
+    // sample it in world coordinates and never implement a second wrap rule.
+    private static readonly IGridTopology WorldTopology = new CylindricalXTopology(WorldWidth, WorldHeight);
     private readonly IReadOnlyList<TectonicWorldPlate> _plates;
 
     private TectonicWorldContext(
@@ -107,7 +111,7 @@ public sealed class TectonicWorldContext
 
     public TectonicPlateId SamplePlateId(int worldX, int worldY)
     {
-        var x = CylindricalXTopology.NormalizeX(worldX, WorldWidth);
+        var x = GridTopologyMath.NormalizeX(WorldTopology, worldX);
         var y = Math.Clamp(worldY, 0, WorldHeight - 1);
         var best = _plates[0];
         var bestDistance = double.MaxValue;
@@ -158,7 +162,9 @@ public sealed class TectonicWorldContext
             var amplitude = 40 + (int)(StableHash.Hash(seed, i, 0, salt + 1) % 240);
             var points = Enumerable.Range(0, 48)
                 .Select(step => new GridPoint(
-                    CylindricalXTopology.NormalizeX(startX + (int)Math.Round(Math.Sin(step * 0.32 + StableHash.Unit(seed, i, 0, salt + 2) * 6.2) * amplitude), WorldWidth),
+                    GridTopologyMath.NormalizeX(
+                        WorldTopology,
+                        startX + (int)Math.Round(Math.Sin(step * 0.32 + StableHash.Unit(seed, i, 0, salt + 2) * 6.2) * amplitude)),
                     Math.Clamp((int)((step + 0.5) * WorldHeight / 48.0), 0, WorldHeight - 1)))
                 .Distinct()
                 .ToArray();

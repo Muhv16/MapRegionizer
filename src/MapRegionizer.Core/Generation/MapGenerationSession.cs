@@ -43,7 +43,7 @@ public sealed class MapGenerationSession
 
         var requestedSpatial = request.Options.EffectiveSpatial;
         var workingOptions = PrepareWorkingOptions(request, requestedSpatial);
-        var randomSeed = workingOptions.Seed ?? (request.Mode == RegionalGenerationMode.Automatic
+        var randomSeed = workingOptions.Seed ?? (request.Mode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom
             ? request.WorldSeed
             : Random.Shared.Next());
         var context = new MapGenerationContext(

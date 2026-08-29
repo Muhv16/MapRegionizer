@@ -47,9 +47,31 @@ public sealed record RegionDraftDocument(
     string MaskFingerprint,
     string LandmassFingerprint,
     bool ApplyBoundaryDistortion,
-    RegionDraft Draft)
+    RegionDraft Draft,
+    MapSpatialReference? SpatialReference = null)
 {
-    public const string CurrentSchemaVersion = "1.0";
+    /// <summary>
+    /// The current portable authoring format.  Version 1.0 remains readable
+    /// through the adapter migration path, but every newly written document
+    /// carries the complete canonical spatial descriptor.
+    /// </summary>
+    public const string CurrentSchemaVersion = "2.0";
+
+    /// <summary>
+    /// True when the document was read from the historical v1 shape.  Keeping
+    /// this bit separate from the compatibility profile lets consumers show a
+    /// migration notice without changing the historical enum semantics.
+    /// </summary>
+    public bool IsMigratedFromV1 { get; init; }
+
+    /// <summary>
+    /// Canonical grid identity used by draft compatibility checks.  Output
+    /// coordinates deliberately do not belong here: a draft can be exported
+    /// as grid, geographic, or Web Mercator without becoming a different
+    /// authoring document.
+    /// </summary>
+    public MapSpatialReference CanonicalSpatialReference => SpatialReference
+        ?? throw new InvalidOperationException("The region draft does not contain a canonical spatial reference.");
 }
 
 public enum RegionDiagnosticSeverity

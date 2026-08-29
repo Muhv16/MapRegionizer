@@ -16,6 +16,10 @@ public static class RegionDraftGeoJson
     public static string Write(RegionDraftDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
+        document = MigrateToCurrentSchema(document);
+        var spatialReference = document.SpatialReference
+            ?? throw new InvalidOperationException("Schema 2.0 region drafts require a canonical spatial reference.");
+        spatialReference.Validate();
         var geometrySerializer = GeoJsonSerializer.Create();
         var features = new JArray(document.Draft.Regions.OrderBy(region => region.Id?.Value ?? int.MaxValue).Select(region =>
         {
@@ -44,11 +48,14 @@ public static class RegionDraftGeoJson
             };
         }));
 
-        return new JObject
+        var root = new JObject
         {
             ["type"] = "FeatureCollection",
             ["schemaVersion"] = document.SchemaVersion,
+            // Kept as a read-only compatibility hint for older tools.  The
+            // v2 identity is the descriptor below, never this legacy enum.
             ["projectionMode"] = document.ProjectionMode.ToString(),
+            ["spatialReference"] = WriteSpatialReference(spatialReference),
             ["bounds"] = new JObject
             {
                 ["width"] = document.Bounds.Width,
@@ -59,7 +66,8 @@ public static class RegionDraftGeoJson
             ["landmassFingerprint"] = document.LandmassFingerprint,
             ["applyBoundaryDistortion"] = document.ApplyBoundaryDistortion,
             ["features"] = features
-        }.ToString(Formatting.Indented);
+        };
+        return root.ToString(Formatting.Indented);
     }
 
     public static void WriteToFile(RegionDraftDocument document, string filePath) => File.WriteAllText(filePath, Write(document));
@@ -71,22 +79,87 @@ public static class RegionDraftGeoJson
         if (!string.Equals(root.Value<string>("type"), "FeatureCollection", StringComparison.Ordinal))
             throw new InvalidOperationException("A region draft must be a GeoJSON FeatureCollection.");
 
+        var schemaVersion = RequiredString(root, "schemaVersion");
         var bounds = root["bounds"] as JObject ?? throw new InvalidOperationException("Region draft bounds are required.");
         var geometrySerializer = GeoJsonSerializer.Create();
         var regions = (root["features"] as JArray ?? throw new InvalidOperationException("Region draft features are required."))
             .Select(feature => ReadRegion((JObject)feature, geometrySerializer)).ToList();
 
-        return new RegionDraftDocument(
-            RequiredString(root, "schemaVersion"),
-            ParseEnum<MapProjectionMode>(RequiredString(root, "projectionMode"), "projectionMode"),
-            new MapBounds(RequiredDouble(bounds, "width"), RequiredDouble(bounds, "height"), RequiredDouble(bounds, "pixelSize")),
+        // v1 requires this historical enum. In v2 it is only a compatibility
+        // hint, so descriptor-only documents remain valid.
+        var projectionMode = root.Value<string>("projectionMode") is { Length: > 0 } projection
+            ? ParseEnum<MapProjectionMode>(projection, "projectionMode")
+            : MapProjectionMode.EquirectangularWorld;
+        if (string.Equals(schemaVersion, "1.0", StringComparison.Ordinal) &&
+            root.Value<string>("projectionMode") is not { Length: > 0 })
+        {
+            throw new InvalidOperationException("Schema 1.0 region drafts require projectionMode.");
+        }
+        var mapBounds = new MapBounds(
+            RequiredDouble(bounds, "width"),
+            RequiredDouble(bounds, "height"),
+            bounds.Value<double?>("pixelSize") ?? RequiredDouble(bounds, "unitsPerCell"));
+        var document = new RegionDraftDocument(
+            schemaVersion,
+            projectionMode,
+            mapBounds,
             RequiredString(root, "maskFingerprint"),
             RequiredString(root, "landmassFingerprint"),
             root.Value<bool?>("applyBoundaryDistortion") ?? false,
             new RegionDraft(regions));
+
+        return schemaVersion switch
+        {
+            RegionDraftDocument.CurrentSchemaVersion => document with
+            {
+                SpatialReference = ReadSpatialReference(root["spatialReference"] as JObject
+                    ?? throw new InvalidOperationException("Schema 2.0 region drafts require a spatialReference descriptor."))
+            },
+            "1.0" => document with
+            {
+                // v1 did not store a descriptor.  Materialize the exact
+                // historical semantics so Flat/Regional are not silently
+                // interpreted as the new open regional model.
+                SpatialReference = BuildLegacyReference(projectionMode, mapBounds),
+                IsMigratedFromV1 = true
+            },
+            _ => throw new InvalidOperationException($"Unsupported region draft schema version '{schemaVersion}'.")
+        };
     }
 
     public static RegionDraftDocument ReadFromFile(string filePath) => Read(File.ReadAllText(filePath));
+
+    /// <summary>
+    /// Normalizes a legacy document to the current portable schema. The
+    /// historical projection enum is converted through
+    /// <see cref="LegacyCompatibilityProfile"/> semantics before writing; no
+    /// output coordinate choice is introduced into the draft identity.
+    /// </summary>
+    public static RegionDraftDocument MigrateToCurrentSchema(RegionDraftDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (string.Equals(document.SchemaVersion, RegionDraftDocument.CurrentSchemaVersion, StringComparison.Ordinal))
+        {
+            if (document.SpatialReference is null)
+                throw new InvalidOperationException("Schema 2.0 region drafts require a canonical spatial reference.");
+            document.SpatialReference.Validate();
+            return document;
+        }
+
+        if (!string.Equals(document.SchemaVersion, "1.0", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Unsupported region draft schema version '{document.SchemaVersion}'.");
+
+        // A v1 descriptor, if attached by a caller, is not authoritative:
+        // the historical enum is the source of truth for its edge semantics.
+        var spatialReference = BuildLegacyReference(document.ProjectionMode, document.Bounds);
+        spatialReference.Validate();
+        return document with
+        {
+            SchemaVersion = RegionDraftDocument.CurrentSchemaVersion,
+            SpatialReference = spatialReference,
+            IsMigratedFromV1 = true
+        };
+    }
 
     private static RegionDraftRegion ReadRegion(JObject feature, JsonSerializer geometrySerializer)
     {
@@ -111,6 +184,89 @@ public static class RegionDraftGeoJson
         ?? throw new InvalidOperationException($"Region draft property '{property}' is required.");
 
     private static double RequiredDouble(JObject source, string property) => source.Value<double?>(property)
+        ?? throw new InvalidOperationException($"Region draft property '{property}' is required.");
+
+    private static JObject WriteSpatialReference(MapSpatialReference reference) =>
+        new()
+        {
+            ["worldModel"] = new JObject
+            {
+                ["kind"] = reference.WorldModel.Kind.ToString(),
+                ["planetRadius"] = reference.WorldModel.PlanetRadius
+            },
+            ["gridMapping"] = reference.GridMapping.ToString(),
+            ["topology"] = reference.Topology.ToString(),
+            ["coverage"] = new JObject
+            {
+                ["kind"] = reference.Coverage.Kind.ToString(),
+                ["longitudeStart"] = reference.Longitude.StartLongitudeDegrees,
+                ["longitudeSpan"] = reference.Longitude.SpanDegrees,
+                ["southLatitude"] = reference.Coverage.SouthLatitude,
+                ["northLatitude"] = reference.Coverage.NorthLatitude
+            },
+            ["gridWidth"] = reference.GridWidth,
+            ["gridHeight"] = reference.GridHeight,
+            ["unitsPerCell"] = reference.UnitsPerCell,
+            ["canonicalCoordinates"] = reference.CanonicalCoordinates.ToString(),
+            ["preserveProjectedCellAspectRatio"] = reference.PreserveProjectedCellAspectRatio,
+            ["legacyCompatibility"] = reference.LegacyCompatibility.ToString()
+        };
+
+    private static MapSpatialReference ReadSpatialReference(JObject source)
+    {
+        var world = source["worldModel"] as JObject
+            ?? throw new InvalidOperationException("Region draft spatialReference.worldModel is required.");
+        var coverage = source["coverage"] as JObject
+            ?? throw new InvalidOperationException("Region draft spatialReference.coverage is required.");
+
+        var worldKind = ParseEnum<WorldModelKind>(RequiredString(world, "kind"), "worldModel.kind");
+        var planetRadius = world.Value<double?>("planetRadius");
+        var longitudeStart = RequiredDouble(coverage, "longitudeStart");
+        var longitudeSpan = RequiredDouble(coverage, "longitudeSpan");
+        var coverageKind = ParseEnum<MapCoverageKind>(RequiredString(coverage, "kind"), "coverage.kind");
+        var reference = new MapSpatialReference
+        {
+            GridWidth = RequiredInt(source, "gridWidth"),
+            GridHeight = RequiredInt(source, "gridHeight"),
+            UnitsPerCell = RequiredDouble(source, "unitsPerCell"),
+            WorldModel = worldKind == WorldModelKind.Spherical
+                ? WorldModelDescriptor.Spherical(planetRadius)
+                : WorldModelDescriptor.Planar(),
+            Coverage = MapCoverage.Create(
+                coverageKind,
+                new LongitudeInterval(longitudeStart, longitudeSpan),
+                RequiredDouble(coverage, "southLatitude"),
+                RequiredDouble(coverage, "northLatitude")),
+            GridMapping = ParseEnum<GridMappingKind>(RequiredString(source, "gridMapping"), "gridMapping"),
+            Topology = ParseEnum<GridTopologyKind>(RequiredString(source, "topology"), "topology"),
+            CanonicalCoordinates = ParseEnum<CoordinateSpaceKind>(RequiredString(source, "canonicalCoordinates"), "canonicalCoordinates"),
+            PreserveProjectedCellAspectRatio = source.Value<bool?>("preserveProjectedCellAspectRatio") ?? true,
+            LegacyCompatibility = ParseEnum<LegacyCompatibilityProfile>(
+                source.Value<string>("legacyCompatibility") ?? nameof(LegacyCompatibilityProfile.None),
+                "legacyCompatibility",
+                LegacyCompatibilityProfile.None)
+        };
+        reference.Validate();
+        return reference;
+    }
+
+    private static MapSpatialReference BuildLegacyReference(MapProjectionMode projectionMode, MapBounds bounds)
+    {
+        if (!double.IsFinite(bounds.UnitsPerCell) || bounds.UnitsPerCell <= 0)
+            throw new InvalidOperationException("Legacy region draft bounds contain an invalid pixel size.");
+        var width = bounds.Width / bounds.UnitsPerCell;
+        var height = bounds.Height / bounds.UnitsPerCell;
+        if (width <= 0 || height <= 0 ||
+            Math.Abs(width - Math.Round(width)) > 1e-9 || Math.Abs(height - Math.Round(height)) > 1e-9)
+            throw new InvalidOperationException("Legacy region draft bounds do not describe an integral canonical grid.");
+
+        var spatial = MapSpatialOptions.FromLegacy(projectionMode, bounds.UnitsPerCell);
+        var reference = spatial.CreateReference((int)Math.Round(width), (int)Math.Round(height));
+        reference.Validate();
+        return reference;
+    }
+
+    private static int RequiredInt(JObject source, string property) => source.Value<int?>(property)
         ?? throw new InvalidOperationException($"Region draft property '{property}' is required.");
 
     private static T ParseEnum<T>(string value, string property, T? fallback = null)

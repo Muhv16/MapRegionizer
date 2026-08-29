@@ -51,14 +51,202 @@
                             </StackPanel>
                         </views:SettingsRow.Value>
                     </views:SettingsRow>
-                    <views:SettingsRow Label="{Binding L[Projection]}" Tip="{Binding L[HelpProjection]}">
+                    <views:SettingsRow Label="{Binding L[UnitsPerCell]}" Tip="{Binding L[HelpUnitsPerCell]}">
                         <views:SettingsRow.Value>
-                            <ComboBox ItemsSource="{Binding ProjectionModes}" SelectedItem="{Binding ProjectionMode}"/>
+                            <NumericUpDown Value="{Binding SpatialConfiguration.UnitsPerCell}" Minimum="0.01" FormatString="N2"/>
                         </views:SettingsRow.Value>
                     </views:SettingsRow>
-                    <views:SettingsRow Label="{Binding L[PixelSize]}" Tip="{Binding L[HelpPixelSize]}">
+                    <views:SettingsRow Label="{Binding L[WorldModel]}">
                         <views:SettingsRow.Value>
-                            <NumericUpDown Value="{Binding PixelSize}" Minimum="0.01" FormatString="N2"/>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="WorldModel" IsChecked="{Binding SpatialConfiguration.IsSpherical, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[WorldSpherical]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[WorldSphericalDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="WorldModel" IsChecked="{Binding SpatialConfiguration.IsFlat, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[WorldFlat]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[WorldFlatDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Coverage]}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="Coverage" IsChecked="{Binding SpatialConfiguration.IsWholeWorld, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[CoverageWorld]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[CoverageWorldDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="Coverage" IsChecked="{Binding SpatialConfiguration.IsRegion, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[CoverageRegion]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[CoverageRegionDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[GridMapping]}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="GridMapping" IsChecked="{Binding SpatialConfiguration.IsEquirectangular, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[MappingEquirectangular]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[MappingEquirectangularDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="GridMapping" IsChecked="{Binding SpatialConfiguration.IsWebMercator, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[MappingWebMercator]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[MappingWebMercatorDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Topology]}" IsVisible="{Binding SpatialConfiguration.IsWholeWorld}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="Topology" IsChecked="{Binding SpatialConfiguration.IsOpenRectangular, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[TopologyOpen]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[TopologyOpenDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="Topology" IsVisible="{Binding SpatialConfiguration.ShowHorizontalWrapping}" IsChecked="{Binding SpatialConfiguration.IsHorizontalWrapping, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[TopologyWrap]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[TopologyWrapDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Influence]}" IsVisible="{Binding SpatialConfiguration.ShowRegionalInfluence}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="Influence" IsChecked="{Binding SpatialConfiguration.IsIsolated, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[InfluenceIsolated]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[InfluenceIsolatedDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="Influence" IsChecked="{Binding SpatialConfiguration.IsAutomatic, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[InfluenceAutomatic]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[InfluenceAutomaticDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[WorldMask]}" Tip="{Binding L[WorldMask]}" IsVisible="{Binding SpatialConfiguration.ShowWorldMask}">
+                        <views:SettingsRow.Value>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <TextBox Text="{Binding WorldMaskPath}" PlaceholderText="{Binding L[WorldMask]}" ToolTip.Tip="{Binding WorldMaskPath}"/>
+                                <Button Grid.Column="1" Content="{Binding L[Browse]}" Command="{Binding BrowseWorldMaskCommand}" MinWidth="76"/>
+                            </Grid>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[WorkingHalo]}" Tip="{Binding L[WorkingHalo]}" IsVisible="{Binding SpatialConfiguration.ShowWorkingHalo}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding SpatialConfiguration.WorkingHaloCells}" Minimum="0" FormatString="N0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[RequestedOriginX]}" IsVisible="{Binding SpatialConfiguration.ShowRequestedOrigin}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding SpatialConfiguration.RequestedOriginX}" FormatString="N0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[RequestedOriginY]}" IsVisible="{Binding SpatialConfiguration.ShowRequestedOrigin}">
+                        <views:SettingsRow.Value>
+                            <NumericUpDown Value="{Binding SpatialConfiguration.RequestedOriginY}" FormatString="N0"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowRegionBounds}">
+                        <views:SettingsRow Label="{Binding L[WestLongitude]}">
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.WestLongitude}" Minimum="-360" Maximum="360" FormatString="N2"/></views:SettingsRow.Value>
+                        </views:SettingsRow>
+                        <views:SettingsRow Label="{Binding L[EastLongitude]}">
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.EastLongitude}" Minimum="-360" Maximum="360" FormatString="N2"/></views:SettingsRow.Value>
+                        </views:SettingsRow>
+                        <views:SettingsRow Label="{Binding L[SouthLatitude]}">
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.SouthLatitude}" Minimum="-90" Maximum="90" FormatString="N2"/></views:SettingsRow.Value>
+                        </views:SettingsRow>
+                        <views:SettingsRow Label="{Binding L[NorthLatitude]}">
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.NorthLatitude}" Minimum="-90" Maximum="90" FormatString="N2"/></views:SettingsRow.Value>
+                        </views:SettingsRow>
+                    </StackPanel>
+                    <views:SettingsRow Label="{Binding L[OutputCoordinates]}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="OutputCoordinates" IsChecked="{Binding SpatialConfiguration.IsGridMapUnitsOutput, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputGrid]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputGridDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="OutputCoordinates" IsChecked="{Binding SpatialConfiguration.IsGeographicOutput, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputGeographic]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputGeographicDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="OutputCoordinates" IsChecked="{Binding SpatialConfiguration.IsWebMercatorOutput, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputWebMercator]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputWebMercatorDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[OutputLatitudeOverflow]}" IsVisible="{Binding SpatialConfiguration.ShowOutputLatitudeOverflow}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="OutputLatitude" IsChecked="{Binding SpatialConfiguration.OutputLatitudeReject, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputLatitudeReject]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputLatitudeRejectDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="OutputLatitude" IsChecked="{Binding SpatialConfiguration.OutputLatitudeClip, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputLatitudeClip]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputLatitudeClipDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[OutputAntimeridian]}" IsVisible="{Binding SpatialConfiguration.ShowOutputAntimeridian}">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="OutputAntimeridian" IsChecked="{Binding SpatialConfiguration.OutputAntimeridianAuto, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputAntimeridianAuto]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputAntimeridianAutoDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="OutputAntimeridian" IsChecked="{Binding SpatialConfiguration.OutputAntimeridianUnwrap, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputAntimeridianUnwrap]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputAntimeridianUnwrapDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton GroupName="OutputAntimeridian" IsChecked="{Binding SpatialConfiguration.OutputAntimeridianSplit, Mode=TwoWay}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding L[OutputAntimeridianSplit]}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding L[OutputAntimeridianSplitDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
                         </views:SettingsRow.Value>
                     </views:SettingsRow>
                     <views:SettingsRow Label="{Binding L[SimplifyTolerance]}" Tip="{Binding L[HelpSimplifyTolerance]}">

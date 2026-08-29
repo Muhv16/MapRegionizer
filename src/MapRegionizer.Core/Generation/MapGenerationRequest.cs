@@ -53,8 +53,14 @@ public sealed record MapGenerationRequest
             });
         }
         validatedOptions.Validate();
-        if (Mode == RegionalGenerationMode.Automatic && MaskSource is null)
-            throw new ArgumentException("Automatic regional generation requires an IMapMaskSource for the working domain.", nameof(MaskSource));
+        if ((Mode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom) && MaskSource is null)
+            throw new ArgumentException("Automatic and custom regional generation require an IMapMaskSource for the working domain.", nameof(MaskSource));
+        if (Mode == RegionalGenerationMode.Custom && (ClimateBoundary is null || HydrologyBoundary is null))
+        {
+            throw new ArgumentException(
+                "Custom regional generation requires both climate and hydrology boundary contexts.",
+                nameof(ClimateBoundary));
+        }
 
         this.RequestedDomain = RequestedDomain;
         this.WorkingDomain = WorkingDomain;
@@ -145,6 +151,16 @@ public sealed record MapGenerationRequest
         IClimateBoundaryContext? climateBoundary = null,
         IHydrologyBoundaryContext? hydrologyBoundary = null) =>
         new(requestedDomain, workingDomain, maskSource, options, RegionalGenerationMode.Automatic, climateBoundary, hydrologyBoundary);
+
+    /// <summary>Creates a request whose world and boundary data are supplied by the caller.</summary>
+    public static MapGenerationRequest Custom(
+        RequestedDomain requestedDomain,
+        WorkingDomain workingDomain,
+        IMapMaskSource maskSource,
+        IClimateBoundaryContext climateBoundary,
+        IHydrologyBoundaryContext hydrologyBoundary,
+        MapGenerationOptions? options = null) =>
+        new(requestedDomain, workingDomain, maskSource, options, RegionalGenerationMode.Custom, climateBoundary, hydrologyBoundary);
 
     private sealed class SingleMaskSource : IMapMaskSource
     {

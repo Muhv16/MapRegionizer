@@ -1,4 +1,5 @@
 using MapRegionizer.Core.Domain;
+using MapRegionizer.Core.Spatial;
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Generation;
@@ -587,14 +588,20 @@ internal static class GeneratedMapCropper
             requested.Height,
             waterBodyIds,
             waterBodyKinds,
-            CropWaterBodyMetadata(source.Bodies, waterBodyIds, requested.Width, requested.Height));
+            CropWaterBodyMetadata(
+                source.Bodies,
+                waterBodyIds,
+                requested.Width,
+                requested.Height,
+                CreateRequestedTopology(context, requested)));
     }
 
     private static IReadOnlyList<WaterBodyClassification> CropWaterBodyMetadata(
         IReadOnlyList<WaterBodyClassification> source,
         int[] waterBodyIds,
         int width,
-        int height)
+        int height,
+        IGridTopology topology)
     {
         var result = new List<WaterBodyClassification>(source.Count);
         foreach (var body in source)
@@ -610,7 +617,7 @@ internal static class GeneratedMapCropper
             if (points.Count == 0)
                 continue;
 
-            var touchesEdge = points.Any(point => point.X == 0 || point.Y == 0 || point.X == width - 1 || point.Y == height - 1);
+            var touchesEdge = points.Any(point => GridTopologyMath.IsOpenBoundary(topology, point));
             result.Add(body with
             {
                 CellCount = points.Count,
@@ -620,6 +627,20 @@ internal static class GeneratedMapCropper
         }
 
         return result;
+    }
+
+    private static IGridTopology CreateRequestedTopology(MapGenerationContext context, RequestedDomain requested)
+    {
+        var reference = RequestedSpatialReference(context, requested);
+        if (reference.LegacyCompatibility is LegacyCompatibilityProfile.Flat or LegacyCompatibilityProfile.Regional)
+            return new OpenRectangularTopology(requested.Width, requested.Height);
+
+        return reference.Topology switch
+        {
+            GridTopologyKind.OpenRectangular => new OpenRectangularTopology(requested.Width, requested.Height),
+            GridTopologyKind.CylindricalX => new CylindricalXTopology(requested.Width, requested.Height),
+            _ => throw new InvalidOperationException($"Unknown requested grid topology: {reference.Topology}.")
+        };
     }
 
     private static WaterSurfaceMap? CropWaterSurfaces(WaterSurfaceMap? source, MapGenerationContext context, RequestedDomain requested)

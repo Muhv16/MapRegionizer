@@ -133,7 +133,12 @@ public enum RegionalGenerationMode
 {
     Legacy,
     Isolated,
-    Automatic
+    Automatic,
+    /// <summary>
+    /// The caller supplies the world/mask and boundary contexts explicitly.
+    /// Core does not invent a custom context for this mode.
+    /// </summary>
+    Custom
 }
 
 /// <summary>Short alias for callers that use the terminology from the design document.</summary>
@@ -141,7 +146,8 @@ public enum GenerationMode
 {
     Legacy = RegionalGenerationMode.Legacy,
     Isolated = RegionalGenerationMode.Isolated,
-    Automatic = RegionalGenerationMode.Automatic
+    Automatic = RegionalGenerationMode.Automatic,
+    Custom = RegionalGenerationMode.Custom
 }
 
 /// <summary>Source for world-aligned mask windows used by automatic regional generation.</summary>

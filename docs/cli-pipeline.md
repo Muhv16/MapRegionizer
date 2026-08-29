@@ -60,7 +60,14 @@ dotnet run --project src\MapRegionizer.Cli -- generate `
   --region-distortion false
 ```
 
-Import checks schema version, projection, bounds and pixel size, mask fingerprint, and landmass fingerprint before applying the draft. `regions.geojson` remains the final compatibility export; `region-draft.geojson` is for saving and re-editing.
+Import checks the canonical spatial descriptor (world model, coverage, grid
+mapping, topology, dimensions, and units), mask fingerprint, and landmass
+fingerprint before applying the draft. `region-draft.geojson` is written as
+schema `2.0`; the reader still accepts schema `1.0` and derives its historical
+`LegacyCompatibilityProfile` before a subsequent write migrates it. Output
+coordinate choices are not part of this identity. `regions.geojson` remains
+the final compatibility export; `region-draft.geojson` is for saving and
+re-editing.
 
 ## Verification
 
@@ -88,6 +95,21 @@ The default and `-Full` modes restore, verify formatting, build, test, generate 
 --config <json>                  Load MapGenerationRunOptions JSON before CLI overrides
 --seed <int>                     Deterministic generation seed
 --pixel-size <number>            Pixel size in map units. Default: 1
+--units-per-cell <number>        Canonical GridMapUnits scale (new spatial mode)
+--world-model spherical|planar
+--coverage global|regional       Geographic extent kind
+--grid-mapping equirectangular|web-mercator
+--topology open|cylindrical      World edge semantics
+--generation-mode legacy|automatic|isolated|custom
+--world-mask <path>              Wider world mask for Automatic/Custom
+--requested-origin-x <int>       World-grid X origin of the selected mask
+--requested-origin-y <int>       World-grid Y origin of the selected mask
+--working-halo <int>              Extra cells requested around the selected mask
+--west <degrees> --east <degrees>
+--south <degrees> --north <degrees>  Regional extent; west/east may cross 180°
+--output-coordinates grid|geographic|web-mercator
+--output-latitude-overflow reject|clip
+--output-antimeridian auto|unwrap|split
 --target-area <uint>
 --points-multiplier <number>
 --min-area-ratio <number>

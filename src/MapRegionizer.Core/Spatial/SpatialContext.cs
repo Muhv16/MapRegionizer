@@ -11,6 +11,11 @@ public interface IGridMapping
 
 public interface IGridTopology
 {
+    /// <summary>
+    /// Resolves a displacement according to world edge semantics. A false
+    /// result means that the requested direction is an open boundary; callers
+    /// must not implement wrapping or pole handling themselves.
+    /// </summary>
     bool TryResolve(GridPoint origin, int dx, int dy, out GridPoint result);
     IEnumerable<GridPoint> GetNeighbors4(GridPoint point);
     IEnumerable<GridPoint> GetNeighbors8(GridPoint point);
@@ -396,6 +401,24 @@ public static class GridTopologyMath
 
     public static bool TryResolveX(IGridTopology topology, int x, out GridPoint result) =>
         topology.TryResolve(new GridPoint(0, 0), x, 0, out result);
+
+    /// <summary>
+    /// Returns whether any cardinal direction is an open world boundary at
+    /// the cell. This is intentionally derived from <see cref="IGridTopology.TryResolve"/>
+    /// so a future pole topology can change edge semantics without changing
+    /// generators that classify boundary-connected components.
+    /// </summary>
+    public static bool IsOpenBoundary(IGridTopology topology, GridPoint point)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        foreach (var (dx, dy) in new[] { (-1, 0), (1, 0), (0, -1), (0, 1) })
+        {
+            if (!topology.TryResolve(point, dx, dy, out _))
+                return true;
+        }
+
+        return false;
+    }
 }
 
 internal static class TopologyDirections

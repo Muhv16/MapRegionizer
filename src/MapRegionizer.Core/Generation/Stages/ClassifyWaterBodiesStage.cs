@@ -46,7 +46,7 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
         var classifications = new List<WaterBodyClassification>();
         var components = FindWaterComponents(mask, gridTopology);
         var edgeConnectedComponents = components
-            .Where(component => TouchesMapEdge(component, width, height))
+            .Where(component => TouchesMapEdge(component, gridTopology))
             .ToList();
         var oceanDistances = ComputeOceanDistances(mask, edgeConnectedComponents, gridTopology);
         var usedIds = new HashSet<int>();
@@ -56,7 +56,7 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
             var id = FindWaterBodyId(component, waterBodies, usedIds, options.EffectiveSpatial.UnitsPerCell, geometryFactory);
             usedIds.Add(id.Value);
 
-            var touchesEdge = TouchesMapEdge(component, width, height);
+            var touchesEdge = TouchesMapEdge(component, gridTopology);
             var areaRatio = component.Count / (double)Math.Max(1, length);
             var nearOcean = !touchesEdge && IsNearOcean(component, oceanDistances, width, options.WaterBodies.OceanSeaNearOceanMaxDistanceCells);
             var kind = ClassifyKind(touchesEdge, areaRatio, nearOcean, options.WaterBodies);
@@ -87,10 +87,8 @@ public sealed class ClassifyWaterBodiesStage : IMapGenerationStage
         return WaterBodyKind.InlandLake;
     }
 
-    private static bool TouchesMapEdge(IReadOnlyList<GridPoint> component, int width, int height)
-    {
-        return component.Any(p => p.X == 0 || p.X == width - 1 || p.Y == 0 || p.Y == height - 1);
-    }
+    private static bool TouchesMapEdge(IReadOnlyList<GridPoint> component, IGridTopology gridTopology) =>
+        component.Any(point => GridTopologyMath.IsOpenBoundary(gridTopology, point));
 
     private static int[] ComputeOceanDistances(
         MapMask mask,

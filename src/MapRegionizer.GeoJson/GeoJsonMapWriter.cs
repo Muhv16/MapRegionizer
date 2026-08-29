@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Spatial;
@@ -10,31 +12,44 @@ namespace MapRegionizer.GeoJson;
 
 public static class GeoJsonMapWriter
 {
+    /// <summary>
+    /// Legacy geometry-array export. Coordinates are explicitly canonical
+    /// GridMapUnits; callers that need a CRS-labelled GeoJSON document must
+    /// use the overload accepting <see cref="MapOutputOptions"/>.
+    /// </summary>
+    [Obsolete("Use the overload accepting MapOutputOptions to select and label an output coordinate system.")]
     public static string WriteRegions(GeneratedMap map) => Serialize(map.Regions.Select(r => r.Shape));
 
     public static string WriteRegions(GeneratedMap map, MapOutputOptions options) =>
         SerializeWithSpatialReference(map, map.Regions.Select(r => r.Shape), options);
 
+    /// <summary>Legacy canonical GridMapUnits geometry-array export.</summary>
+    [Obsolete("Use the overload accepting MapOutputOptions to select and label an output coordinate system.")]
     public static string WriteLandmasses(GeneratedMap map) => Serialize(map.Landmasses.Select(l => l.Shape));
 
     public static string WriteLandmasses(GeneratedMap map, MapOutputOptions options) =>
         SerializeWithSpatialReference(map, map.Landmasses.Select(l => l.Shape), options);
 
+    /// <summary>Legacy canonical GridMapUnits geometry-array export.</summary>
+    [Obsolete("Use the overload accepting MapOutputOptions to select and label an output coordinate system.")]
     public static string WriteWaterBodies(GeneratedMap map) => Serialize(map.WaterBodies.Select(w => w.Shape));
 
     public static string WriteWaterBodies(GeneratedMap map, MapOutputOptions options) =>
         SerializeWithSpatialReference(map, map.WaterBodies.Select(w => w.Shape), options);
 
+    [Obsolete("Use the overload accepting MapOutputOptions to select and label an output coordinate system.")]
     public static void WriteRegionsToFile(GeneratedMap map, string filePath) => File.WriteAllText(filePath, WriteRegions(map));
 
     public static void WriteRegionsToFile(GeneratedMap map, string filePath, MapOutputOptions options) =>
         File.WriteAllText(filePath, WriteRegions(map, options));
 
+    [Obsolete("Use the overload accepting MapOutputOptions to select and label an output coordinate system.")]
     public static void WriteLandmassesToFile(GeneratedMap map, string filePath) => File.WriteAllText(filePath, WriteLandmasses(map));
 
     public static void WriteLandmassesToFile(GeneratedMap map, string filePath, MapOutputOptions options) =>
         File.WriteAllText(filePath, WriteLandmasses(map, options));
 
+    [Obsolete("Use the overload accepting MapOutputOptions to select and label an output coordinate system.")]
     public static void WriteWaterBodiesToFile(GeneratedMap map, string filePath) => File.WriteAllText(filePath, WriteWaterBodies(map));
 
     public static void WriteWaterBodiesToFile(GeneratedMap map, string filePath, MapOutputOptions options) =>

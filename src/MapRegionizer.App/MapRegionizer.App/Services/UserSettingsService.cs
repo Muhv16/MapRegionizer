@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Options;
 
 namespace MapRegionizer.App.Services;
@@ -59,10 +60,16 @@ public sealed class UserSettings
     public string Language { get; set; } = "ru-RU";
     public string Theme { get; set; } = "System";
     public string LastMaskPath { get; set; } = string.Empty;
+    public string WorldMaskPath { get; set; } = string.Empty;
     public string LastOutputDirectory { get; set; } = string.Empty;
     public string LastPreviewLayer { get; set; } = "overview";
     public bool HasCompletedOnboarding { get; set; }
     public MapGenerationOptions GenerationOptions { get; set; } = new();
+    public RegionalGenerationMode GenerationMode { get; set; } = RegionalGenerationMode.Isolated;
+    public int WorkingHaloCells { get; set; }
+    public int RequestedOriginX { get; set; }
+    public int RequestedOriginY { get; set; }
+    public MapOutputOptions OutputOptions { get; set; } = new();
     public double ExportScale { get; set; } = 1.0;
     public double ExportRegionBorderWidth { get; set; } = 2.0;
     public double ExportTectonicBoundaryWidth { get; set; } = 1.0;
