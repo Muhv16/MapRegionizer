@@ -41,7 +41,7 @@ public sealed class TopologyBoundaryContractTests
             randomSeed: 1,
             requested,
             new WorkingDomain(working),
-            RegionalGenerationMode.Automatic);
+            WorldContextMode.Automatic);
 
         var ids = new int[16];
         ids[2 * 4 + 2] = 1;

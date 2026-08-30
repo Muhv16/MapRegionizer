@@ -60,7 +60,7 @@ public sealed class GeographicOutputContractTests
         var hydrology = CreateHydrology();
         var sourcePolyline = hydrology.Rivers[0].Polyline.ToArray();
         var sourceSurface = hydrology.HydroSurfaceMetersSpan.ToArray();
-        var map = new GeneratedMap(new MapBounds(6, 4, 2), [], [], [], Hydrology: hydrology, SpatialReference: reference);
+        var map = new GeneratedMap(new MapBounds(6, 4, 2), [], [], [], WorldContextMode.Isolated, Hydrology: hydrology, SpatialReference: reference);
 
         var json = RiverJsonWriter.Write(map, new MapOutputOptions
         {

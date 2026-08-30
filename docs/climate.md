@@ -308,8 +308,8 @@ Biome edges are lightly blended with neighboring biome colors, while uninterrupt
 ## Regional boundary contract
 
 Climate forcing always uses the latitude supplied by the session's immutable
-`MapSpatialContext`; it does not infer latitude from a local row number. A
-regional automatic request supplies an `IClimateBoundaryContext` through its
+`MapSpatialContext`; it does not infer latitude from a local row number. An
+automatic world-context request supplies an `IClimateBoundaryContext` through its
 `ClimateWorldContext`. The upwind edge is initialized from
 `GetIncomingMoisture(worldX, worldY, latitudeDegrees)`, then moisture is
 advected across the working window, so a requested crop does not silently

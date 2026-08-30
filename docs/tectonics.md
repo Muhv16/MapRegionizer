@@ -336,9 +336,9 @@ Those layers are still present in domain data and JSON. They are hidden or conve
 - Microplates are intentionally rare and validated aggressively. Small circular or isolated candidates are merged rather than shown as decorative plates.
 - Equirectangular wrapping is supported horizontally; regional/flat maps may need different edge behavior later.
 
-## Automatic regional world identity
+## Automatic world-context identity
 
-`TectonicWorldContext` is the deterministic source for automatic regional
+`TectonicWorldContext` is the deterministic source for automatic world-context
 generation. It is created from `MapGenerationOptions.WorldSeed`, stores stable
 plate IDs, motions, hotspots, macro lineaments, and rift systems, and is
 sampled using world-aligned coordinates from `WorkingDomain`. The latent
@@ -346,8 +346,8 @@ world has a fixed sampling lattice; requested width, height, crop, and local
 iteration order therefore cannot change object identity or plate assignment.
 The local `PlateDomainMap` and history layers are projections of that context.
 
-Legacy and `Isolated` requests deliberately retain the existing local
-simulation path and its compatibility random stream. This distinction is
-intentional: an isolated region is reproducible as a standalone map, whereas
-an automatic region is a window into a seeded world and should agree with a
-same-resolution full-world sample on overlap.
+The legacy MapMask adapter and the isolated world-context mode deliberately
+retain the existing local simulation path and compatibility random stream.
+This distinction is intentional: an isolated request is reproducible as a
+standalone map, whereas an automatic request is a window into a seeded world
+and should agree with a same-resolution full-world sample on overlap.

@@ -39,7 +39,7 @@ public sealed class MapGenerationOptions
     /// <summary>
     /// Stable seed for world-context generation.  Legacy callers may continue
     /// using <see cref="Seed"/>; when both are supplied WorldSeed governs
-    /// automatic regional identity while Seed keeps local compatibility paths
+    /// automatic world identity while Seed keeps local compatibility paths
     /// reproducible.
     /// </summary>
     public int? WorldSeed { get; init; }

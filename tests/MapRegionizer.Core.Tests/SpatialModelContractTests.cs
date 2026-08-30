@@ -286,7 +286,7 @@ public sealed class SpatialModelContractTests
             new Coordinate(0, 0), new Coordinate(4, 0), new Coordinate(4, 2),
             new Coordinate(0, 2), new Coordinate(0, 0)
         ]));
-        var map = new GeneratedMap(new MapBounds(4, 2, 1), [landmass], [], [], SpatialReference: reference);
+        var map = new GeneratedMap(new MapBounds(4, 2, 1), [landmass], [], [], WorldContextMode.Isolated, SpatialReference: reference);
 
         var document = JsonNode.Parse(GeoJsonMapWriter.WriteLandmasses(map, new MapOutputOptions
         {

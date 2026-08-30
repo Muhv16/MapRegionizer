@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 namespace MapRegionizer.Core.Domain;
 
 /// <summary>
@@ -128,7 +130,24 @@ public sealed record WorkingDomain
     }
 }
 
-/// <summary>Generation semantics for a domain request.</summary>
+/// <summary>
+/// Describes how a generation request obtains world and boundary context.
+/// Coverage remains an independent spatial option.
+/// </summary>
+public enum WorldContextMode
+{
+    Isolated,
+    Automatic,
+    Custom
+}
+
+/// <summary>
+/// Obsolete compatibility enum for callers of the original request API.
+/// <see cref="Legacy"/> is an adapter concern; new code should use
+/// <see cref="WorldContextMode"/> and <see cref="LegacyCompatibilityProfile"/>
+/// independently.
+/// </summary>
+[Obsolete("Use WorldContextMode. Legacy maps to Isolated plus legacy compatibility semantics.")]
 public enum RegionalGenerationMode
 {
     Legacy,
@@ -141,7 +160,8 @@ public enum RegionalGenerationMode
     Custom
 }
 
-/// <summary>Short alias for callers that use the terminology from the design document.</summary>
+/// <summary>Obsolete short alias retained for source compatibility.</summary>
+[Obsolete("Use WorldContextMode. Legacy maps to Isolated plus legacy compatibility semantics.")]
 public enum GenerationMode
 {
     Legacy = RegionalGenerationMode.Legacy,
@@ -150,7 +170,32 @@ public enum GenerationMode
     Custom = RegionalGenerationMode.Custom
 }
 
-/// <summary>Source for world-aligned mask windows used by automatic regional generation.</summary>
+/// <summary>Conversions used only at compatibility boundaries.</summary>
+public static class WorldContextModeCompatibility
+{
+    public static WorldContextMode ToWorldContextMode(this RegionalGenerationMode mode) => mode switch
+    {
+        RegionalGenerationMode.Legacy => WorldContextMode.Isolated,
+        RegionalGenerationMode.Isolated => WorldContextMode.Isolated,
+        RegionalGenerationMode.Automatic => WorldContextMode.Automatic,
+        RegionalGenerationMode.Custom => WorldContextMode.Custom,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown generation mode.")
+    };
+
+    public static WorldContextMode ToWorldContextMode(this GenerationMode mode) => ((RegionalGenerationMode)mode).ToWorldContextMode();
+
+    public static RegionalGenerationMode ToRegionalGenerationMode(this WorldContextMode mode) => mode switch
+    {
+        WorldContextMode.Isolated => RegionalGenerationMode.Isolated,
+        WorldContextMode.Automatic => RegionalGenerationMode.Automatic,
+        WorldContextMode.Custom => RegionalGenerationMode.Custom,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown world context mode.")
+    };
+
+    public static GenerationMode ToGenerationMode(this WorldContextMode mode) => (GenerationMode)mode.ToRegionalGenerationMode();
+}
+
+/// <summary>Source for world-aligned mask windows used by automatic world-context generation.</summary>
 public interface IMapMaskSource
 {
     MapMask GetMask(GridWindow window);

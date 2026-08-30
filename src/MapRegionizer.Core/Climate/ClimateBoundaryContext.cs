@@ -5,8 +5,8 @@ namespace MapRegionizer.Core.Climate;
 /// <summary>
 /// Values supplied by the surrounding world at a regional boundary.  The
 /// interface is intentionally analytical-friendly and does not expose raster
-/// implementation details, so a coarse global climate can be plugged in
-/// later without another regional generator.
+/// implementation details, so a coarse world climate can be plugged in
+/// without coupling it to a particular coverage kind.
 /// </summary>
 public interface IClimateBoundaryContext
 {
@@ -29,7 +29,7 @@ public sealed class IsolatedClimateBoundaryContext : IClimateBoundaryContext
 
 /// <summary>
 /// Deterministic analytical world boundary.  It provides non-zero incoming
-/// moisture for automatic regional requests while remaining independent of
+/// moisture for automatic world-context requests while remaining independent of
 /// raster dimensions and iteration order.
 /// </summary>
 public sealed class AnalyticalClimateBoundaryContext : IClimateBoundaryContext
@@ -67,10 +67,40 @@ public sealed record ClimateWorldContext
     public int WorldSeed { get; }
     public IClimateBoundaryContext Boundary { get; }
 
-    public static ClimateWorldContext Create(int worldSeed, RegionalGenerationMode mode, IClimateBoundaryContext? boundary = null) =>
-        new(worldSeed, boundary ?? (mode == RegionalGenerationMode.Isolated || mode == RegionalGenerationMode.Legacy
-            ? IsolatedClimateBoundaryContext.Instance
-            : new AnalyticalClimateBoundaryContext(worldSeed)));
+    public static ClimateWorldContext Create(int worldSeed, WorldContextMode mode, IClimateBoundaryContext? boundary = null)
+    {
+        if (boundary is not null)
+            return new ClimateWorldContext(worldSeed, boundary);
+
+        return mode switch
+        {
+            WorldContextMode.Isolated => new ClimateWorldContext(worldSeed, IsolatedClimateBoundaryContext.Instance),
+            WorldContextMode.Automatic => new ClimateWorldContext(worldSeed, new AnalyticalClimateBoundaryContext(worldSeed)),
+            WorldContextMode.Custom => throw new ArgumentException(
+                "Custom world context requires an explicit climate boundary context.",
+                nameof(boundary)),
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown world context mode.")
+        };
+    }
+
+    [Obsolete("Use WorldContextMode.")]
+    public static ClimateWorldContext Create(int worldSeed, RegionalGenerationMode mode, IClimateBoundaryContext? boundary = null)
+    {
+        if (boundary is not null)
+            return Create(worldSeed, mode.ToWorldContextMode(), boundary);
+
+        // Preserve the old adapter's permissive Custom behavior. The
+        // canonical overload requires an explicit custom boundary, while the
+        // obsolete API historically fell back to the analytical provider.
+        return mode switch
+        {
+            RegionalGenerationMode.Legacy or RegionalGenerationMode.Isolated =>
+                Create(worldSeed, WorldContextMode.Isolated),
+            RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom =>
+                Create(worldSeed, WorldContextMode.Automatic),
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown generation mode.")
+        };
+    }
 }
 
 internal static class StableHash

@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using NetTopologySuite.Geometries;
 
 namespace MapRegionizer.Core.Domain;
@@ -59,22 +61,225 @@ public sealed record MapMask
 
 public readonly record struct GridPoint(int X, int Y);
 
-public sealed record GeneratedMap(
-    MapBounds Bounds,
-    IReadOnlyList<Landmass> Landmasses,
-    IReadOnlyList<WaterBody> WaterBodies,
-    IReadOnlyList<MapRegion> Regions,
-    TectonicPlateMap? TectonicPlates = null,
-    ElevationMap? Elevation = null,
-    WaterBodyTopology? WaterBodyTopology = null,
-    WaterSurfaceMap? WaterSurfaces = null,
-    HydrologyMap? Hydrology = null,
-    ClimateMap? Climate = null,
-    RegionRaster? RegionRaster = null,
-    MapSpatialReference? SpatialReference = null,
-    RequestedDomain? RequestedDomain = null,
-    WorkingDomain? WorkingDomain = null,
-    RegionalGenerationMode GenerationMode = RegionalGenerationMode.Legacy);
+public sealed record GeneratedMap
+{
+    public GeneratedMap(
+        MapBounds Bounds,
+        IReadOnlyList<Landmass> Landmasses,
+        IReadOnlyList<WaterBody> WaterBodies,
+        IReadOnlyList<MapRegion> Regions,
+        WorldContextMode WorldContextMode,
+        TectonicPlateMap? TectonicPlates = null,
+        ElevationMap? Elevation = null,
+        WaterBodyTopology? WaterBodyTopology = null,
+        WaterSurfaceMap? WaterSurfaces = null,
+        HydrologyMap? Hydrology = null,
+        ClimateMap? Climate = null,
+        RegionRaster? RegionRaster = null,
+        MapSpatialReference? SpatialReference = null,
+        RequestedDomain? RequestedDomain = null,
+        WorkingDomain? WorkingDomain = null)
+        : this(
+            Bounds,
+            Landmasses,
+            WaterBodies,
+            Regions,
+            WorldContextMode,
+            TectonicPlates,
+            Elevation,
+            WaterBodyTopology,
+            WaterSurfaces,
+            Hydrology,
+            Climate,
+            RegionRaster,
+            SpatialReference,
+            RequestedDomain,
+            WorkingDomain,
+            isLegacyCompatibilityRequest: false,
+            initializeCanonical: true)
+    {
+    }
+
+    internal GeneratedMap(
+        MapBounds Bounds,
+        IReadOnlyList<Landmass> Landmasses,
+        IReadOnlyList<WaterBody> WaterBodies,
+        IReadOnlyList<MapRegion> Regions,
+        WorldContextMode WorldContextMode,
+        TectonicPlateMap? TectonicPlates,
+        ElevationMap? Elevation,
+        WaterBodyTopology? WaterBodyTopology,
+        WaterSurfaceMap? WaterSurfaces,
+        HydrologyMap? Hydrology,
+        ClimateMap? Climate,
+        RegionRaster? RegionRaster,
+        MapSpatialReference? SpatialReference,
+        RequestedDomain? RequestedDomain,
+        WorkingDomain? WorkingDomain,
+        bool isLegacyCompatibilityRequest)
+        : this(
+            Bounds,
+            Landmasses,
+            WaterBodies,
+            Regions,
+            WorldContextMode,
+            TectonicPlates,
+            Elevation,
+            WaterBodyTopology,
+            WaterSurfaces,
+            Hydrology,
+            Climate,
+            RegionRaster,
+            SpatialReference,
+            RequestedDomain,
+            WorkingDomain,
+            isLegacyCompatibilityRequest,
+            initializeCanonical: true)
+    {
+    }
+
+    private GeneratedMap(
+        MapBounds Bounds,
+        IReadOnlyList<Landmass> Landmasses,
+        IReadOnlyList<WaterBody> WaterBodies,
+        IReadOnlyList<MapRegion> Regions,
+        WorldContextMode WorldContextMode,
+        TectonicPlateMap? TectonicPlates,
+        ElevationMap? Elevation,
+        WaterBodyTopology? WaterBodyTopology,
+        WaterSurfaceMap? WaterSurfaces,
+        HydrologyMap? Hydrology,
+        ClimateMap? Climate,
+        RegionRaster? RegionRaster,
+        MapSpatialReference? SpatialReference,
+        RequestedDomain? RequestedDomain,
+        WorkingDomain? WorkingDomain,
+        bool isLegacyCompatibilityRequest,
+        bool initializeCanonical)
+    {
+        this.Bounds = Bounds;
+        this.Landmasses = Landmasses;
+        this.WaterBodies = WaterBodies;
+        this.Regions = Regions;
+        this.TectonicPlates = TectonicPlates;
+        this.Elevation = Elevation;
+        this.WaterBodyTopology = WaterBodyTopology;
+        this.WaterSurfaces = WaterSurfaces;
+        this.Hydrology = Hydrology;
+        this.Climate = Climate;
+        this.RegionRaster = RegionRaster;
+        this.SpatialReference = SpatialReference;
+        this.RequestedDomain = RequestedDomain;
+        this.WorkingDomain = WorkingDomain;
+        if (!Enum.IsDefined(WorldContextMode))
+            throw new ArgumentOutOfRangeException(nameof(WorldContextMode));
+        this.WorldContextMode = WorldContextMode;
+        this.IsLegacyCompatibilityRequest = isLegacyCompatibilityRequest;
+    }
+
+    /// <summary>Compatibility constructor for callers passing the old mode enum.</summary>
+    [Obsolete("Use the WorldContextMode constructor. Legacy maps to Isolated plus legacy compatibility semantics.")]
+    public GeneratedMap(
+        MapBounds Bounds,
+        IReadOnlyList<Landmass> Landmasses,
+        IReadOnlyList<WaterBody> WaterBodies,
+        IReadOnlyList<MapRegion> Regions,
+        TectonicPlateMap? TectonicPlates = null,
+        ElevationMap? Elevation = null,
+        WaterBodyTopology? WaterBodyTopology = null,
+        WaterSurfaceMap? WaterSurfaces = null,
+        HydrologyMap? Hydrology = null,
+        ClimateMap? Climate = null,
+        RegionRaster? RegionRaster = null,
+        MapSpatialReference? SpatialReference = null,
+        RequestedDomain? RequestedDomain = null,
+        WorkingDomain? WorkingDomain = null,
+        RegionalGenerationMode GenerationMode = RegionalGenerationMode.Legacy)
+        : this(
+            Bounds,
+            Landmasses,
+            WaterBodies,
+            Regions,
+            GenerationMode.ToWorldContextMode(),
+            TectonicPlates,
+            Elevation,
+            WaterBodyTopology,
+            WaterSurfaces,
+            Hydrology,
+            Climate,
+            RegionRaster,
+            SpatialReference,
+            RequestedDomain,
+            WorkingDomain,
+            GenerationMode == RegionalGenerationMode.Legacy,
+            initializeCanonical: true)
+    {
+    }
+
+    public MapBounds Bounds { get; init; }
+    public IReadOnlyList<Landmass> Landmasses { get; init; }
+    public IReadOnlyList<WaterBody> WaterBodies { get; init; }
+    public IReadOnlyList<MapRegion> Regions { get; init; }
+    public TectonicPlateMap? TectonicPlates { get; init; }
+    public ElevationMap? Elevation { get; init; }
+    public WaterBodyTopology? WaterBodyTopology { get; init; }
+    public WaterSurfaceMap? WaterSurfaces { get; init; }
+    public HydrologyMap? Hydrology { get; init; }
+    public ClimateMap? Climate { get; init; }
+    public RegionRaster? RegionRaster { get; init; }
+    public MapSpatialReference? SpatialReference { get; init; }
+    public RequestedDomain? RequestedDomain { get; init; }
+    public WorkingDomain? WorkingDomain { get; init; }
+    public WorldContextMode WorldContextMode { get; init; }
+    internal bool IsLegacyCompatibilityRequest { get; init; }
+
+    /// <summary>
+    /// Obsolete compatibility projection of the canonical state. Legacy is
+    /// represented by the separate compatibility marker and never enters the
+    /// canonical world-context model.
+    /// </summary>
+    [Obsolete("Use WorldContextMode. Legacy maps to Isolated plus legacy compatibility semantics.")]
+    public RegionalGenerationMode GenerationMode => IsLegacyCompatibilityRequest
+        ? RegionalGenerationMode.Legacy
+        : WorldContextMode.ToRegionalGenerationMode();
+    public WorldContextMode ContextMode => WorldContextMode;
+
+    /// <summary>Compatibility deconstruction retaining the former mode value.</summary>
+    [Obsolete("Use the named properties and WorldContextMode.")]
+    public void Deconstruct(
+        out MapBounds bounds,
+        out IReadOnlyList<Landmass> landmasses,
+        out IReadOnlyList<WaterBody> waterBodies,
+        out IReadOnlyList<MapRegion> regions,
+        out TectonicPlateMap? tectonicPlates,
+        out ElevationMap? elevation,
+        out WaterBodyTopology? waterBodyTopology,
+        out WaterSurfaceMap? waterSurfaces,
+        out HydrologyMap? hydrology,
+        out ClimateMap? climate,
+        out RegionRaster? regionRaster,
+        out MapSpatialReference? spatialReference,
+        out RequestedDomain? requestedDomain,
+        out WorkingDomain? workingDomain,
+        out RegionalGenerationMode generationMode)
+    {
+        bounds = Bounds;
+        landmasses = Landmasses;
+        waterBodies = WaterBodies;
+        regions = Regions;
+        tectonicPlates = TectonicPlates;
+        elevation = Elevation;
+        waterBodyTopology = WaterBodyTopology;
+        waterSurfaces = WaterSurfaces;
+        hydrology = Hydrology;
+        climate = Climate;
+        regionRaster = RegionRaster;
+        spatialReference = SpatialReference;
+        requestedDomain = RequestedDomain;
+        workingDomain = WorkingDomain;
+        generationMode = GenerationMode;
+    }
+}
 
 /// <summary>
 /// Map extents in canonical map units. The constructor keeps the historical

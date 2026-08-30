@@ -3,7 +3,7 @@ using MapRegionizer.Core.Domain;
 namespace MapRegionizer.ImageSharp;
 
 /// <summary>
-/// File-backed world mask source for regional requests. The image is loaded
+/// File-backed world mask source for automatic world-context requests. The image is loaded
 /// once and each requested/working window is returned as a local mask while
 /// retaining its world-grid origin. This adapter deliberately contains no
 /// generation or projection policy.

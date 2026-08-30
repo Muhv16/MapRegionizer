@@ -17,7 +17,55 @@ public sealed class MapGenerationRequestOptions
     public int RequestedOriginY { get; set; }
     public string OutputDirectory { get; set; } = string.Empty;
     public MapGenerationOptions GenerationOptions { get; set; } = new();
-    public RegionalGenerationMode GenerationMode { get; set; } = RegionalGenerationMode.Legacy;
+    private WorldContextMode _worldContextMode = WorldContextMode.Isolated;
+    private bool _legacyCompatibilityEnabled = true;
+    private bool _legacyCompatibilityExplicit;
+
+    /// <summary>Canonical policy for obtaining world and boundary context.</summary>
+    public WorldContextMode WorldContextMode
+    {
+        get => _worldContextMode;
+        set
+        {
+            if (!Enum.IsDefined(value))
+                throw new ArgumentOutOfRangeException(nameof(value));
+            _worldContextMode = value;
+            _legacyCompatibilityEnabled = false;
+            _legacyCompatibilityExplicit = true;
+        }
+    }
+
+    /// <summary>
+    /// Whether the old MapMask compatibility adapter should be used. This is
+    /// separate from world context so legacy spatial behavior cannot be
+    /// mistaken for a context strategy.
+    /// </summary>
+    public bool LegacyCompatibilityEnabled
+    {
+        get => _legacyCompatibilityEnabled;
+        set
+        {
+            _legacyCompatibilityEnabled = value;
+            _legacyCompatibilityExplicit = true;
+        }
+    }
+
+    [Obsolete("Use WorldContextMode and LegacyCompatibilityEnabled.")]
+    public RegionalGenerationMode GenerationMode
+    {
+        get => _legacyCompatibilityEnabled
+            ? RegionalGenerationMode.Legacy
+            : _worldContextMode.ToRegionalGenerationMode();
+        set
+        {
+            _worldContextMode = value.ToWorldContextMode();
+            _legacyCompatibilityEnabled = value == RegionalGenerationMode.Legacy;
+            _legacyCompatibilityExplicit = true;
+        }
+    }
+
+    public bool UsesLegacyCompatibility => _legacyCompatibilityEnabled &&
+        (_legacyCompatibilityExplicit || !SpatialConfigurationEnabled);
     public int WorkingHaloCells { get; set; }
     public bool SpatialConfigurationEnabled { get; set; }
     public MapOutputOptions OutputOptions { get; set; } = new();
@@ -46,7 +94,7 @@ public sealed class MapGenerationRequestOptions
 
         generationOptions ??= GenerationOptions;
 
-        if (GenerationMode == RegionalGenerationMode.Legacy)
+        if (UsesLegacyCompatibility)
             return MapGenerationRequest.Legacy(mask, generationOptions);
 
         var requested = new RequestedDomain(mask.Window);
@@ -57,20 +105,20 @@ public sealed class MapGenerationRequestOptions
             ? new ImageMapMaskSource(WorldMaskPath)
             : null);
 
-        return GenerationMode switch
+        return WorldContextMode switch
         {
-            RegionalGenerationMode.Isolated => MapGenerationRequest.Isolated(requested, mask, generationOptions),
-            RegionalGenerationMode.Automatic when source is not null => MapGenerationRequest.Automatic(
+            WorldContextMode.Isolated => MapGenerationRequest.Isolated(requested, mask, generationOptions),
+            WorldContextMode.Automatic when source is not null => MapGenerationRequest.Automatic(
                 requested,
                 working,
                 source,
                 generationOptions,
                 climateBoundary,
                 hydrologyBoundary),
-            RegionalGenerationMode.Automatic => throw new InvalidOperationException("Automatic regional generation requires --world-mask or an explicit world mask source that covers the working domain."),
-            RegionalGenerationMode.Custom when source is not null && climateBoundary is not null && hydrologyBoundary is not null =>
+            WorldContextMode.Automatic => throw new InvalidOperationException("Automatic world context requires --world-mask or an explicit world mask source that covers the working domain."),
+            WorldContextMode.Custom when source is not null && climateBoundary is not null && hydrologyBoundary is not null =>
                 MapGenerationRequest.Custom(requested, working, source, climateBoundary, hydrologyBoundary, generationOptions),
-            RegionalGenerationMode.Custom => throw new InvalidOperationException("Custom regional generation requires a world mask source and both boundary contexts."),
+            WorldContextMode.Custom => throw new InvalidOperationException("Custom world context requires a world mask source and both boundary contexts."),
             _ => throw new ArgumentOutOfRangeException(nameof(mask), "Unknown generation mode.")
         };
     }

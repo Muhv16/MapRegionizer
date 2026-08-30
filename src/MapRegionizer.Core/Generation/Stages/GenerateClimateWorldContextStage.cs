@@ -16,6 +16,6 @@ public sealed class GenerateClimateWorldContextStage : IMapGenerationStage, ISpa
 
     public void Execute(MapGenerationContext context)
     {
-        context.ClimateWorldContext = ClimateWorldContext.Create(context.WorldSeed, context.GenerationMode, context.ClimateBoundary);
+        context.ClimateWorldContext = ClimateWorldContext.Create(context.WorldSeed, context.WorldContextMode, context.ClimateBoundary);
     }
 }

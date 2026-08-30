@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Spatial;
 using NetTopologySuite.Geometries;
@@ -22,6 +24,7 @@ internal static class GeneratedMapCropper
                 CloneLandmasses(context.Landmasses, context.GeometryFactory),
                 CloneWaterBodies(context.WaterBodies, context.GeometryFactory),
                 CloneRegions(context.Regions, context.GeometryFactory),
+                context.WorldContextMode,
                 CropTectonicPlates(context.TectonicPlates, context, requested),
                 CropElevation(context.Elevation, context, requested, waterSurfaces),
                 CropWaterTopology(context.WaterBodyTopology, context, requested),
@@ -32,7 +35,7 @@ internal static class GeneratedMapCropper
                 RequestedSpatialReference(context, requested),
                 requested,
                 working,
-                context.GenerationMode);
+                context.IsLegacyCompatibilityRequest);
         }
 
         var croppedWaterSurfaces = CropWaterSurfaces(context.WaterSurfaces, context, requested);
@@ -41,6 +44,7 @@ internal static class GeneratedMapCropper
             CropLandmasses(context.Landmasses, context, requested),
             CropWaterBodies(context.WaterBodies, context, requested),
             CropRegions(context.Regions, context, requested),
+            context.WorldContextMode,
             CropTectonicPlates(context.TectonicPlates, context, requested),
             CropElevation(context.Elevation, context, requested, croppedWaterSurfaces),
             CropWaterTopology(context.WaterBodyTopology, context, requested),
@@ -51,7 +55,7 @@ internal static class GeneratedMapCropper
             RequestedSpatialReference(context, requested),
             requested,
             working,
-            context.GenerationMode);
+            context.IsLegacyCompatibilityRequest);
     }
 
     private static MapBounds RequestedBounds(MapGenerationContext context, RequestedDomain requested)

@@ -40,7 +40,52 @@ public sealed class MapGenerationRunOptions
     public double EastLongitude { get; set; } = 180;
     public double SouthLatitude { get; set; } = -90;
     public double NorthLatitude { get; set; } = 90;
-    public RegionalGenerationMode GenerationMode { get; set; } = RegionalGenerationMode.Legacy;
+    private WorldContextMode _worldContextMode = WorldContextMode.Isolated;
+    private bool _legacyCompatibilityEnabled = true;
+    private bool _legacyCompatibilityExplicit;
+
+    /// <summary>Canonical policy for obtaining world and boundary context.</summary>
+    public WorldContextMode WorldContextMode
+    {
+        get => _worldContextMode;
+        set
+        {
+            if (!Enum.IsDefined(value))
+                throw new ArgumentOutOfRangeException(nameof(value));
+            _worldContextMode = value;
+            _legacyCompatibilityEnabled = false;
+            _legacyCompatibilityExplicit = true;
+        }
+    }
+
+    /// <summary>Use the old MapMask adapter and its historical spatial semantics.</summary>
+    public bool LegacyCompatibilityEnabled
+    {
+        get => _legacyCompatibilityEnabled;
+        set
+        {
+            _legacyCompatibilityEnabled = value;
+            _legacyCompatibilityExplicit = true;
+        }
+    }
+
+    [Obsolete("Use WorldContextMode and LegacyCompatibilityEnabled.")]
+    public RegionalGenerationMode GenerationMode
+    {
+        get => _legacyCompatibilityEnabled
+            ? RegionalGenerationMode.Legacy
+            : _worldContextMode.ToRegionalGenerationMode();
+        set
+        {
+            _worldContextMode = value.ToWorldContextMode();
+            _legacyCompatibilityEnabled = value == RegionalGenerationMode.Legacy;
+            _legacyCompatibilityExplicit = true;
+        }
+    }
+
+    /// <summary>Effective adapter selection after considering modern spatial flags.</summary>
+    public bool UsesLegacyCompatibility => _legacyCompatibilityEnabled &&
+        (_legacyCompatibilityExplicit || !SpatialConfigurationEnabled);
     public int WorkingHaloCells { get; set; }
 
     // Output is deliberately kept separate from generation options.
@@ -167,7 +212,8 @@ public sealed class MapGenerationRunOptions
 
     public MapGenerationOptions ToGenerationOptions()
     {
-        var spatial = SpatialConfigurationEnabled || GenerationMode != RegionalGenerationMode.Legacy
+        var useLegacyCompatibility = UsesLegacyCompatibility;
+        var spatial = !useLegacyCompatibility
             ? BuildSpatialOptions()
             : MapSpatialOptions.FromLegacy(ProjectionMode, PixelSize);
 
@@ -363,7 +409,8 @@ public sealed class MapGenerationRunOptions
             RequestedOriginY = RequestedOriginY,
             OutputDirectory = OutputDirectory,
             GenerationOptions = ToGenerationOptions(),
-            GenerationMode = GenerationMode,
+            WorldContextMode = WorldContextMode,
+            LegacyCompatibilityEnabled = UsesLegacyCompatibility,
             WorkingHaloCells = WorkingHaloCells,
             SpatialConfigurationEnabled = SpatialConfigurationEnabled,
             OutputOptions = ToOutputOptions(),

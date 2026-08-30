@@ -100,8 +100,9 @@ The default and `-Full` modes restore, verify formatting, build, test, generate 
 --coverage global|regional       Geographic extent kind
 --grid-mapping equirectangular|web-mercator
 --topology open|cylindrical      World edge semantics
---generation-mode legacy|automatic|isolated|custom
---world-mask <path>              Wider world mask for Automatic/Custom
+--world-context isolated|automatic|custom  World/boundary context policy
+--generation-mode legacy|automatic|isolated|custom  Obsolete compatibility alias
+--world-mask <path>              World-aligned mask for Automatic/Custom context
 --requested-origin-x <int>       World-grid X origin of the selected mask
 --requested-origin-y <int>       World-grid Y origin of the selected mask
 --working-halo <int>              Extra cells requested around the selected mask

@@ -179,7 +179,15 @@ static MapGenerationRunOptions ParseGenerateOptions(string[] args)
             case "generation-mode":
             case "regional-mode":
             case "influence":
-                options.GenerationMode = ParseEnum<RegionalGenerationMode>(value, name);
+                var compatibilityMode = ParseEnum<RegionalGenerationMode>(value, name);
+                options.GenerationMode = compatibilityMode;
+                if (compatibilityMode != RegionalGenerationMode.Legacy)
+                    options.SpatialConfigurationEnabled = true;
+                break;
+            case "world-context":
+            case "world-context-mode":
+            case "context-mode":
+                options.WorldContextMode = ParseEnum<WorldContextMode>(value, name);
                 options.SpatialConfigurationEnabled = true;
                 break;
             case "west":
@@ -464,7 +472,7 @@ static void PrintGenerateUsage()
     Console.WriteLine();
     Console.WriteLine("Required:");
     Console.WriteLine("  --mask, --input, -m <path>       Source mask image. White pixels are land.");
-    Console.WriteLine("  --world-mask <path>              Wider world mask for Automatic/Custom regional influence.");
+    Console.WriteLine("  --world-mask <path>              World-aligned mask for Automatic/Custom context.");
     Console.WriteLine("  --out, --output, -o <directory>  Output artifact directory.");
     Console.WriteLine();
     Console.WriteLine("Options:");
@@ -474,8 +482,9 @@ static void PrintGenerateUsage()
     Console.WriteLine("  --coverage global|regional       Geographic coverage kind.");
     Console.WriteLine("  --grid-mapping equirectangular|web-mercator");
     Console.WriteLine("  --topology open|cylindrical      Grid edge topology.");
-    Console.WriteLine("  --generation-mode legacy|automatic|isolated|custom");
-    Console.WriteLine("  --requested-origin-x/y <int>     World-grid origin of the selected mask (for regional requests).");
+    Console.WriteLine("  --world-context isolated|automatic|custom  World/boundary context policy.");
+    Console.WriteLine("  --generation-mode legacy|automatic|isolated|custom  Obsolete compatibility alias.");
+    Console.WriteLine("  --requested-origin-x/y <int>     World-grid origin of the selected mask (for world-aligned requests).");
     Console.WriteLine("  --west/--east <degrees>          Region longitude interval; antimeridian is supported.");
     Console.WriteLine("  --south/--north <degrees>        Region latitude bounds.");
     Console.WriteLine("  --units-per-cell <number>        Canonical grid map-unit scale.");

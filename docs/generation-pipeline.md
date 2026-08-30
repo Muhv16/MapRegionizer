@@ -274,6 +274,12 @@ It describes concepts such as:
 
 These properties are part of generation semantics. They can affect how stages interpret distance, latitude, neighboring cells, world edges, and other spatial relationships.
 
+Generation coverage and world-context policy are independent. `Coverage` may
+be `Global` or `Regional`, while `WorldContextMode` may be `Isolated`,
+`Automatic`, or `Custom`. A global request can therefore use an explicit
+surrounding-world source, and a regional request can be generated as a
+self-contained isolated map when that is what the caller needs.
+
 For example, a whole-world map may use cylindrical horizontal topology so that the left and right sides of the raster represent adjacent locations. A regional map may instead use open edges because its boundaries represent the limits of the generated area rather than a world seam.
 
 MapRegionizer separates **generation spatial semantics** from **output coordinates**.

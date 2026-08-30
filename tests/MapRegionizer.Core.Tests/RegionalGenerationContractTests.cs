@@ -118,7 +118,7 @@ public sealed class RegionalGenerationContractTests
     }
 
     [Fact]
-    public void AutomaticModeRequiresAWorkingMaskProvider()
+    public void AutomaticContextRequiresAWorkingMaskProvider()
     {
         var requested = new RequestedDomain(0, 0, 4, 4);
         var working = WorkingDomain.ForRequested(requested, 1);
@@ -127,7 +127,7 @@ public sealed class RegionalGenerationContractTests
             working,
             null,
             new MapGenerationOptions { Seed = 1 },
-            RegionalGenerationMode.Automatic));
+            WorldContextMode.Automatic));
     }
 
     [Fact]
@@ -388,7 +388,10 @@ public sealed class RegionalGenerationContractTests
         Assert.Equal(original.LandPoints, points);
         Assert.Equal(width, map.SpatialReference!.GridWidth);
         Assert.Equal(height, map.SpatialReference.GridHeight);
+        Assert.Equal(WorldContextMode.Isolated, map.WorldContextMode);
+#pragma warning disable CS0618
         Assert.Equal(RegionalGenerationMode.Legacy, map.GenerationMode);
+#pragma warning restore CS0618
     }
 
     [Fact]

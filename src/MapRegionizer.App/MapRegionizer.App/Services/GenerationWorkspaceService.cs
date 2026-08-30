@@ -61,7 +61,8 @@ public sealed class GenerationWorkspaceService
     }
 
     private static bool HasSameExecutionDomain(MapGenerationRequest left, MapGenerationRequest right) =>
-        left.Mode == right.Mode &&
+        left.WorldContextMode == right.WorldContextMode &&
+        left.Options.EffectiveSpatial.LegacyCompatibility == right.Options.EffectiveSpatial.LegacyCompatibility &&
         left.RequestedDomain.Window.Equals(right.RequestedDomain.Window) &&
         left.WorkingDomain.Window.Equals(right.WorkingDomain.Window);
 

@@ -28,9 +28,9 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     private double _southLatitude = -90;
     private double _northLatitude = 90;
     // The App exposes only the two supported user choices. Legacy and Custom
-    // remain readable by Core, but are deliberately normalized at this UI
-    // boundary so an old profile cannot reintroduce hidden modes.
-    private RegionalGenerationMode _generationMode = RegionalGenerationMode.Isolated;
+    // remain readable through the obsolete compatibility alias below, but are
+    // deliberately normalized at this UI boundary.
+    private WorldContextMode _worldContextMode = WorldContextMode.Isolated;
     private int _workingHaloCells;
     private int _requestedOriginX;
     private int _requestedOriginY;
@@ -44,14 +44,14 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     }
 
     // These filtered lists are kept for non-XAML consumers. The App UI binds
-    // to the human-facing radio properties below, so unsupported compatibility
-    // values never appear as selectable choices.
+    // to the human-facing radio properties below, so unsupported values never
+    // appear as selectable choices.
     public IReadOnlyList<WorldModelKind> WorldModels { get; } = Enum.GetValues<WorldModelKind>();
     public IReadOnlyList<MapCoverageKind> CoverageKinds { get; } = Enum.GetValues<MapCoverageKind>();
     public IReadOnlyList<GridMappingKind> GridMappings { get; } = Enum.GetValues<GridMappingKind>();
     public IReadOnlyList<GridTopologyKind> Topologies { get; } = [GridTopologyKind.OpenRectangular, GridTopologyKind.CylindricalX];
-    public IReadOnlyList<RegionalGenerationMode> GenerationModes { get; } =
-        [RegionalGenerationMode.Isolated, RegionalGenerationMode.Automatic];
+    public IReadOnlyList<WorldContextMode> WorldContextModes { get; } =
+        [WorldContextMode.Isolated, WorldContextMode.Automatic];
     public IReadOnlyList<OutputCoordinateSystem> OutputCoordinateSystems { get; } =
         [OutputCoordinateSystem.GridMapUnits, OutputCoordinateSystem.GeographicLongitudeLatitude, OutputCoordinateSystem.WebMercator3857];
     public IReadOnlyList<LatitudeOverflowPolicy> OutputLatitudeOverflowPolicies { get; } = Enum.GetValues<LatitudeOverflowPolicy>();
@@ -107,8 +107,6 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
             this.RaiseAndSetIfChanged(ref _coverageKind, value);
             if (value == MapCoverageKind.Regional && _topology == GridTopologyKind.CylindricalX)
                 Topology = GridTopologyKind.OpenRectangular;
-            if (value == MapCoverageKind.Global && IsAutomatic)
-                GenerationMode = RegionalGenerationMode.Isolated;
             RaiseCoverageChoicesChanged();
         }
     }
@@ -237,40 +235,42 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     public double EastLongitude { get => _eastLongitude; set => this.RaiseAndSetIfChanged(ref _eastLongitude, value); }
     public double SouthLatitude { get => _southLatitude; set => this.RaiseAndSetIfChanged(ref _southLatitude, value); }
     public double NorthLatitude { get => _northLatitude; set => this.RaiseAndSetIfChanged(ref _northLatitude, value); }
-    public RegionalGenerationMode GenerationMode
+    public WorldContextMode WorldContextMode
     {
-        get => _generationMode;
+        get => _worldContextMode;
         set
         {
-            var normalized = NormalizeGenerationMode(value);
-            if (normalized == RegionalGenerationMode.Automatic && !IsRegional)
-                normalized = RegionalGenerationMode.Isolated;
-            if (_generationMode == normalized)
+            if (!Enum.IsDefined(value))
+                throw new ArgumentOutOfRangeException(nameof(value));
+            var normalized = value == WorldContextMode.Custom
+                ? WorldContextMode.Isolated
+                : value;
+            if (_worldContextMode == normalized)
                 return;
-            this.RaiseAndSetIfChanged(ref _generationMode, normalized);
-            RaiseGenerationModeChoicesChanged();
+            this.RaiseAndSetIfChanged(ref _worldContextMode, normalized);
+            RaiseWorldContextChoicesChanged();
         }
     }
 
-    public RegionalGenerationMode InfluenceMode { get => GenerationMode; set => GenerationMode = value; }
+    public WorldContextMode WorldContextSelection { get => WorldContextMode; set => WorldContextMode = value; }
 
     public bool IsIsolated
     {
-        get => GenerationMode == RegionalGenerationMode.Isolated;
+        get => WorldContextMode == WorldContextMode.Isolated;
         set
         {
             if (value)
-                GenerationMode = RegionalGenerationMode.Isolated;
+                WorldContextMode = WorldContextMode.Isolated;
         }
     }
 
     public bool IsAutomatic
     {
-        get => GenerationMode == RegionalGenerationMode.Automatic;
+        get => WorldContextMode == WorldContextMode.Automatic;
         set
         {
             if (value)
-                GenerationMode = RegionalGenerationMode.Automatic;
+                WorldContextMode = WorldContextMode.Automatic;
         }
     }
 
@@ -411,11 +411,12 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     public double RegionSouth { get => SouthLatitude; set => SouthLatitude = value; }
     public double RegionNorth { get => NorthLatitude; set => NorthLatitude = value; }
     public bool IsRegional => CoverageKind == MapCoverageKind.Regional;
-    public bool RequiresMaskSource => ShowRegionalInfluence && IsAutomatic;
-    public bool ShowRegionalInfluence => IsRegional;
-    public bool ShowWorldMask => ShowRegionalInfluence && IsAutomatic;
-    public bool ShowRequestedOrigin => ShowRegionalInfluence && IsAutomatic;
-    public bool ShowWorkingHalo => ShowRegionalInfluence && IsAutomatic;
+    public bool RequiresMaskSource => IsAutomatic;
+    public bool ShowWorldContext => true;
+
+    public bool ShowWorldMask => IsAutomatic;
+    public bool ShowRequestedOrigin => IsAutomatic;
+    public bool ShowWorkingHalo => IsAutomatic;
     public bool ShowRegionBounds => IsRegional;
     public bool ShowHorizontalWrapping => !IsRegional;
 
@@ -506,20 +507,20 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         if (!working.Contains(requested))
             throw new ArgumentException("Working domain must contain the requested domain.", nameof(workingDomain));
 
-        return GenerationMode switch
+        return WorldContextMode switch
         {
-            RegionalGenerationMode.Isolated => MapGenerationRequest.Isolated(requested, mask, configuredOptions),
-            RegionalGenerationMode.Automatic when worldMaskSource is not null => MapGenerationRequest.Automatic(
+            WorldContextMode.Isolated => MapGenerationRequest.Isolated(requested, mask, configuredOptions),
+            WorldContextMode.Automatic when worldMaskSource is not null => MapGenerationRequest.Automatic(
                 requested,
                 working,
                 worldMaskSource,
                 configuredOptions,
                 climateBoundary,
                 hydrologyBoundary),
-            RegionalGenerationMode.Automatic => throw new InvalidOperationException(Format(
+            WorldContextMode.Automatic => throw new InvalidOperationException(Format(
                 "ValidationWorldMask",
                 "Surrounding-world mode requires an explicit world-context mask that covers the working domain.")),
-            _ => throw new ArgumentOutOfRangeException(nameof(mask), "Unknown regional generation mode.")
+            _ => throw new ArgumentOutOfRangeException(nameof(mask), "Unknown world context mode.")
         };
     }
 
@@ -539,11 +540,6 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
             ? GridTopologyKind.OpenRectangular
             : options.Topology;
     }
-
-    private static RegionalGenerationMode NormalizeGenerationMode(RegionalGenerationMode mode) =>
-        mode is RegionalGenerationMode.Legacy or RegionalGenerationMode.Custom
-            ? RegionalGenerationMode.Isolated
-            : mode;
 
     private static bool IsFullLatitudeCoverage(double south, double north) =>
         NearlyEqual(south, -90) && NearlyEqual(north, 90);
@@ -579,7 +575,7 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(IsRegion));
         this.RaisePropertyChanged(nameof(ShowRegionBounds));
         this.RaisePropertyChanged(nameof(ShowHorizontalWrapping));
-        this.RaisePropertyChanged(nameof(ShowRegionalInfluence));
+        this.RaisePropertyChanged(nameof(ShowWorldContext));
     }
 
     private void RaiseMappingChoicesChanged()
@@ -596,11 +592,11 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(IsHorizontalWrapping));
     }
 
-    private void RaiseGenerationModeChoicesChanged()
+    private void RaiseWorldContextChoicesChanged()
     {
         this.RaisePropertyChanged(nameof(IsIsolated));
         this.RaisePropertyChanged(nameof(IsAutomatic));
-        this.RaisePropertyChanged(nameof(InfluenceMode));
+        this.RaisePropertyChanged(nameof(WorldContextSelection));
         this.RaisePropertyChanged(nameof(RequiresMaskSource));
         this.RaisePropertyChanged(nameof(ShowWorldMask));
         this.RaisePropertyChanged(nameof(ShowRequestedOrigin));

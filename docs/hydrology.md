@@ -201,7 +201,7 @@ they are never converted into synthetic local runoff.
 
 `IsolatedHydrologyBoundaryContext` keeps the legacy policy: no incoming flow
 and no outside target, so an open edge may be a local terminal. Automatic
-regional requests can use the deterministic table adapter or a coarse-world
+world-context requests can use the deterministic table adapter or a coarse-world
 provider. During the final requested-domain crop, a river with cells inside
 the request is retained even when its source or drainage terminal lies
 outside; only a mouth explicitly represented inside the requested domain is

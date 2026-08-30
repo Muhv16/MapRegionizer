@@ -128,7 +128,7 @@
                             </StackPanel>
                         </views:SettingsRow.Value>
                     </views:SettingsRow>
-                    <views:SettingsRow Label="{Binding L[Influence]}" IsVisible="{Binding SpatialConfiguration.ShowRegionalInfluence}">
+                    <views:SettingsRow Label="{Binding L[Influence]}" IsVisible="{Binding SpatialConfiguration.ShowWorldContext}">
                         <views:SettingsRow.Value>
                             <StackPanel Spacing="5">
                                 <RadioButton GroupName="Influence" IsChecked="{Binding SpatialConfiguration.IsIsolated, Mode=TwoWay}">

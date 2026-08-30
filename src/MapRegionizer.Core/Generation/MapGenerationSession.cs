@@ -43,7 +43,7 @@ public sealed class MapGenerationSession
 
         var requestedSpatial = request.Options.EffectiveSpatial;
         var workingOptions = PrepareWorkingOptions(request, requestedSpatial);
-        var randomSeed = workingOptions.Seed ?? (request.Mode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom
+        var randomSeed = workingOptions.Seed ?? (request.WorldContextMode is WorldContextMode.Automatic or WorldContextMode.Custom
             ? request.WorldSeed
             : Random.Shared.Next());
         var context = new MapGenerationContext(
@@ -53,10 +53,11 @@ public sealed class MapGenerationSession
             randomSeed,
             request.RequestedDomain,
             request.WorkingDomain,
-            request.Mode,
+            request.WorldContextMode,
             request.ClimateBoundary,
             request.HydrologyBoundary,
-            requestedSpatial);
+            requestedSpatial,
+            request.IsLegacyCompatibilityRequest);
 
         return new MapGenerationSession(context, pipeline, request);
     }
@@ -66,6 +67,9 @@ public sealed class MapGenerationSession
     public MapMask WorkingMask => _context.Mask;
     public RequestedDomain RequestedDomain => _context.RequestedDomain;
     public WorkingDomain WorkingDomain => _context.WorkingDomain;
+    public WorldContextMode WorldContextMode => _context.WorldContextMode;
+    public WorldContextMode ContextMode => WorldContextMode;
+    [Obsolete("Use WorldContextMode. Legacy maps to Isolated plus legacy compatibility semantics.")]
     public RegionalGenerationMode GenerationMode => _context.GenerationMode;
     public int WorldSeed => _context.WorldSeed;
     public IClimateBoundaryContext ClimateBoundary => _context.ClimateBoundary;
@@ -146,8 +150,7 @@ public sealed class MapGenerationSession
     private static MapGenerationOptions PrepareWorkingOptions(MapGenerationOptions options, MapGenerationRequest request, MapSpatialOptions requestedSpatial)
     {
         var spatial = requestedSpatial;
-        if (request.Mode != RegionalGenerationMode.Legacy &&
-            spatial.Coverage.Kind == MapCoverageKind.Regional &&
+        if (spatial.Coverage.Kind == MapCoverageKind.Regional &&
             spatial.Topology == GridTopologyKind.CylindricalX &&
             spatial.LegacyCompatibility == LegacyCompatibilityProfile.None)
         {

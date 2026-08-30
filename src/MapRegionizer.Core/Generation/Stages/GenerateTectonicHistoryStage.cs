@@ -22,7 +22,7 @@ public sealed class GenerateTectonicHistoryStage : IMapGenerationStage, ISpatial
 
     public void Execute(MapGenerationContext context)
     {
-        if ((context.GenerationMode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom) &&
+        if ((context.WorldContextMode is WorldContextMode.Automatic or WorldContextMode.Custom) &&
             context.TectonicWorldContext is not null)
         {
             context.TectonicHistory = context.TectonicWorldContext.CreateHistory(context.WorkingDomain.Window);

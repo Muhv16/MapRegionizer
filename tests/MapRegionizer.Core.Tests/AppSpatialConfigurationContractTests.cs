@@ -99,21 +99,55 @@ public sealed class AppSpatialConfigurationContractTests
     }
 
     [Fact]
-    public void WholeWorldConfigurationUsesIsolatedContextAndHidesRegionalControls()
+    public void WholeWorldConfigurationKeepsWorldContextIndependent()
     {
         var viewModel = new SpatialConfigurationViewModel
         {
             CoverageKind = MapCoverageKind.Regional,
-            GenerationMode = RegionalGenerationMode.Automatic
+            WorldContextMode = WorldContextMode.Automatic
         };
 
         viewModel.CoverageKind = MapCoverageKind.Global;
 
-        Assert.Equal(RegionalGenerationMode.Isolated, viewModel.GenerationMode);
-        Assert.False(viewModel.ShowRegionalInfluence);
-        Assert.False(viewModel.ShowWorldMask);
-        Assert.False(viewModel.ShowWorkingHalo);
-        Assert.False(viewModel.ShowRequestedOrigin);
+        Assert.Equal(WorldContextMode.Automatic, viewModel.WorldContextMode);
+        Assert.True(viewModel.ShowWorldContext);
+        Assert.True(viewModel.ShowWorldMask);
+        Assert.True(viewModel.ShowWorkingHalo);
+        Assert.True(viewModel.ShowRequestedOrigin);
+        Assert.False(viewModel.ShowRegionBounds);
+    }
+
+    [Fact]
+    public void WholeWorldSurroundingContextBuildsWithAnExplicitWorldSource()
+    {
+        var viewModel = new SpatialConfigurationViewModel
+        {
+            CoverageKind = MapCoverageKind.Global,
+            WorldContextMode = WorldContextMode.Automatic
+        };
+        var requested = GridWindow.FromSize(3, 2);
+        var mask = FullMask(requested);
+        var source = new RecordingMaskSource();
+
+        var request = viewModel.BuildRequest(
+            mask,
+            new MapGenerationOptions { Seed = 7 },
+            source);
+        _ = MapGenerationSession.Create(request);
+
+        Assert.Equal(WorldContextMode.Automatic, request.WorldContextMode);
+        Assert.Equal(request.WorkingDomain.Window, source.LastWindow);
+    }
+
+    [Fact]
+    public void UnsupportedCustomWorldContextIsNormalizedAtAppBoundary()
+    {
+        var viewModel = new SpatialConfigurationViewModel();
+
+        viewModel.WorldContextMode = WorldContextMode.Custom;
+
+        Assert.Equal(WorldContextMode.Isolated, viewModel.WorldContextMode);
+        Assert.Equal([WorldContextMode.Isolated, WorldContextMode.Automatic], viewModel.WorldContextModes);
     }
 
     [Fact]
@@ -122,7 +156,7 @@ public sealed class AppSpatialConfigurationContractTests
         var viewModel = new SpatialConfigurationViewModel
         {
             CoverageKind = MapCoverageKind.Regional,
-            GenerationMode = RegionalGenerationMode.Automatic
+            WorldContextMode = WorldContextMode.Automatic
         };
         var mask = FullMask(GridWindow.FromSize(3, 3));
 
@@ -138,7 +172,7 @@ public sealed class AppSpatialConfigurationContractTests
         var viewModel = new SpatialConfigurationViewModel
         {
             CoverageKind = MapCoverageKind.Regional,
-            GenerationMode = RegionalGenerationMode.Automatic,
+            WorldContextMode = WorldContextMode.Automatic,
             WestLongitude = -30,
             EastLongitude = 30,
             SouthLatitude = -20,
@@ -185,28 +219,28 @@ public sealed class AppSpatialConfigurationContractTests
         };
 
         viewModel.CoverageKind = MapCoverageKind.Regional;
-        viewModel.GenerationMode = RegionalGenerationMode.Automatic;
+        viewModel.WorldContextMode = WorldContextMode.Automatic;
 
         Assert.True(viewModel.IsRegional);
         Assert.True(viewModel.RequiresMaskSource);
         Assert.Contains(nameof(SpatialConfigurationViewModel.IsRegional), changed);
         Assert.Contains(nameof(SpatialConfigurationViewModel.RequiresMaskSource), changed);
-        Assert.Contains(nameof(SpatialConfigurationViewModel.InfluenceMode), changed);
+        Assert.Contains(nameof(SpatialConfigurationViewModel.WorldContextSelection), changed);
     }
 
     [Fact]
-    public void AppExposesOnlyIsolatedAndAutomaticRegionalChoices()
+    public void AppExposesOnlyIsolatedAndAutomaticWorldContextChoices()
     {
         var viewModel = new SpatialConfigurationViewModel();
 
-        Assert.Equal(RegionalGenerationMode.Isolated, viewModel.GenerationMode);
-        Assert.Equal([RegionalGenerationMode.Isolated, RegionalGenerationMode.Automatic], viewModel.GenerationModes);
+        Assert.Equal(WorldContextMode.Isolated, viewModel.WorldContextMode);
+        Assert.Equal([WorldContextMode.Isolated, WorldContextMode.Automatic], viewModel.WorldContextModes);
         Assert.True(viewModel.IsIsolated);
         Assert.False(viewModel.IsAutomatic);
         Assert.False(viewModel.RequiresMaskSource);
 
         viewModel.CoverageKind = MapCoverageKind.Regional;
-        viewModel.GenerationMode = RegionalGenerationMode.Automatic;
+        viewModel.WorldContextMode = WorldContextMode.Automatic;
 
         Assert.True(viewModel.IsAutomatic);
         Assert.False(viewModel.IsIsolated);
@@ -215,10 +249,8 @@ public sealed class AppSpatialConfigurationContractTests
         Assert.True(viewModel.ShowRequestedOrigin);
         Assert.True(viewModel.ShowWorkingHalo);
 
-        viewModel.GenerationMode = RegionalGenerationMode.Legacy;
-        Assert.Equal(RegionalGenerationMode.Isolated, viewModel.GenerationMode);
-        viewModel.GenerationMode = RegionalGenerationMode.Custom;
-        Assert.Equal(RegionalGenerationMode.Isolated, viewModel.GenerationMode);
+        viewModel.WorldContextMode = WorldContextMode.Isolated;
+        Assert.Equal(WorldContextMode.Isolated, viewModel.WorldContextMode);
     }
 
     [Fact]
@@ -348,7 +380,7 @@ public sealed class AppSpatialConfigurationContractTests
         var second = viewModel.BuildRequest(mask, options, source).Options;
 
         Assert.Equal(first.EffectiveSpatial, second.EffectiveSpatial);
-        Assert.Equal(RegionalGenerationMode.Isolated, viewModel.GenerationMode);
+        Assert.Equal(WorldContextMode.Isolated, viewModel.WorldContextMode);
     }
 
     private static MapMask FullMask(GridWindow window) => new(

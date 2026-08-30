@@ -719,7 +719,7 @@ public sealed class ProjectionContractTests
             CanonicalCoordinates = CoordinateSpaceKind.GridMapUnits
         };
         var hydrology = CreateHydrology();
-        var map = new GeneratedMap(new MapBounds(6, 4, 2), [], [], [], Hydrology: hydrology, SpatialReference: reference);
+        var map = new GeneratedMap(new MapBounds(6, 4, 2), [], [], [], WorldContextMode.Isolated, Hydrology: hydrology, SpatialReference: reference);
 
         var json = RiverJsonWriter.Write(map, new MapOutputOptions
         {
@@ -761,7 +761,7 @@ public sealed class ProjectionContractTests
             new Coordinate(0, 0), new Coordinate(4, 0), new Coordinate(4, 4),
             new Coordinate(0, 4), new Coordinate(0, 0)
         ]));
-        var map = new GeneratedMap(new MapBounds(4, 4, 1), [landmass], [], [], SpatialReference: reference);
+        var map = new GeneratedMap(new MapBounds(4, 4, 1), [landmass], [], [], WorldContextMode.Isolated, SpatialReference: reference);
 
         var document = JsonNode.Parse(GeoJsonMapWriter.WriteLandmasses(map, new MapOutputOptions
         {

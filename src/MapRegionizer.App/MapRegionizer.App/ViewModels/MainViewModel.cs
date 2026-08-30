@@ -1235,10 +1235,10 @@ public sealed class MainViewModel : ReactiveObject
             ValidationMessage = L["ValidationMask"];
         else if (string.IsNullOrWhiteSpace(OutputDirectory))
             ValidationMessage = L["ValidationOutput"];
-        else if (SpatialConfiguration.GenerationMode == RegionalGenerationMode.Automatic &&
+        else if (SpatialConfiguration.IsAutomatic &&
                  (string.IsNullOrWhiteSpace(WorldMaskPath) || !File.Exists(WorldMaskPath)))
             ValidationMessage = L["ValidationWorldMask"];
-        else if (SpatialConfiguration.GenerationMode == RegionalGenerationMode.Automatic &&
+        else if (SpatialConfiguration.IsAutomatic &&
                  !TryValidateWorldMaskCoverage(out var worldMaskCoverageError))
             ValidationMessage = $"{L["ValidationWorldMaskCoverage"]} {worldMaskCoverageError}";
         else
@@ -1652,7 +1652,7 @@ public sealed class MainViewModel : ReactiveObject
             SelectedLanguage = LanguageOptions.Contains(_settings.Language) ? _settings.Language : "ru-RU";
             SelectedTheme = ThemeOptions.Contains(_settings.Theme) ? _settings.Theme : "System";
             LoadOptions(_settings.GenerationOptions);
-            SpatialConfiguration.GenerationMode = _settings.GenerationMode;
+            SpatialConfiguration.WorldContextMode = _settings.WorldContextMode;
             SpatialConfiguration.WorkingHaloCells = _settings.WorkingHaloCells;
             SpatialConfiguration.RequestedOriginX = _settings.RequestedOriginX;
             SpatialConfiguration.RequestedOriginY = _settings.RequestedOriginY;
@@ -2087,7 +2087,8 @@ public sealed class MainViewModel : ReactiveObject
         _settings.LastPreviewLayer = SelectedPreviewLayer?.Kind.ToString() ?? PreviewLayerKind.Overview.ToString();
         _settings.HasCompletedOnboarding = !ShowOnboarding;
         _settings.GenerationOptions = BuildOptions();
-        _settings.GenerationMode = SpatialConfiguration.GenerationMode;
+        _settings.WorldContextMode = SpatialConfiguration.WorldContextMode;
+        _settings.LegacyCompatibilityEnabled = false;
         _settings.WorkingHaloCells = SpatialConfiguration.WorkingHaloCells;
         _settings.RequestedOriginX = SpatialConfiguration.RequestedOriginX;
         _settings.RequestedOriginY = SpatialConfiguration.RequestedOriginY;

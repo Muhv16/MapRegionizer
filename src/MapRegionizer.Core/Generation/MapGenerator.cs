@@ -39,7 +39,7 @@ public sealed class MapGenerator
         return session.CurrentMap;
     }
 
-    /// <summary>Generates an aligned regional request, executing on its working domain and cropping at the end.</summary>
+    /// <summary>Generates an aligned spatial request, executing on its working domain and cropping at the end.</summary>
     public GeneratedMap Generate(MapGenerationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

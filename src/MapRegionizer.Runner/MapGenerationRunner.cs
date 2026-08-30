@@ -31,7 +31,8 @@ public sealed class MapGenerationRunner
         var generationOptions = WithRegionDistortion(
             options.GenerationOptions,
             options.RegionDraftDistortionEnabled ?? importedDocument?.ApplyBoundaryDistortion);
-        IMapMaskSource? worldMaskSource = options.GenerationMode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom
+        IMapMaskSource? worldMaskSource = !options.UsesLegacyCompatibility &&
+            (options.WorldContextMode is WorldContextMode.Automatic or WorldContextMode.Custom)
             ? new ImageMapMaskSource(options.WorldMaskPath!)
             : null;
         var request = options.ToGenerationRequest(mask, generationOptions, worldMaskSource);
@@ -207,10 +208,11 @@ public sealed class MapGenerationRunner
         if (!File.Exists(options.MaskPath))
             throw new FileNotFoundException("Mask file was not found.", options.MaskPath);
 
-        if (options.GenerationMode is RegionalGenerationMode.Automatic or RegionalGenerationMode.Custom)
+        if (!options.UsesLegacyCompatibility &&
+            (options.WorldContextMode is WorldContextMode.Automatic or WorldContextMode.Custom))
         {
             if (string.IsNullOrWhiteSpace(options.WorldMaskPath))
-                throw new ArgumentException("Automatic and custom regional generation require a world mask source (--world-mask).", nameof(options));
+                throw new ArgumentException("Automatic and custom world context require a world mask source (--world-mask).", nameof(options));
             if (!File.Exists(options.WorldMaskPath))
                 throw new FileNotFoundException("World mask file was not found.", options.WorldMaskPath);
         }

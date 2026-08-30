@@ -14,6 +14,7 @@ public sealed class MapGenerationContext
     private int _nextRegionId = 1;
     private int _randomSeed;
     private Random _random;
+    private readonly bool _climateBoundaryIsDefault;
     private readonly HashSet<MapDataKey> _availableData =
     [
         MapDataKeys.Mask,
@@ -34,13 +35,43 @@ public sealed class MapGenerationContext
             randomSeed,
             new RequestedDomain(mask.Window),
             new WorkingDomain(mask.Window),
-            RegionalGenerationMode.Legacy,
+            WorldContextMode.Isolated,
             IsolatedClimateBoundaryContext.Instance,
             IsolatedHydrologyBoundaryContext.Instance,
-            options.EffectiveSpatial)
+            options.EffectiveSpatial,
+            legacyCompatibilityRequest: true)
     {
     }
 
+    /// <summary>Creates a generation context using the canonical world-context model.</summary>
+    public MapGenerationContext(
+        MapMask mask,
+        MapGenerationOptions options,
+        GeometryFactory geometryFactory,
+        int randomSeed,
+        RequestedDomain requestedDomain,
+        WorkingDomain workingDomain,
+        WorldContextMode WorldContextMode,
+        IClimateBoundaryContext? climateBoundary = null,
+        IHydrologyBoundaryContext? hydrologyBoundary = null,
+        MapSpatialOptions? requestedSpatialOptions = null)
+        : this(
+            mask,
+            options,
+            geometryFactory,
+            randomSeed,
+            requestedDomain,
+            workingDomain,
+            WorldContextMode,
+            climateBoundary,
+            hydrologyBoundary,
+            requestedSpatialOptions,
+            legacyCompatibilityRequest: false)
+    {
+    }
+
+    /// <summary>Compatibility constructor for the old regional-mode enum.</summary>
+    [Obsolete("Use WorldContextMode. Legacy maps to Isolated plus legacy compatibility semantics.")]
     public MapGenerationContext(
         MapMask mask,
         MapGenerationOptions options,
@@ -52,6 +83,33 @@ public sealed class MapGenerationContext
         IClimateBoundaryContext? climateBoundary = null,
         IHydrologyBoundaryContext? hydrologyBoundary = null,
         MapSpatialOptions? requestedSpatialOptions = null)
+        : this(
+            mask,
+            options,
+            geometryFactory,
+            randomSeed,
+            requestedDomain,
+            workingDomain,
+            generationMode.ToWorldContextMode(),
+            climateBoundary,
+            hydrologyBoundary,
+            requestedSpatialOptions,
+            legacyCompatibilityRequest: generationMode == RegionalGenerationMode.Legacy)
+    {
+    }
+
+    internal MapGenerationContext(
+        MapMask mask,
+        MapGenerationOptions options,
+        GeometryFactory geometryFactory,
+        int randomSeed,
+        RequestedDomain requestedDomain,
+        WorkingDomain workingDomain,
+        WorldContextMode worldContextMode,
+        IClimateBoundaryContext? climateBoundary,
+        IHydrologyBoundaryContext? hydrologyBoundary,
+        MapSpatialOptions? requestedSpatialOptions,
+        bool legacyCompatibilityRequest)
     {
         ArgumentNullException.ThrowIfNull(mask);
         ArgumentNullException.ThrowIfNull(options);
@@ -68,14 +126,48 @@ public sealed class MapGenerationContext
         _random = new Random(randomSeed);
         RequestedDomain = requestedDomain;
         WorkingDomain = workingDomain;
-        GenerationMode = generationMode;
+        if (!Enum.IsDefined(worldContextMode))
+            throw new ArgumentOutOfRangeException(nameof(worldContextMode));
+
+        WorldContextMode = worldContextMode;
+        IsLegacyCompatibilityRequest = legacyCompatibilityRequest;
         RequestedSpatialOptions = requestedSpatialOptions ?? options.EffectiveSpatial;
-        ClimateBoundary = climateBoundary ?? (generationMode == RegionalGenerationMode.Isolated
-            ? IsolatedClimateBoundaryContext.Instance
-            : new AnalyticalClimateBoundaryContext(options.WorldSeed ?? options.Seed ?? randomSeed));
-        HydrologyBoundary = hydrologyBoundary ?? (generationMode == RegionalGenerationMode.Isolated
-            ? IsolatedHydrologyBoundaryContext.Instance
-            : new HydrologyBoundaryContext());
+        if (climateBoundary is not null)
+        {
+            ClimateBoundary = climateBoundary;
+            _climateBoundaryIsDefault = false;
+        }
+        else if (worldContextMode == WorldContextMode.Isolated)
+        {
+            ClimateBoundary = IsolatedClimateBoundaryContext.Instance;
+            _climateBoundaryIsDefault = true;
+        }
+        else if (worldContextMode == WorldContextMode.Automatic)
+        {
+            ClimateBoundary = new AnalyticalClimateBoundaryContext(options.WorldSeed ?? options.Seed ?? randomSeed);
+            _climateBoundaryIsDefault = true;
+        }
+        else
+        {
+            throw new ArgumentException("Custom world context requires an explicit climate boundary context.", nameof(climateBoundary));
+        }
+
+        if (hydrologyBoundary is not null)
+        {
+            HydrologyBoundary = hydrologyBoundary;
+        }
+        else if (worldContextMode == WorldContextMode.Isolated)
+        {
+            HydrologyBoundary = IsolatedHydrologyBoundaryContext.Instance;
+        }
+        else if (worldContextMode == WorldContextMode.Automatic)
+        {
+            HydrologyBoundary = new HydrologyBoundaryContext();
+        }
+        else
+        {
+            throw new ArgumentException("Custom world context requires an explicit hydrology boundary context.", nameof(hydrologyBoundary));
+        }
         SpatialContext = MapSpatialContext.Create(mask.Width, mask.Height, options.EffectiveSpatial);
         Bounds = new MapBounds(SpatialContext.SpatialReference.WidthInMapUnits, SpatialContext.SpatialReference.HeightInMapUnits, SpatialContext.SpatialReference.UnitsPerCell);
     }
@@ -85,7 +177,13 @@ public sealed class MapGenerationContext
     public RequestedDomain RequestedDomain { get; }
     /// <summary>The world-aligned raster on which all stages execute.</summary>
     public WorkingDomain WorkingDomain { get; }
-    public RegionalGenerationMode GenerationMode { get; }
+    public WorldContextMode WorldContextMode { get; }
+    public WorldContextMode ContextMode => WorldContextMode;
+    internal bool IsLegacyCompatibilityRequest { get; }
+    [Obsolete("Use WorldContextMode. Legacy maps to Isolated plus legacy compatibility semantics.")]
+    public RegionalGenerationMode GenerationMode => IsLegacyCompatibilityRequest
+        ? RegionalGenerationMode.Legacy
+        : WorldContextMode.ToRegionalGenerationMode();
     internal MapSpatialOptions RequestedSpatialOptions { get; private set; }
     public int WorldOriginX => WorkingDomain.X;
     public int WorldOriginY => WorkingDomain.Y;
@@ -198,7 +296,8 @@ public sealed class MapGenerationContext
         // immutable world context.  Options updates may rebuild the default
         // analytical adapter when its seed changes, but must never discard a
         // caller-provided coarse/custom boundary source.
-        if (GenerationMode == RegionalGenerationMode.Automatic &&
+        if (WorldContextMode == WorldContextMode.Automatic &&
+            _climateBoundaryIsDefault &&
             ClimateBoundary is AnalyticalClimateBoundaryContext)
         {
             ClimateBoundary = new AnalyticalClimateBoundaryContext(options.WorldSeed ?? options.Seed ?? _randomSeed);
