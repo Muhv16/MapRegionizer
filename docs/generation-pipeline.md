@@ -1,177 +1,44 @@
 # Generation Pipeline
 
-MapRegionizer uses a data-driven generation pipeline. A generation stage declares which data it requires and which data it produces. The pipeline uses these declarations to run only the necessary stages and to mark dependent results as dirty when earlier data is regenerated.
+MapRegionizer uses a data-driven generation pipeline. Generation is expressed as a set of stages that consume and produce named pieces of data. The pipeline uses these declarations to resolve dependencies, execute only the required work, and invalidate downstream results when earlier data changes.
+
+This document describes how to run and customize the generation pipeline and the rules that Core extensions should follow.
 
 ## Core Concepts
 
-The current pipeline is built around these public concepts:
+The pipeline is built around the following public concepts:
 
-- `MapDataKey`: identifies a piece of generated data.
-- `MapDataKeys`: standard data keys used by the core pipeline.
-- `IMapGenerationStage`: contract for generation stages.
-- `MapGenerationPipeline`: executes stages according to their dependencies.
-- `MapGenerationPipelineBuilder`: builds and customizes pipelines.
-- `MapGenerationSession`: keeps generation state and supports partial generation/regeneration.
-- `MapGenerator`: convenience wrapper for full generation.
+* `MapDataKey` identifies a piece of generation data.
+* `MapDataKeys` contains the standard keys used by the Core pipeline.
+* `IMapGenerationStage` defines one generation stage.
+* `MapGenerationPipeline` resolves stage dependencies and executes stages.
+* `MapGenerationPipelineBuilder` builds and customizes pipelines.
+* `MapGenerationSession` stores generated state and supports partial generation and regeneration.
+* `MapGenerator` is a convenience wrapper for complete generation.
 
-## Data Keys
+### Data keys
 
-Current core data keys:
+A data key represents a meaningful input, intermediate result, or final result of generation.
+
+Examples include:
 
 ```text
 Mask
-SpatialContext
-WorldSeed
-RequestedDomain
-WorkingDomain
-TectonicWorldContext
-ClimateWorldContext
-ClimateBoundaryContext
-HydrologyBoundaryContext
 Landmasses
-WaterBodies
-WaterBodyTopology
-TectonicHistory
-CrustFields
-PlateDomains
-TectonicBoundaries
-OrogenProvinces
-RiftProvinces
-TectonicFeatures
-BaseTerrain
-GeneratedLakes
 Elevation
-WaterSurfaces
 Hydrology
-Climate
-TectonicPlates
 RegionDraft
-RawRegions
 Regions
-RegionRaster
 ```
 
-`SpatialContext` is an immutable initial input, available before the first
-stage; it is not produced by a stage. Every spatially dependent stage declares
-it in `Requires`, so changing generation coverage, mapping, topology, or map
-units invalidates the appropriate downstream branch while keeping the input
-available. Output coordinate choices are deliberately absent from this graph.
+Data keys form the dependency graph of the pipeline. Stages do not depend on their physical order alone: they declare the data they require and the data they produce.
 
-`RegionDraft`, `RawRegions`, and `Regions` are intentionally separate:
-
-- `RegionDraft` is acquired from automatic generation or one externally supplied draft source.
-- `RawRegions` are produced only by canonicalizing that draft.
-- `Regions` are final regions after post-processing, currently boundary distortion.
-
-This separation allows users to keep region generation and replace or disable later region post-processing without regenerating the raw region layout.
-
-Both sets obey the [region geometry contract](regions.md). In particular, the final set remains an exact partition of every landmass even after boundary distortion.
-
-`RegionRaster` is an optional raster view of the final `Regions`. It stores one `int32` region id per source mask cell, using `0` for water/outside cells and final `RegionId.Value` values for land pixels.
-
-## Default Stages
-
-The default pipeline contains these stages:
-
-```text
-ExtractLandmassesStage
- -> ExtractWaterBodiesStage
- -> ClassifyWaterBodiesStage
- -> GenerateTectonicWorldContextStage
- -> GenerateTectonicHistoryStage
- -> GenerateCrustFieldsStage
- -> GeneratePlateDomainsStage
- -> GenerateTectonicBoundariesStage
- -> GenerateOrogenProvincesStage
- -> GenerateRiftProvincesStage
- -> GenerateTectonicFeaturesStage
- -> GenerateElevationStage
- -> GenerateSmallLakesStage
- -> GenerateLakeLevelsStage
- -> GenerateHydrologyStage
- -> GenerateClimateStage
- -> AssembleTectonicPlateMapStage
- -> GenerateRegionsStage
- -> CanonicalizeRegionDraftStage
- -> DistortRegionBoundariesStage
-```
-
-`RasterizeRegionsStage` is available as an opt-in stage after `DistortRegionBoundariesStage`; it is not part of the default pipeline.
-
-Their dependencies are:
+For example:
 
 ```text
 ExtractLandmassesStage
   requires: Mask, SpatialContext
   produces: Landmasses
-
-ExtractWaterBodiesStage
-  requires: Landmasses, SpatialContext
-  produces: WaterBodies
-
-ClassifyWaterBodiesStage
-  requires: Mask, Landmasses, WaterBodies, SpatialContext
-  produces: WaterBodyTopology
-
-GenerateTectonicWorldContextStage
-  requires: SpatialContext, WorldSeed
-  produces: TectonicWorldContext
-
-GenerateTectonicHistoryStage
-  requires: Mask, Landmasses, WaterBodies, SpatialContext, TectonicWorldContext
-  produces: TectonicHistory
-
-GenerateCrustFieldsStage
-  requires: Mask, TectonicHistory, SpatialContext, TectonicWorldContext
-  produces: CrustFields
-
-GeneratePlateDomainsStage
-  requires: Mask, CrustFields, TectonicHistory, SpatialContext, TectonicWorldContext
-  produces: PlateDomains
-
-GenerateTectonicBoundariesStage
-  requires: PlateDomains, CrustFields, SpatialContext
-  produces: TectonicBoundaries
-
-GenerateOrogenProvincesStage
-  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries, SpatialContext
-  produces: OrogenProvinces
-
-GenerateRiftProvincesStage
-  requires: Mask, TectonicHistory, CrustFields, TectonicBoundaries, SpatialContext
-  produces: RiftProvinces
-
-GenerateTectonicFeaturesStage
-  requires: Mask, Landmasses, TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, SpatialContext, TectonicWorldContext
-  produces: TectonicFeatures
-
-GenerateElevationStage
-  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology, SpatialContext, TectonicWorldContext
-  produces: BaseTerrain
-
-GenerateSmallLakesStage
-  requires: Mask, WaterBodyTopology, BaseTerrain, SpatialContext
-  produces: GeneratedLakes
-
-GenerateLakeLevelsStage
-  requires: BaseTerrain, GeneratedLakes, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures, SpatialContext
-  produces: Elevation, WaterSurfaces
-
-GenerateHydrologyStage
-  requires: Mask, Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes, SpatialContext, HydrologyBoundaryContext
-  produces: Hydrology
-
-GenerateClimateWorldContextStage
-  requires: SpatialContext, WorldSeed, ClimateBoundaryContext
-  produces: ClimateWorldContext
-
-GenerateClimateStage
-  requires: Mask, Elevation, WaterSurfaces, WaterBodyTopology, Hydrology, SpatialContext, ClimateWorldContext, ClimateBoundaryContext
-  produces: Climate
-
-AssembleTectonicPlateMapStage
-  requires: TectonicHistory, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures
-  produces: TectonicPlates
 
 GenerateRegionsStage
   requires: Landmasses
@@ -184,15 +51,36 @@ CanonicalizeRegionDraftStage
 DistortRegionBoundariesStage
   requires: Landmasses, RawRegions
   produces: Regions
-
-RasterizeRegionsStage
-  requires: Mask, Regions, SpatialContext
-  produces: RegionRaster
 ```
 
-If boundary distortion is disabled in options, `DistortRegionBoundariesStage` copies `RawRegions` to `Regions`.
+From these declarations, the pipeline can determine that requesting `Regions` requires the following branch:
 
-`RasterizeRegionsStage` samples each source mask cell and writes the final region id for land pixels. Water and outside-mask pixels are written as `0`. Because this stage is optional, `RunFull()` on the default pipeline does not produce `RegionRaster`; add the stage only for workflows that need a dense raster lookup or CLI binary artifact.
+```text
+Mask
+  -> Landmasses
+      -> RegionDraft
+          -> RawRegions
+              -> Regions
+```
+
+Other branches, such as tectonics, hydrology, or climate, do not need to run unless their data is requested.
+
+### Stages
+
+A generation stage performs one bounded generation operation.
+
+Typical stages include:
+
+```text
+ExtractLandmassesStage
+GenerateTectonicHistoryStage
+GenerateHydrologyStage
+GenerateRegionsStage
+```
+
+Stages communicate through the generation context using declared data keys. This makes generation dependencies explicit and allows individual branches to be regenerated or replaced independently.
+
+The complete list of built-in data keys and stages is provided in the [Default Pipeline Reference](#default-pipeline-reference) at the end of this document.
 
 ## Stage Contract
 
@@ -208,115 +96,110 @@ public interface IMapGenerationStage
 }
 ```
 
-Rules for stages:
+A stage must follow these rules:
 
-- `Requires` must list every data key read by the stage.
-- `Produces` must list every data key written by the stage.
-- A stage should write only the data it declares in `Produces`.
-- A pipeline cannot contain multiple stages producing the same data key.
-- Stage IDs should be stable because they are used for replacement and customization.
+* `Requires` must contain every pipeline data key read by the stage.
+* `Produces` must contain every pipeline data key written by the stage.
+* A stage should write only the data declared in `Produces`.
+* A pipeline cannot contain multiple stages that produce the same data key.
+* Stage IDs should remain stable because they are used for pipeline customization and stage replacement.
+* Any generation state that can change the result of a stage must be represented by its declared inputs or by an explicit generation contract. Stages should not silently depend on mutable external state.
 
-## Full Generation
+Correct dependency declarations are important for partial generation and invalidation. If a stage uses generation data without declaring that dependency, the pipeline cannot reliably determine when its output must be regenerated.
 
-Use `MapGenerator` when the user only needs a complete generated map:
+## Running Generation
+
+### Full Generation
+
+Use `MapGenerator` when a complete generated map is required and direct control over individual stages is unnecessary:
 
 ```csharp
 var generator = new MapGenerator();
+
 GeneratedMap map = generator.Generate(mask, options);
 ```
 
-Internally, `MapGenerator` creates a `MapGenerationSession`, runs the default pipeline, and returns `GeneratedMap`.
+`MapGenerator` creates a generation session, runs the default pipeline, and returns the resulting `GeneratedMap`.
 
-## Partial Generation
+The optional `RegionRaster` is not generated by the default pipeline. Workflows that require it must explicitly add region rasterization.
 
-Use `MapGenerationSession` when the user wants to inspect or regenerate specific stages:
+### Partial Generation
+
+Use `MapGenerationSession` when only part of the generation graph is required or intermediate results need to be inspected.
 
 ```csharp
 var session = MapGenerationSession.Create(mask, options);
 
-session.RunUntil(MapDataKeys.RawRegions);
-var rawRegions = session.RawRegions;
-
 session.RunUntil(MapDataKeys.Regions);
-var finalMap = session.CurrentMap;
+
+var regions = session.Regions;
 ```
 
-`RunUntil(target)` recursively runs all missing or dirty dependencies required to produce `target`.
+`RunUntil(target)` recursively executes only the missing or dirty dependencies required to produce the requested data.
 
-For example:
-
-```csharp
-session.RunUntil(MapDataKeys.Regions);
-```
-
-This ensures:
+For `Regions`, the relevant branch is:
 
 ```text
-Mask -> Landmasses -> RegionDraft -> RawRegions -> Regions
+Mask
+  -> Landmasses
+      -> RegionDraft
+          -> RawRegions
+              -> Regions
 ```
 
-`WaterBodies` and tectonic data are not required for `Regions`, so tectonic layers are not generated unless requested by `RunFull()`, `RunUntil(MapDataKeys.TectonicHistory)`, `RunUntil(MapDataKeys.CrustFields)`, `RunUntil(MapDataKeys.PlateDomains)`, `RunUntil(MapDataKeys.TectonicBoundaries)`, `RunUntil(MapDataKeys.OrogenProvinces)`, `RunUntil(MapDataKeys.RiftProvinces)`, `RunUntil(MapDataKeys.TectonicFeatures)`, `RunUntil(MapDataKeys.BaseTerrain)`, `RunUntil(MapDataKeys.Elevation)`, `RunUntil(MapDataKeys.WaterSurfaces)`, `RunUntil(MapDataKeys.Hydrology)`, `RunUntil(MapDataKeys.Climate)`, or `RunUntil(MapDataKeys.TectonicPlates)`.
+Unrelated branches are not generated merely because they exist in the default pipeline.
 
-## Regeneration
+A session can therefore be used to inspect or work with intermediate data without first generating the entire map.
 
-Use `Regenerate(target)` when existing data is acceptable up to some point, but a later result should be recalculated:
+### Regeneration
+
+Use `Regenerate(target)` when an existing result should be recalculated.
 
 ```csharp
 session.RunUntil(MapDataKeys.Regions);
 
-// Raw regions are not acceptable. Regenerate only them and invalidate final regions.
 session.Regenerate(MapDataKeys.RawRegions);
 
-// This reruns only what is needed after RawRegions changed.
 session.RunUntil(MapDataKeys.Regions);
 ```
 
-When data is regenerated, the pipeline marks downstream data as dirty.
+Regenerating data marks dependent downstream data as dirty.
 
-Example:
+Conceptually:
 
 ```text
 Regenerate RawRegions
-  -> RawRegions becomes clean
-  -> Regions becomes dirty
+    |
+    +-- RawRegions regenerated
+    |
+    +-- Regions marked dirty
 ```
 
-Then:
+The next request for `Regions` executes only the work required after `RawRegions`.
 
-```csharp
-session.RunUntil(MapDataKeys.Regions);
-```
+Unrelated branches remain valid.
 
-will rerun only `DistortRegionBoundariesStage`, assuming `Landmasses` and `RawRegions` are already clean.
+This makes it possible to iterate on one part of generation without repeatedly rebuilding the complete map.
 
-To generate the optional region raster in a custom workflow, add the stage and request `RegionRaster`:
+### Custom Pipeline
 
-```csharp
-var pipeline = MapGenerationPipelineBuilder.CreateDefault()
-    .AddRegionRasterization()
-    .Build();
+A default pipeline can be customized with `MapGenerationPipelineBuilder`.
 
-var session = MapGenerationSession.Create(mask, options, pipeline);
-session.RunUntil(MapDataKeys.RegionRaster);
-var raster = session.RegionRaster;
-```
-
-The CLI enables the same opt-in stage with `--rasterize-regions`. When enabled, artifact export writes `regions.bin` as little-endian row-major `int32` cells and `regions.summary.json` with dimensions, counts, format metadata, and the region ids present in the raster.
-
-## Custom Pipeline
-
-Create a custom pipeline by replacing a default stage:
+For example, a default stage can be replaced:
 
 ```csharp
 var pipeline = MapGenerationPipelineBuilder.CreateDefault()
-    .ReplaceStage(MapStageIds.GenerateRegions, new MyRegionGenerationStage())
+    .ReplaceStage(
+        MapStageIds.GenerateRegions,
+        new MyRegionGenerationStage())
     .Build();
 
 var session = MapGenerationSession.Create(mask, options, pipeline);
+
 session.RunUntil(MapDataKeys.Regions);
 ```
 
-Or build a pipeline manually:
+A pipeline can also be assembled manually:
 
 ```csharp
 var pipeline = new MapGenerationPipelineBuilder()
@@ -324,17 +207,30 @@ var pipeline = new MapGenerationPipelineBuilder()
     .AddStage(new GenerateRegionsStage())
     .AddStage(new CanonicalizeRegionDraftStage())
     .AddStage(new DistortRegionBoundariesStage())
-    .AddStage(new RasterizeRegionsStage())
     .Build();
 ```
 
-Manual pipelines are useful when a workflow does not need all data. For example, a pipeline can omit `ExtractWaterBodiesStage` if water bodies are never requested.
+Manual pipelines are useful for specialized workflows that require only a subset of Core generation.
 
-## Replacing One Stage
+For example, a regions-only workflow does not need tectonic, terrain, hydrology, or climate stages.
 
-A custom stage should preserve the same produced data key if it replaces a default stage.
+Optional stages can also be added to the default pipeline:
 
-Example custom region stage:
+```csharp
+var pipeline = MapGenerationPipelineBuilder.CreateDefault()
+    .AddRegionRasterization()
+    .Build();
+
+var session = MapGenerationSession.Create(mask, options, pipeline);
+
+session.RunUntil(MapDataKeys.RegionRaster);
+```
+
+### Replacing a Stage
+
+A replacement stage should normally preserve the data contract of the stage it replaces.
+
+For example:
 
 ```csharp
 public sealed class MyRegionGenerationStage : IMapGenerationStage
@@ -342,188 +238,281 @@ public sealed class MyRegionGenerationStage : IMapGenerationStage
     public string Id => MapStageIds.GenerateRegions;
 
     public IReadOnlySet<MapDataKey> Requires { get; } =
-        new HashSet<MapDataKey> { MapDataKeys.Landmasses };
+        new HashSet<MapDataKey>
+        {
+            MapDataKeys.Landmasses
+        };
 
     public IReadOnlySet<MapDataKey> Produces { get; } =
-        new HashSet<MapDataKey> { MapDataKeys.RegionDraft };
+        new HashSet<MapDataKey>
+        {
+            MapDataKeys.RegionDraft
+        };
 
     public void Execute(MapGenerationContext context)
     {
-        // Set context.RegionDraft. CanonicalizeRegionDraftStage remains the only RawRegions producer.
+        // Produce context.RegionDraft.
     }
 }
 ```
 
-If the custom stage produces a different key, dependent default stages will not be able to find their required data.
+The existing downstream stages can continue to work because the replacement still produces `RegionDraft`.
 
-## Future Extension
+A replacement may use different internal algorithms or require additional inputs, but changing its produced data keys also changes the pipeline contract. Existing consumers of those keys will no longer be satisfied automatically.
 
-World-generation features should be added as new data keys and stages. Tectonics is generated as layered equirectangular world data: history, local crust fields, plate domains, boundary segments, orogen provinces, rift provinces, derived features, and a compatible assembled `TectonicPlates` view. Base terrain is generated as a standalone pre-hydrology bed-height/bathymetry raster after tectonic feature, orogen-province, rift-province, and water-topology fields. Small generated lakes are selected from that base terrain before lake levels produce final `Elevation` and `WaterSurfaces`; hydrology then produces `Hydrology` from final terrain and lake surfaces; climate then produces temperature, moisture, biome, habitability, agriculture, monsoon, rain-shadow, and ice rasters. See [tectonics.md](tectonics.md), [elevation.md](elevation.md), [hydrology.md](hydrology.md), and [climate.md](climate.md) for the current domain models, options, algorithms, exports, and output map legends.
+## Spatial
 
-`WaterSurfaces` now carries both water-level records and inland lake metadata. Inland lake/sea records include location class, origin class, depth profile, maximum depth, centroid, shoreline relief, and tectonic/volcanic influence. Artifact export writes those records to `lakes.json`; raster water levels remain in `Elevation.WaterSurfaceMeters`. `Hydrology` carries hydro surface, D8 flow, accumulation, drainage basin ids, a canonical integer visible-river topology, render polylines derived from that topology, forced long mainstem candidates, major-river side tributary expansion, guaranteed inland-sea inflows where feasible, lake outlets, and river mouths. Artifact export writes those records to `rivers.json` and `elevation-rivers.png`; river mouths are exported as visible segment endpoints, `Cells` records canonical integer paths, `Polyline` records visual geometry, and `DrainageTerminal` records the final ocean, lake, or dry-basin target.
+Spatial defines how a generated raster relates to the world or surface represented by the map.
 
-Generation owns one immutable `MapSpatialContext` per session. Its
-`MapSpatialReference` describes grid size, map units per cell, world model,
-geographic coverage, grid mapping, and edge topology; the canonical geometry
-space is always `GridMapUnits`. Generation stages consume the context's
-topology/mapping and do not depend on output coordinate choices. GeoJSON and
-river exporters accept `MapOutputOptions` and transform cloned geometry at the
-output boundary. Geographic exports include the full spatial-reference
-descriptor, including the legacy compatibility profile when applicable. Web
-Mercator output uses the official EPSG:3857 spherical-Mercator constants
-(WGS84 semi-major radius, metres) and is also a presentation-only operation.
-`LatitudeOverflowPolicy.Reject` is the default and rejects geographic
-coordinates (or inverse projected Y values) outside the mathematical tile
-latitude (±85.0511287798066°); `Clip` clamps them to that boundary. Output
-metadata records the selected policy. `WebMercator3857` is the canonical output
-name and `WebMercator` remains a compatibility spelling.
+It describes concepts such as:
 
-Projected vector output is copied from the canonical NTS geometry. Long
-segments are adaptively subdivided using `ProjectionErrorTolerance`; midpoint
-and quarter-point samples are checked so symmetric projection curves cannot
-pass an estimator that only samples the midpoint. Recursion is bounded by
-`MaxDensificationDepth`: if the tolerance is still unmet at that bound, the
-transform fails explicitly. `MinDensificationSegmentLength` is the documented
-safety override for accepting very short output segments without further
-subdivision. This is an export policy: it never repairs, unions, or distorts
-the generated geometry.
-`AntimeridianOutputPolicy.Auto` unwraps geographic output for compatibility and
-splits Web Mercator paths at the world seam; callers can choose `Unwrap` or
-`Split` explicitly. Split line output can be a `MultiLineString`, and split
-polygon output can be a `MultiPolygon`, with each part normalized to one world
-copy and no artificial world-spanning edge. Point and `MultiPoint` output has
-no segment to cut, so `Auto`/`Split` normalize each point immediately; an
-`Auto`/`Unwrap` geographic point retains its unwrapped longitude. The same
-policies apply to river
-polylines; `RiverSegment.Polyline` remains fractional continuous-grid geometry
-and is scaled by `UnitsPerCell` only by the output adapter.
+* whether the represented world is planar or spherical;
+* whether generation covers the entire world or only a geographic region;
+* how positions on that surface are mapped onto the generation grid;
+* how the edges of the grid behave;
+* how large one grid cell is in canonical map units.
 
-For generation sampling, `GridMappingKind.WebMercator` maps a grid row linearly
-in projected Mercator Y and applies inverse Mercator to obtain latitude. The
-grid remains a raster metric (X/Y cell distances are used by generation
-algorithms), while climate reads the resulting geographic latitude. When
-`PreserveProjectedCellAspectRatio` is enabled (the default), context creation
-requires projected X and Y cell sizes to match; applications using a deliberate
-non-square raster can disable that check explicitly. The dimensions are
-validated where the spatial context knows both coverage and grid size.
+These properties are part of generation semantics. They can affect how stages interpret distance, latitude, neighboring cells, world edges, and other spatial relationships.
 
-The Milestone 1 legacy baseline is intentionally explicit. The default
-`EquirectangularWorld` profile keeps cylindrical X topology for tectonics,
-elevation, hydrology, and climate, while land/water shape extraction remains
-an open-edge vectorization policy: components at the two X edges are not
-joined. The default climate profile also retains its historical polar margin;
-new spatial configurations use their declared latitude coverage directly.
-The pinned raster and canonical-geometry fixtures in
-`LegacySpatialRegressionTests` record these compatibility choices, including
-holes/islands and both-X-edge seam cases. Any later change to those semantics
-must update the fixture with an explicit migration decision.
+For example, a whole-world map may use cylindrical horizontal topology so that the left and right sides of the raster represent adjacent locations. A regional map may instead use open edges because its boundaries represent the limits of the generated area rather than a world seam.
 
-Grid coordinates use the documented raster orientation `(0,0)` at the
-top-left, X to the right, and Y downward. Continuous cell centers therefore
-use `(x + 0.5, y + 0.5)`; mapping code owns the inversion to north-positive
-geographic latitude. The old width/height overloads retained by a few Core
-helpers are compatibility adapters that construct the legacy cylindrical
-topology. Generation stages pass the session topology explicitly.
+MapRegionizer separates **generation spatial semantics** from **output coordinates**.
 
-Tectonic GeoJSON export uses `Summary` mode by default. Summary output keeps runtime-friendly plate, boundary, crust, coastal, age, feature, and island metadata, but omits large diagnostic point clouds and writes compact JSON. Use `CompactDiagnostic` to include segment points without duplicate aggregate point lists, or `Diagnostic` for dense age rows and full feature point output.
+Topology and grid mapping can affect generation and therefore belong to the generation model.
+The requested output coordinate system does not.
 
-Current and future terrain-oriented data keys include:
+## Extending the Pipeline
+
+The pipeline is designed to support new generation systems without requiring them to be integrated into one monolithic generation procedure.
+
+Extensions should preserve the dependency-driven model.
+
+### Adding Data and Stages
+
+A new generated concept should normally be introduced as one or more data keys and stages.
+
+For example:
 
 ```text
-BaseTerrain
-GeneratedLakes
+ExistingData
+    |
+    v
+GenerateSomethingStage
+    |
+    v
+Something
+```
+
+The new stage should:
+
+1. declare every required input;
+2. produce an explicit data key;
+3. avoid modifying unrelated generation data;
+4. allow downstream stages to depend on the produced key rather than directly on the implementation of the producer.
+
+If the result has several independently useful phases, those phases may be represented by separate data keys and stages rather than hidden inside one large stage.
+
+For example:
+
+```text
+Input
+  -> IntermediateA
+      -> IntermediateB
+          -> FinalResult
+```
+
+This is useful when intermediate results may need to be inspected, regenerated, replaced, or consumed independently.
+
+Subsystem-specific algorithms and data models should be documented in their own documentation. The pipeline documentation should describe only their place in the generation graph and their public generation contracts.
+
+### Editable Generation Boundaries
+
+Some generation workflows need to allow the consumer to intervene between automatic generation and later processing.
+
+Regions are the first Core subsystem to expose such a boundary:
+
+```text
+GenerateRegionsStage
+        |
+        v
+   RegionDraft
+        |
+        |  optional consumer editing/replacement
+        |
+        v
+CanonicalizeRegionDraftStage
+        |
+        v
+   RawRegions
+        |
+        v
+DistortRegionBoundariesStage
+        |
+        v
+     Regions
+```
+
+These three representations have different responsibilities:
+
+* `RegionDraft` is the editable or replaceable intermediate representation. It may originate from automatic generation or from an external consumer.
+* `RawRegions` are canonical regions accepted by the normal generation pipeline after the draft has been validated and canonicalized.
+* `Regions` are the final regions after region post-processing.
+
+The important architectural concept is not the specific `Draft -> Raw -> Final` naming scheme. It is the existence of an **explicit intervention boundary**.
+
+Consumers should not modify canonical generated data behind the pipeline's back. If a subsystem supports user editing, external replacement, or other manual intervention, that intervention should be represented explicitly so the pipeline can validate the supplied state and invalidate dependent results correctly.
+
+Future subsystems may use the same general concept where appropriate.
+
+For example, terrain generation could eventually expose an editable intermediate terrain representation before downstream elevation, hydrology, and climate processing.
+
+Other systems may require a different form of intervention. Hydrology is a useful example: visible rivers may be derived from flow direction, drainage, terrain, and basin topology. Allowing a consumer to replace only a final river polyline could create a result inconsistent with the underlying hydrology.
+
+In such a system, the appropriate intervention boundary may instead be a set of generation constraints or hints:
+
+```text
+Automatic Inputs ----+
+                     |
+User Constraints ----+--> Generate / Reconcile
+                     |
+                     v
+              Canonical Result
+```
+
+Examples could include required drainage paths, source hints, or other domain-specific constraints.
+
+Therefore, extensions that require consumer intervention should follow these rules:
+
+* expose the intervention explicitly;
+* do not require consumers to mutate canonical pipeline outputs directly;
+* define which representation is authoritative;
+* validate or reconcile externally supplied data before exposing it as canonical generated data;
+* invalidate all dependent data after accepted changes;
+* choose between editable drafts, constraints, overrides, or another domain-specific representation according to the semantics of the subsystem.
+
+A universal editable-draft abstraction should not be assumed where the generated result is derived from a more fundamental simulation state.
+
+### Dependency and Invalidation Rules
+
+Extensions must preserve the consistency of the dependency graph.
+
+If data changes, every result that depends on it must become dirty.
+
+For example:
+
+```text
 Elevation
-WaterSurfaces
-Hydrology
-Climate
+   |
+   +--> Hydrology
+           |
+           +--> Climate
 ```
 
-Potential dependencies:
+If `Elevation` is replaced or regenerated, `Hydrology` and dependent climate data must no longer be treated as current.
 
-The spatially dependent stages listed below also declare the initial
-`SpatialContext` input, even where it is omitted from the abbreviated diagram.
+Unrelated branches should remain reusable.
+
+An intervention boundary follows the same rule. Replacing an editable intermediate result should invalidate only the canonical and downstream data that depends on that result.
+
+The pipeline should therefore express semantic dependencies rather than broad execution ordering. A stage should depend on the specific data it uses, not on unrelated stages that merely happen to run earlier in the default pipeline.
+
+## Default Pipeline Reference
+
+The following sections describe the built-in Core pipeline. They are a reference for the current implementation rather than the conceptual definition of the pipeline API.
+
+### Default Data Keys
+
+| Data key                   | Purpose                                                   |
+| -------------------------- | --------------------------------------------------------- |
+| `Mask`                     | Raster mask used by generation.                           |
+| `SpatialContext`           | Spatial model used by spatially aware generation.         |
+| `WorldSeed`                | Stable seed used by world-scale generation.               |
+| `RequestedDomain`          | Requested generation domain.                              |
+| `WorkingDomain`            | Domain on which generation work is performed.             |
+| `TectonicWorldContext`     | World-scale tectonic context.                             |
+| `ClimateWorldContext`      | World-scale climate context.                              |
+| `ClimateBoundaryContext`   | External/boundary climate information.                    |
+| `HydrologyBoundaryContext` | External/boundary hydrology information.                  |
+| `Landmasses`               | Extracted land geometry.                                  |
+| `WaterBodies`              | Extracted water geometry.                                 |
+| `WaterBodyTopology`        | Classification and topology of water bodies.              |
+| `TectonicHistory`          | Generated tectonic history.                               |
+| `CrustFields`              | Generated crust properties.                               |
+| `PlateDomains`             | Tectonic plate-domain data.                               |
+| `TectonicBoundaries`       | Plate-boundary data.                                      |
+| `OrogenProvinces`          | Orogenic provinces.                                       |
+| `RiftProvinces`            | Rift provinces.                                           |
+| `TectonicFeatures`         | Derived tectonic features.                                |
+| `BaseTerrain`              | Terrain state before lake-level and hydrology processing. |
+| `GeneratedLakes`           | Lakes selected/generated from base terrain.               |
+| `Elevation`                | Final elevation data.                                     |
+| `WaterSurfaces`            | Generated water-surface data.                             |
+| `Hydrology`                | Hydrological generation result.                           |
+| `Climate`                  | Climate generation result.                                |
+| `TectonicPlates`           | Assembled tectonic-plate view.                            |
+| `RegionDraft`              | Editable/replaceable region-generation result.            |
+| `RawRegions`               | Canonical regions before final post-processing.           |
+| `Regions`                  | Final regions.                                            |
+| `RegionRaster`             | Optional raster lookup of final region IDs.               |
+
+### Default Stages
+
+The default pipeline registers the following stages:
 
 ```text
+ExtractLandmassesStage
+ExtractWaterBodiesStage
+ClassifyWaterBodiesStage
+
+GenerateTectonicWorldContextStage
+GenerateTectonicHistoryStage
+GenerateCrustFieldsStage
+GeneratePlateDomainsStage
+GenerateTectonicBoundariesStage
+GenerateOrogenProvincesStage
+GenerateRiftProvincesStage
+GenerateTectonicFeaturesStage
+
 GenerateElevationStage
-  requires: Mask, CrustFields, PlateDomains, TectonicBoundaries, OrogenProvinces, RiftProvinces, TectonicFeatures, WaterBodyTopology
-  produces: BaseTerrain
-
 GenerateSmallLakesStage
-  requires: Mask, WaterBodyTopology, BaseTerrain
-  produces: GeneratedLakes
-
 GenerateLakeLevelsStage
-  requires: BaseTerrain, GeneratedLakes, WaterBodies, WaterBodyTopology, CrustFields, TectonicBoundaries, RiftProvinces, TectonicFeatures
-  produces: Elevation, WaterSurfaces
-
 GenerateHydrologyStage
-  requires: Elevation, WaterSurfaces, WaterBodyTopology, GeneratedLakes
-  produces: Hydrology
 
+GenerateClimateWorldContextStage
 GenerateClimateStage
-  requires: Elevation, WaterSurfaces, WaterBodyTopology, Hydrology
-  produces: Climate
+
+AssembleTectonicPlateMapStage
+
+GenerateRegionsStage
+CanonicalizeRegionDraftStage
+DistortRegionBoundariesStage
 ```
 
-With this model, if a user likes generated regions but dislikes generated tectonics or terrain, only tectonic generation and downstream elevation/compatibility data need to be regenerated. Region data remains clean and reusable.
+`RasterizeRegionsStage` is available as an opt-in stage and is not part of the default pipeline.
 
-## Regional requests and boundary contexts
+### Stage Dependencies
 
-`MapGenerationRequest` separates the immutable `RequestedDomain` from the
-world-aligned `WorkingDomain`. A request with `RegionalGenerationMode.Automatic`
-must provide an `IMapMaskSource`; the source is asked for the complete working
-window, including any halo. Generation runs on that mask and
-`GeneratedMap` crops rasters and canonical geometry to the requested window
-only after the pipeline finishes. The returned spatial reference and bounds
-are recreated for the requested dimensions, so geographic edges remain
-aligned with the original requested coverage. The legacy
-`Generate(MapMask, ...)` overload creates a `Legacy` request with no crop and
-retains its historical cylindrical and isolated boundary behavior.
-
-Stages expose `StageBoundaryMetadata`: `FiniteLocal` stages may declare a
-specific required halo, while `Propagating` stages (moisture and drainage) and
-`GlobalContextDependent` stages (automatic tectonic identity) use explicit
-boundary/world contexts instead of pretending a finite halo is sufficient.
-`MapGenerationRequest.ValidateFiniteHalo` validates finite requirements for a
-custom pipeline; non-finite dependencies are intentionally not converted to a
-universal radius.
-
-Automatic tectonics is keyed by `WorldSeed` and samples a stable latent
-`TectonicWorldContext` at world coordinates. Consequently, plate IDs and
-world-object identity do not depend on requested crop size or iteration order.
-Climate and hydrology receive `IClimateBoundaryContext` and
-`IHydrologyBoundaryContext` respectively. Their analytical/default providers
-are deterministic; `Isolated` uses explicit dry/closed boundaries, while
-automatic requests can supply incoming moisture/flow, external elevation and
-water, and downstream targets from a coarse-world provider. Incoming flow is
-propagated through the local flow graph before visible river extraction, and
-external elevation/water are used only for boundary classification rather than
-inventing local runoff.
-
-## Consumer boundaries
-
-Portable region drafts use schema `2.0` and persist the complete
-`MapSpatialReference` descriptor. Schema `1.0` remains readable and is
-materialized through its historical `LegacyCompatibilityProfile`; writing a
-document read from v1 performs the explicit migration to v2. Draft
-compatibility compares only canonical generation identity (world model,
-coverage, mapping, topology, grid size, and units). `MapOutputOptions` is never
-part of that identity.
-
-`GeoJsonMapWriter` and the river exporter accept a `GeneratedMap` plus
-`MapOutputOptions`. They clone canonical `GridMapUnits` geometry, transform it
-to requested grid/geographic/Web Mercator coordinates, and apply antimeridian
-splitting before serialization. Geographic output should be treated as
-longitude/latitude only when requested; projected or fictional-world output is
-marked in `spatialReference` metadata and is not silently advertised as WGS84.
-The Core map is not mutated by exporting.
-
-The Avalonia App and CLI assemble the same Core request model. `Automatic`
-requires a world mask source that covers the complete working window (requested
-window plus halo); `Isolated` uses the selected mask as a self-contained local
-simulation; `Custom` is reserved for callers that supply both boundary
-contexts. Requested origin values keep a local image aligned to the world grid.
-Output coordinate controls affect only artifact export and do not invalidate or
-alter generation options. World edge decisions are obtained from
-`IGridTopology`, leaving the generation stages independent of future pole
-topologies.
+| Stage                                | Requires                                                                                                                                                                           | Produces                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `ExtractLandmassesStage`             | `Mask`, `SpatialContext`                                                                                                                                                           | `Landmasses`                 |
+| `ExtractWaterBodiesStage`            | `Landmasses`, `SpatialContext`                                                                                                                                                     | `WaterBodies`                |
+| `ClassifyWaterBodiesStage`           | `Mask`, `Landmasses`, `WaterBodies`, `SpatialContext`                                                                                                                              | `WaterBodyTopology`          |
+| `GenerateTectonicWorldContextStage`  | `SpatialContext`, `WorldSeed`                                                                                                                                                      | `TectonicWorldContext`       |
+| `GenerateTectonicHistoryStage`       | `Mask`, `Landmasses`, `WaterBodies`, `SpatialContext`, `TectonicWorldContext`                                                                                                      | `TectonicHistory`            |
+| `GenerateCrustFieldsStage`           | `Mask`, `TectonicHistory`, `SpatialContext`, `TectonicWorldContext`                                                                                                                | `CrustFields`                |
+| `GeneratePlateDomainsStage`          | `Mask`, `CrustFields`, `TectonicHistory`, `SpatialContext`, `TectonicWorldContext`                                                                                                 | `PlateDomains`               |
+| `GenerateTectonicBoundariesStage`    | `PlateDomains`, `CrustFields`, `SpatialContext`                                                                                                                                    | `TectonicBoundaries`         |
+| `GenerateOrogenProvincesStage`       | `Mask`, `TectonicHistory`, `CrustFields`, `TectonicBoundaries`, `SpatialContext`                                                                                                   | `OrogenProvinces`            |
+| `GenerateRiftProvincesStage`         | `Mask`, `TectonicHistory`, `CrustFields`, `TectonicBoundaries`, `SpatialContext`                                                                                                   | `RiftProvinces`              |
+| `GenerateTectonicFeaturesStage`      | `Mask`, `Landmasses`, `TectonicHistory`, `CrustFields`, `PlateDomains`, `TectonicBoundaries`, `OrogenProvinces`, `RiftProvinces`, `SpatialContext`, `TectonicWorldContext`         | `TectonicFeatures`           |
+| `GenerateElevationStage`             | `Mask`, `CrustFields`, `PlateDomains`, `TectonicBoundaries`, `OrogenProvinces`, `RiftProvinces`, `TectonicFeatures`, `WaterBodyTopology`, `SpatialContext`, `TectonicWorldContext` | `BaseTerrain`                |
+| `GenerateSmallLakesStage`            | `Mask`, `WaterBodyTopology`, `BaseTerrain`, `SpatialContext`                                                                                                                       | `GeneratedLakes`             |
+| `GenerateLakeLevelsStage`            | `BaseTerrain`, `GeneratedLakes`, `WaterBodies`, `WaterBodyTopology`, `CrustFields`, `TectonicBoundaries`, `RiftProvinces`, `TectonicFeatures`, `SpatialContext`                    | `Elevation`, `WaterSurfaces` |
+| `GenerateHydrologyStage`             | `Mask`, `Elevation`, `WaterSurfaces`, `WaterBodyTopology`, `GeneratedLakes`, `SpatialContext`, `HydrologyBoundaryContext`                                                          | `Hydrology`                  |
+| `GenerateClimateWorldContextStage`   | `SpatialContext`, `WorldSeed`, `ClimateBoundaryContext`                                                                                                                            | `ClimateWorldContext`        |
+| `GenerateClimateStage`               | `Mask`, `Elevation`, `WaterSurfaces`, `WaterBodyTopology`, `Hydrology`, `SpatialContext`, `ClimateWorldContext`, `ClimateBoundaryContext`                                          | `Climate`                    |
+| `AssembleTectonicPlateMapStage`      | `TectonicHistory`, `CrustFields`, `PlateDomains`, `TectonicBoundaries`, `OrogenProvinces`, `RiftProvinces`, `TectonicFeatures`                                                     | `TectonicPlates`             |
+| `GenerateRegionsStage`               | `Landmasses`                                                                                                                                                                       | `RegionDraft`                |
+| `CanonicalizeRegionDraftStage`       | `Landmasses`, `RegionDraft`                                                                                                                                                        | `RawRegions`                 |
+| `DistortRegionBoundariesStage`       | `Landmasses`, `RawRegions`                                                                                                                                                         | `Regions`                    |
+| `RasterizeRegionsStage` *(optional)* | `Mask`, `Regions`, `SpatialContext`                                                                                                                                                | `RegionRaster`               |
