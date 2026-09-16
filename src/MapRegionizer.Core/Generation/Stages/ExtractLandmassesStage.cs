@@ -10,6 +10,12 @@ public sealed class ExtractLandmassesStage : IMapGenerationStage
 
     public void Execute(MapGenerationContext context)
     {
+        if (context.ExternalLandmasses is not null)
+        {
+            context.Landmasses.AddRange(context.ExternalLandmasses);
+            return;
+        }
+
         var extractor = new LandShapeExtractor(context.GeometryFactory);
         context.Landmasses.AddRange(extractor.Extract(context.Mask, context.Options));
     }

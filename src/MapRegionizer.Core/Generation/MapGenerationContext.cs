@@ -109,7 +109,8 @@ public sealed class MapGenerationContext
         IClimateBoundaryContext? climateBoundary,
         IHydrologyBoundaryContext? hydrologyBoundary,
         MapSpatialOptions? requestedSpatialOptions,
-        bool legacyCompatibilityRequest)
+        bool legacyCompatibilityRequest,
+        MapGeometrySeed? geometrySeed = null)
     {
         ArgumentNullException.ThrowIfNull(mask);
         ArgumentNullException.ThrowIfNull(options);
@@ -170,6 +171,21 @@ public sealed class MapGenerationContext
         }
         SpatialContext = MapSpatialContext.Create(mask.Width, mask.Height, options.EffectiveSpatial);
         Bounds = new MapBounds(SpatialContext.SpatialReference.WidthInMapUnits, SpatialContext.SpatialReference.HeightInMapUnits, SpatialContext.SpatialReference.UnitsPerCell);
+
+        if (geometrySeed is not null)
+        {
+            ExternalLandmasses = geometrySeed.Landmasses;
+            ExternalRegionDraft = geometrySeed.RegionDraft;
+            Landmasses.AddRange(geometrySeed.Landmasses);
+            RegionDraft = geometrySeed.RegionDraft;
+            _availableData.Add(MapDataKeys.Landmasses);
+            _availableData.Add(MapDataKeys.RegionDraft);
+            _nextRegionId = geometrySeed.RegionDraft.Regions
+                .Where(region => region.Id is { Value: > 0 })
+                .Select(region => region.Id!.Value.Value)
+                .DefaultIfEmpty(0)
+                .Max() + 1;
+        }
     }
 
     public MapMask Mask { get; }
@@ -206,6 +222,8 @@ public sealed class MapGenerationContext
     public MapSpatialContext SpatialContext { get; private set; }
     public MapSpatialReference SpatialReference => SpatialContext.SpatialReference;
     public List<Landmass> Landmasses { get; } = [];
+    /// <summary>Authoritative geometry supplied before pipeline execution.</summary>
+    public IReadOnlyList<Landmass>? ExternalLandmasses { get; private set; }
     public List<WaterBody> WaterBodies { get; } = [];
     public WaterBodyTopology? WaterBodyTopology { get; set; }
     public List<MapRegion> RawRegions { get; } = [];

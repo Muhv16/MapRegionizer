@@ -14,8 +14,10 @@ using MapRegionizer.App.Services;
 using MapRegionizer.App.Views;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
+using MapRegionizer.Core.ManualAuthoring;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
+using MapRegionizer.Core.Spatial;
 using MapRegionizer.GeoJson;
 using MapRegionizer.ImageSharp;
 using MapRegionizer.Runner;
@@ -43,6 +45,13 @@ public sealed class MainViewModel : ReactiveObject
     private CancellationTokenSource? _generationCts;
     private bool _sessionResetRequired = true;
     private bool _suppressDirty;
+    private MapSourceMode _mapSourceMode = MapSourceMode.Mask;
+    private int _manualGridWidth = 512;
+    private int _manualGridHeight = 256;
+    private ManualMapDraft? _manualMapDraft;
+    private ManualMapFinalizationResult? _manualMapFinalization;
+    private MapGeometrySeed? _manualGeometrySeed;
+    private MapSpatialOptions? _manualFinalizationSpatial;
 
     private string _maskPath = string.Empty;
     private string _worldMaskPath = string.Empty;
@@ -207,6 +216,7 @@ public sealed class MainViewModel : ReactiveObject
         RunRegionsOnlyCommand = ReactiveCommand.CreateFromTask(RunRegionsOnlyAsync);
         OpenRegionEditorCommand = ReactiveCommand.CreateFromTask(() => OpenRegionEditorAsync(frozenVisibleRegions: false));
         OpenVisibleRegionEditorCommand = ReactiveCommand.CreateFromTask(() => OpenRegionEditorAsync(frozenVisibleRegions: true));
+        OpenManualMapEditorCommand = ReactiveCommand.CreateFromTask(OpenManualMapEditorAsync);
         ResetAutomaticRegionsCommand = ReactiveCommand.CreateFromTask(ResetAutomaticRegionsAsync);
         ExportCommand = ReactiveCommand.CreateFromTask(ExportAsync);
         ExportPreviewCommand = ReactiveCommand.CreateFromTask(ExportPreviewAsync);
@@ -237,6 +247,7 @@ public sealed class MainViewModel : ReactiveObject
     public LocalizationService L => _localization;
     public IReadOnlyList<string> LanguageOptions => _localization.SupportedLanguages;
     public IReadOnlyList<string> ThemeOptions { get; } = ["System", "Light", "Dark"];
+    public IReadOnlyList<MapSourceMode> MapSourceModes { get; } = Enum.GetValues<MapSourceMode>();
     public IReadOnlyList<TectonicPlateJsonExportMode> TectonicJsonModes { get; } = Enum.GetValues<TectonicPlateJsonExportMode>();
     public IReadOnlyList<ElevationJsonExportMode> ElevationJsonModes { get; } = Enum.GetValues<ElevationJsonExportMode>();
     public IReadOnlyList<ClimateJsonExportMode> ClimateJsonModes { get; } = Enum.GetValues<ClimateJsonExportMode>();
@@ -260,6 +271,7 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> RunRegionsOnlyCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenRegionEditorCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenVisibleRegionEditorCommand { get; }
+    public ReactiveCommand<Unit, Unit> OpenManualMapEditorCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetAutomaticRegionsCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportPreviewCommand { get; }
@@ -274,6 +286,47 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> ApplyDiagnosticPresetCommand { get; }
 
     public string MaskPath { get => _maskPath; set => SetMaskPath(value); }
+    public MapSourceMode MapSourceMode
+    {
+        get => _mapSourceMode;
+        set
+        {
+            if (_mapSourceMode == value)
+                return;
+            this.RaiseAndSetIfChanged(ref _mapSourceMode, value);
+            this.RaisePropertyChanged(nameof(IsMaskSource));
+            this.RaisePropertyChanged(nameof(IsManualSource));
+            _sessionResetRequired = true;
+            _workspace.Reset();
+            if (value == MapSourceMode.Manual)
+                BoundaryDistortionEnabled = false;
+            RefreshStageStates();
+            RefreshLayerAvailability();
+            ValidateAll();
+            SaveSettings();
+        }
+    }
+    public bool IsMaskSource
+    {
+        get => MapSourceMode == MapSourceMode.Mask;
+        set { if (value) MapSourceMode = MapSourceMode.Mask; }
+    }
+    public bool IsManualSource
+    {
+        get => MapSourceMode == MapSourceMode.Manual;
+        set { if (value) MapSourceMode = MapSourceMode.Manual; }
+    }
+    public int ManualGridWidth
+    {
+        get => _manualGridWidth;
+        set => SetManualGridSize(ref _manualGridWidth, value, nameof(ManualGridWidth));
+    }
+    public int ManualGridHeight
+    {
+        get => _manualGridHeight;
+        set => SetManualGridSize(ref _manualGridHeight, value, nameof(ManualGridHeight));
+    }
+    public bool HasManualMapDraft => _manualMapFinalization?.IsSuccessful == true;
     public string WorldMaskPath { get => _worldMaskPath; set => SetWorldMaskPath(value); }
     public string MaskFileName => string.IsNullOrWhiteSpace(MaskPath) ? string.Empty : Path.GetFileName(MaskPath);
     public string WorldMaskFileName => string.IsNullOrWhiteSpace(WorldMaskPath) ? string.Empty : Path.GetFileName(WorldMaskPath);
@@ -678,7 +731,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -755,7 +808,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -821,7 +874,9 @@ public sealed class MainViewModel : ReactiveObject
 
     private async Task OpenRegionEditorAsync(bool frozenVisibleRegions)
     {
-        if (IsGenerating || string.IsNullOrWhiteSpace(MaskPath) || !File.Exists(MaskPath))
+        if (IsGenerating ||
+            (IsMaskSource && (string.IsNullOrWhiteSpace(MaskPath) || !File.Exists(MaskPath))) ||
+            (IsManualSource && (_manualMapFinalization is null || !_manualMapFinalization.IsSuccessful)))
         {
             StatusMessage = L["ValidationMask"];
             return;
@@ -830,7 +885,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
             await _execution.RunUntilAsync(session, frozenVisibleRegions ? MapDataKeys.Regions : MapDataKeys.RawRegions, CancellationToken.None);
@@ -849,6 +904,12 @@ public sealed class MainViewModel : ReactiveObject
 
             BoundaryDistortionEnabled = result.ApplyBoundaryDistortion;
             session.SetRegionDraft(result.Draft);
+            if (IsManualSource && _manualGeometrySeed is not null)
+            {
+                _manualGeometrySeed = new MapGeometrySeed(_manualGeometrySeed.Landmasses, result.Draft);
+                if (_manualMapFinalization is not null)
+                    _manualMapFinalization = _manualMapFinalization with { RegionDraft = result.Draft };
+            }
             await _execution.RunUntilAsync(session, MapDataKeys.Regions, CancellationToken.None);
             RefreshStageStates();
             RefreshLayerAvailability();
@@ -866,6 +927,54 @@ public sealed class MainViewModel : ReactiveObject
         }
     }
 
+    private async Task OpenManualMapEditorAsync()
+    {
+        if (IsGenerating)
+            return;
+        if (ManualGridWidth <= 0 || ManualGridHeight <= 0)
+        {
+            StatusMessage = "Размер manual map должен быть положительным.";
+            return;
+        }
+
+        try
+        {
+            var options = BuildOptions();
+            var spatialReference = MapSpatialContext.Create(ManualGridWidth, ManualGridHeight, options.EffectiveSpatial).SpatialReference;
+            var draft = _manualMapDraft ?? ManualMapDraft.Empty(ManualGridWidth, ManualGridHeight);
+            if (draft.GridWidth != ManualGridWidth || draft.GridHeight != ManualGridHeight)
+                draft = ManualMapDraft.Empty(ManualGridWidth, ManualGridHeight);
+
+            var editor = new ManualMapEditorWindow
+            {
+                DataContext = new ManualMapEditorViewModel(draft, spatialReference, options)
+            };
+            var owner = GetMainWindow();
+            var result = owner is null ? null : await editor.ShowDialog<ManualMapEditorResult?>(owner);
+            if (result is null)
+                return;
+
+            _manualMapDraft = result.Draft;
+            _manualMapFinalization = result.Finalization;
+            _manualGeometrySeed = new MapGeometrySeed(result.Finalization.Landmasses, result.Finalization.RegionDraft);
+            _manualFinalizationSpatial = options.EffectiveSpatial;
+            BoundaryDistortionEnabled = result.ApplyBoundaryDistortion;
+            _sessionResetRequired = true;
+            _workspace.Reset();
+            CurrentPreview = null;
+            PreviewTitle = "Manual map";
+            PreviewLegend = "Manual vector coastline + derived mask";
+            this.RaisePropertyChanged(nameof(HasManualMapDraft));
+            ValidateAll();
+            StatusMessage = "Ручная карта сформирована. Запустите генерацию для preview/export.";
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"{L["Failed"]}: {exception.Message}";
+            AddLog(StatusMessage, "error");
+        }
+    }
+
     private async Task ResetAutomaticRegionsAsync()
     {
         if (IsGenerating || !PrepareForGeneration())
@@ -877,7 +986,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
 
@@ -924,7 +1033,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
 
@@ -970,7 +1079,7 @@ public sealed class MainViewModel : ReactiveObject
         try
         {
             var options = BuildOptions();
-            _workspace.EnsureSession(BuildGenerationRequest(options), _sessionResetRequired);
+            _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
 
@@ -1018,7 +1127,7 @@ public sealed class MainViewModel : ReactiveObject
         {
             var result = await Task.Run(() => MapGenerationArtifactWriter.Write(
                 _workspace.Session.CurrentMap,
-                MaskPath,
+                IsManualSource ? "manual-map" : MaskPath,
                 OutputDirectory,
                 BuildOptions(),
                 TectonicJsonMode,
@@ -1231,8 +1340,10 @@ public sealed class MainViewModel : ReactiveObject
 
     private void ValidateAll()
     {
-        if (string.IsNullOrWhiteSpace(MaskPath) || !File.Exists(MaskPath))
+        if (IsMaskSource && (string.IsNullOrWhiteSpace(MaskPath) || !File.Exists(MaskPath)))
             ValidationMessage = L["ValidationMask"];
+        else if (IsManualSource && (_manualMapFinalization is null || !_manualMapFinalization.IsSuccessful))
+            ValidationMessage = "Сначала откройте manual editor и сформируйте корректную карту.";
         else if (string.IsNullOrWhiteSpace(OutputDirectory))
             ValidationMessage = L["ValidationOutput"];
         else if (SpatialConfiguration.IsAutomatic &&
@@ -1416,6 +1527,14 @@ public sealed class MainViewModel : ReactiveObject
     private MapGenerationRequest BuildGenerationRequest(MapGenerationOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        if (IsManualSource)
+        {
+            if (_manualMapFinalization is null || !_manualMapFinalization.IsSuccessful)
+                throw new InvalidOperationException("A successful manual map finalization is required.");
+            EnsureManualFinalizationForSpatial(options);
+            return _spatialConfiguration.BuildRequest(_manualMapFinalization.DerivedMask, options);
+        }
+
         var originX = SpatialConfiguration.IsAutomatic ? SpatialConfiguration.RequestedOriginX : 0;
         var originY = SpatialConfiguration.IsAutomatic ? SpatialConfiguration.RequestedOriginY : 0;
         var mask = ImageMaskReader.ReadAt(
@@ -1426,6 +1545,61 @@ public sealed class MainViewModel : ReactiveObject
             ? null
             : new ImageMapMaskSource(WorldMaskPath);
         return _spatialConfiguration.BuildRequest(mask, options, worldMaskSource);
+    }
+
+    private MapGeometrySeed? GetGeometrySeed() => IsManualSource ? _manualGeometrySeed : null;
+
+    private void EnsureManualFinalizationForSpatial(MapGenerationOptions options)
+    {
+        if (_manualMapDraft is null)
+            throw new InvalidOperationException("A manual map draft is not loaded.");
+
+        var spatial = options.EffectiveSpatial;
+        if (_manualMapFinalization is not null &&
+            _manualFinalizationSpatial is not null &&
+            Equals(_manualFinalizationSpatial, spatial))
+        {
+            return;
+        }
+
+        var spatialReference = MapSpatialContext.Create(
+            _manualMapDraft.GridWidth,
+            _manualMapDraft.GridHeight,
+            spatial).SpatialReference;
+        var finalization = new ManualMapDraftFinalizer().FinalizeDraft(_manualMapDraft, spatialReference);
+        _manualMapFinalization = finalization;
+        _manualFinalizationSpatial = spatial;
+        _manualGeometrySeed = finalization.IsSuccessful
+            ? new MapGeometrySeed(finalization.Landmasses, finalization.RegionDraft)
+            : null;
+        this.RaisePropertyChanged(nameof(HasManualMapDraft));
+
+        if (!finalization.IsSuccessful)
+        {
+            var diagnostic = finalization.Diagnostics.FirstOrDefault(item => item.IsBlocking);
+            throw new InvalidOperationException(
+                diagnostic?.Message ?? "The manual map is invalid for the current spatial settings.");
+        }
+    }
+
+    private void SetManualGridSize(ref int field, int value, string propertyName)
+    {
+        if (field == value)
+            return;
+        field = value;
+        this.RaisePropertyChanged(propertyName);
+        if (_suppressDirty)
+            return;
+
+        _manualMapDraft = null;
+        _manualMapFinalization = null;
+        _manualGeometrySeed = null;
+        _manualFinalizationSpatial = null;
+        _workspace.Reset();
+        _sessionResetRequired = true;
+        this.RaisePropertyChanged(nameof(HasManualMapDraft));
+        ValidateAll();
+        SaveSettings();
     }
 
     private void LoadOptions(MapGenerationOptions options)

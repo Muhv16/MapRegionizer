@@ -14,6 +14,8 @@ The following generation stages are currently implemented:
 * **Surface generation**: terrain and river network generation.
 * **Climate generation**.
 * **Region generation**.
+* **Manual map authoring**: draw shared-vertex region faces on an empty canvas
+  and continue through the standard landmass, water, preview, and export pipeline.
 
 ## Usage
 
@@ -47,6 +49,8 @@ https://euromeme.ru/map
 
 * [`docs/generation-pipeline.md`](docs/generation-pipeline.md) — generation pipeline overview.
 * [`docs/regions.md`](docs/regions.md) — region geometry contract.
+* [`docs/manual-map-authoring.md`](docs/manual-map-authoring.md) — manual map
+  draft, finalization, persistence, and pipeline integration.
 * [`docs/tectonics.md`](docs/tectonics.md) — tectonics generation.
 * [`docs/elevation.md`](docs/elevation.md) — elevation generation.
 * [`docs/hydrology.md`](docs/hydrology.md) — hydrology generation.

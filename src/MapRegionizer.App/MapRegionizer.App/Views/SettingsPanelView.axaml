@@ -11,7 +11,15 @@
                 <TextBlock Text="{Binding SelectedSettingsSection.Title}" Classes="sectionTitle"/>
 
                 <StackPanel Spacing="8" IsVisible="{Binding IsInputOutputSectionSelected}">
-                    <views:SettingsRow Label="{Binding L[Mask]}">
+                    <views:SettingsRow Label="Источник карты">
+                        <views:SettingsRow.Value>
+                            <StackPanel Spacing="5">
+                                <RadioButton GroupName="MapSource" Content="Маска" IsChecked="{Binding IsMaskSource, Mode=TwoWay}"/>
+                                <RadioButton GroupName="MapSource" Content="Ручная разметка" IsChecked="{Binding IsManualSource, Mode=TwoWay}"/>
+                            </StackPanel>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
+                    <views:SettingsRow Label="{Binding L[Mask]}" IsVisible="{Binding IsMaskSource}">
                         <views:SettingsRow.Value>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                 <TextBox Text="{Binding MaskPath}" PlaceholderText="{Binding L[Mask]}" ToolTip.Tip="{Binding MaskPath}"/>
@@ -19,6 +27,15 @@
                             </Grid>
                         </views:SettingsRow.Value>
                     </views:SettingsRow>
+                    <StackPanel Spacing="8" IsVisible="{Binding IsManualSource}">
+                        <views:SettingsRow Label="Grid width">
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding ManualGridWidth}" Minimum="1" FormatString="N0"/></views:SettingsRow.Value>
+                        </views:SettingsRow>
+                        <views:SettingsRow Label="Grid height">
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding ManualGridHeight}" Minimum="1" FormatString="N0"/></views:SettingsRow.Value>
+                        </views:SettingsRow>
+                        <Button Content="Открыть ручной редактор" Command="{Binding OpenManualMapEditorCommand}" IsEnabled="{Binding !IsGenerating}"/>
+                    </StackPanel>
                     <views:SettingsRow Label="{Binding L[Output]}">
                         <views:SettingsRow.Value>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">

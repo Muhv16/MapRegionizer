@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:MapRegionizer.App.Views"
+        xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+        x:Class="MapRegionizer.App.Views.ManualMapEditorWindow"
+        x:DataType="vm:ManualMapEditorViewModel"
+        x:CompileBindings="False"
+        Title="Ручная разметка карты" Width="1550" Height="980" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10">
+    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+      <ComboBox Width="155" ItemsSource="{Binding Tools}" SelectedItem="{Binding SelectedTool}"/>
+      <Button Grid.Column="1" Content="Undo" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}"/>
+      <Button Grid.Column="2" Content="Redo" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"/>
+      <Button Grid.Column="3" Content="Проверить карту" Command="{Binding ValidateCommand}"/>
+      <CheckBox Grid.Column="5" Content="Применить distortion" IsChecked="{Binding ApplyBoundaryDistortion}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="6" Text="Enter — завершить · Esc — отменить · Backspace — убрать вершину" VerticalAlignment="Center" Opacity="0.75"/>
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="270,*,310" ColumnSpacing="10">
+      <Border BorderBrush="#475569" BorderThickness="1" Padding="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Регионы" FontWeight="Bold"/>
+          <ListBox ItemsSource="{Binding Regions}" SelectedItem="{Binding SelectedRegion}" Height="330">
+            <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+          <Button Content="Удалить выбранный регион" Command="{Binding DeleteRegionCommand}" IsEnabled="{Binding HasSelection}"/>
+          <TextBlock Text="Название"/>
+          <TextBox Text="{Binding SelectedRegionName, Mode=TwoWay}"/>
+          <TextBlock Text="Фон" FontWeight="Bold" Margin="0,12,0,0"/>
+          <CheckBox Content="Показывать" IsChecked="{Binding IsBackgroundVisible}"/>
+          <CheckBox Content="Заблокировать" IsChecked="{Binding IsBackgroundLocked}"/>
+          <TextBlock Text="Прозрачность"/><Slider Minimum="0" Maximum="1" Value="{Binding BackgroundOpacity}"/>
+          <TextBlock Text="Масштаб"/><NumericUpDown Minimum="0.1" Value="{Binding BackgroundScale}" IsEnabled="{Binding CanEditBackground}"/>
+          <TextBlock Text="Смещение X / Y"/><StackPanel Orientation="Horizontal" Spacing="4"><NumericUpDown Width="105" Value="{Binding BackgroundOffsetX}" IsEnabled="{Binding CanEditBackground}"/><NumericUpDown Width="105" Value="{Binding BackgroundOffsetY}" IsEnabled="{Binding CanEditBackground}"/></StackPanel>
+          <TextBlock Text="Поворот"/><NumericUpDown Value="{Binding BackgroundRotation}" Minimum="-180" Maximum="180" IsEnabled="{Binding CanEditBackground}"/>
+        </StackPanel>
+      </Border>
+      <views:ManualMapEditorCanvas Grid.Column="1"/>
+      <Border Grid.Column="2" BorderBrush="#475569" BorderThickness="1" Padding="8">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Проверка" FontWeight="Bold"/>
+          <TextBox Text="{Binding ValidationSummary}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" Height="130"/>
+          <TextBlock Text="Диагностика" FontWeight="Bold"/>
+          <TextBox Text="{Binding Diagnostics}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" Height="260"/>
+          <TextBlock Text="Create Region: клики добавляют вершины. Приоритет snapping: вершина → грань → свободная точка." TextWrapping="Wrap"/>
+          <Button Content="Загрузить manual project" Click="LoadProjectClick"/>
+          <Button Content="Сохранить manual project" Click="SaveProjectClick"/>
+          <Button Content="Загрузить фон" Click="LoadBackgroundClick"/>
+          <Button Content="Вписать фон" Command="{Binding FitBackgroundCommand}" IsEnabled="{Binding CanEditBackground}"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Отмена" Click="CancelClick"/>
+      <Button Content="Сформировать карту" Click="FinalizeClick" IsEnabled="{Binding CanFinalize}" Background="#2563EB" Foreground="White"/>
+    </StackPanel>
+  </Grid>
+</Window>

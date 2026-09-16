@@ -31,6 +31,20 @@ public sealed class MapGenerationSession
 
     public static MapGenerationSession Create(MapGenerationRequest request, MapGenerationPipeline? pipeline = null, GeometryFactory? geometryFactory = null)
     {
+        return Create(request, geometrySeed: null, pipeline: pipeline, geometryFactory: geometryFactory);
+    }
+
+    /// <summary>
+    /// Creates a session from a raster mask plus explicit authoritative vector
+    /// geometry. Supplied geometry is installed as available pipeline data, so
+    /// the normal landmass and region producers are skipped automatically.
+    /// </summary>
+    public static MapGenerationSession Create(
+        MapGenerationRequest request,
+        MapGeometrySeed? geometrySeed,
+        MapGenerationPipeline? pipeline = null,
+        GeometryFactory? geometryFactory = null)
+    {
         ArgumentNullException.ThrowIfNull(request);
 
         geometryFactory ??= new GeometryFactory();
@@ -57,7 +71,8 @@ public sealed class MapGenerationSession
             request.ClimateBoundary,
             request.HydrologyBoundary,
             requestedSpatial,
-            request.IsLegacyCompatibilityRequest);
+            request.IsLegacyCompatibilityRequest,
+            geometrySeed);
 
         return new MapGenerationSession(context, pipeline, request);
     }

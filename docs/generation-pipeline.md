@@ -14,6 +14,8 @@ The pipeline is built around the following public concepts:
 * `MapGenerationPipeline` resolves stage dependencies and executes stages.
 * `MapGenerationPipelineBuilder` builds and customizes pipelines.
 * `MapGenerationSession` stores generated state and supports partial generation and regeneration.
+* `MapGeometrySeed` supplies authoritative vector landmasses and an external
+  `RegionDraft` while retaining the derived `MapMask` as a normal pipeline input.
 * `MapGenerator` is a convenience wrapper for complete generation.
 
 ### Data keys
@@ -148,6 +150,22 @@ Mask
 ```
 
 Unrelated branches are not generated merely because they exist in the default pipeline.
+
+Manual geography uses the same branch with explicit supplied inputs:
+
+```text
+ManualMapDraft
+  -> vector Landmasses + standard RegionDraft
+  -> derived MapMask
+  -> MapGenerationSession.Create(request, geometrySeed)
+```
+
+When a `MapGeometrySeed` is present, `Landmasses` and `RegionDraft` are
+available context inputs. The dependency-driven pipeline therefore does not
+run `ExtractLandmassesStage` or overwrite the external region source. Water
+extraction still consumes the vector landmasses, while raster stages consume
+the derived mask. `SetRegionDraft` keeps its existing semantics and can replace
+only the region subdivision after manual geography has been finalized.
 
 A session can therefore be used to inspect or work with intermediate data without first generating the entire map.
 

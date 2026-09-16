@@ -10,6 +10,16 @@ public static class RegionGeometryPrecision
     public const int DecimalPlaces = 6;
     public const double Scale = 1_000_000d;
     public const double LengthTolerance = 1d / Scale;
+
+    public static double Canonicalize(double value)
+    {
+        if (!double.IsFinite(value))
+            return value;
+
+        var rounded = Math.Round(value * Scale, MidpointRounding.AwayFromZero) / Scale;
+        return rounded == -0.0 ? 0.0 : rounded;
+    }
+
     public static string GetCoordinateKey(Coordinate coordinate) => $"{coordinate.X:F6},{coordinate.Y:F6}";
 
     public static string GetUndirectedSegmentKey(Coordinate first, Coordinate second)
