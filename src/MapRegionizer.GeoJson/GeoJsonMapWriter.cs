@@ -144,7 +144,12 @@ public static class GeoJsonMapWriter
                 : AntimeridianOutputPolicy.Unwrap
             : options.AntimeridianPolicy;
 
-    private static MapSpatialReference CreateLegacyReference(GeneratedMap map)
+    /// <summary>
+    /// Compatibility spatial reference used when a generated map predates the
+    /// canonical descriptor. Shared with other serialization adapters so all
+    /// formats materialize the same historical semantics.
+    /// </summary>
+    internal static MapSpatialReference CreateLegacyReference(GeneratedMap map)
     {
         var width = map.Elevation?.Width ?? map.Climate?.Width ?? map.Hydrology?.Width ??
             (int)Math.Round(map.Bounds.Width / map.Bounds.UnitsPerCell);

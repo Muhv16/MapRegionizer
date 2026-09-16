@@ -220,6 +220,7 @@ public sealed class MainViewModel : ReactiveObject
         ResetAutomaticRegionsCommand = ReactiveCommand.CreateFromTask(ResetAutomaticRegionsAsync);
         ExportCommand = ReactiveCommand.CreateFromTask(ExportAsync);
         ExportPreviewCommand = ReactiveCommand.CreateFromTask(ExportPreviewAsync);
+        ExportMapPackageCommand = ReactiveCommand.CreateFromTask(ExportMapPackageAsync);
         CancelCommand = ReactiveCommand.Create(CancelGeneration);
         RandomizeSeedCommand = ReactiveCommand.Create(RandomizeSeed);
         CopySeedCommand = ReactiveCommand.CreateFromTask(CopySeedAsync);
@@ -275,6 +276,7 @@ public sealed class MainViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> ResetAutomaticRegionsCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportCommand { get; }
     public ReactiveCommand<Unit, Unit> ExportPreviewCommand { get; }
+    public ReactiveCommand<Unit, Unit> ExportMapPackageCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelCommand { get; }
     public ReactiveCommand<Unit, Unit> RandomizeSeedCommand { get; }
     public ReactiveCommand<Unit, Unit> CopySeedCommand { get; }
@@ -1184,6 +1186,45 @@ public sealed class MainViewModel : ReactiveObject
         {
             await _preview.SavePreviewToFileAsync(_workspace.Session, SelectedPreviewLayer, path, BuildExportRenderOptions());
             StatusMessage = $"{L["StatusPreviewExported"]}: {Path.GetFileName(path)}";
+            AddLog(StatusMessage);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"{L["Failed"]}: {ex.Message}";
+            AddLog($"{L["Failed"]}: {ex.Message}", "error");
+        }
+    }
+
+    private async Task ExportMapPackageAsync()
+    {
+        if (_workspace.Session is null)
+        {
+            StatusMessage = L["StatusGenerateFirst"];
+            return;
+        }
+
+        var window = GetMainWindow();
+        if (window is null)
+            return;
+
+        var result = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = L["ExportMapPackage"],
+            FileTypeChoices =
+            [
+                new FilePickerFileType("Map package") { Patterns = ["*.map.json"] }
+            ],
+            DefaultExtension = "map.json",
+            SuggestedFileName = "map-package.map.json"
+        });
+
+        if (result?.Path.LocalPath is not { Length: > 0 } path)
+            return;
+
+        try
+        {
+            await Task.Run(() => MapPackageWriter.WriteToFile(_workspace.Session.CurrentMap, path));
+            StatusMessage = $"{L["StatusMapPackageExported"]}: {Path.GetFileName(path)}";
             AddLog(StatusMessage);
         }
         catch (Exception ex)

@@ -49,6 +49,7 @@ https://euromeme.ru/map
 
 * [`docs/generation-pipeline.md`](docs/generation-pipeline.md) — generation pipeline overview.
 * [`docs/regions.md`](docs/regions.md) — region geometry contract.
+* [`docs/map-package.md`](docs/map-package.md) — portable versioned map package export (`*.map.json`).
 * [`docs/manual-map-authoring.md`](docs/manual-map-authoring.md) — manual map
   draft, finalization, persistence, and pipeline integration.
 * [`docs/tectonics.md`](docs/tectonics.md) — tectonics generation.
@@ -148,6 +149,7 @@ https://euromeme.ru/map
 
 * [`docs/generation-pipeline.md`](docs/generation-pipeline.md) — описание pipeline генерации.
 * [`docs/regions.md`](docs/regions.md) — геометрический контракт регионов.
+* [`docs/map-package.md`](docs/map-package.md) — переносимый версионированный пакет карты (`*.map.json`).
 * [`docs/tectonics.md`](docs/tectonics.md) — генерация тектоники.
 * [`docs/elevation.md`](docs/elevation.md) — генерация рельефа.
 * [`docs/hydrology.md`](docs/hydrology.md) — генерация гидрологии.

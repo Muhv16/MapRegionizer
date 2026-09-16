@@ -32,6 +32,7 @@ regions.geojson
 region-draft.geojson (when requested)
 landmasses.geojson
 water-bodies.geojson
+map-package.json
 tectonic-plates.json
 elevation.json
 lakes.json
@@ -39,7 +40,7 @@ rivers.json
 summary.json
 ```
 
-`lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `rivers.json` records river summaries, visible river segments, lake outlets, mouths, and drainage basins. `summary.json` records the input mask, generation options, output paths, entity counts, elevation range, and river statistics. Prefer setting `--seed` for agent checks so repeated runs are comparable.
+`lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `rivers.json` records river summaries, visible river segments, lake outlets, mouths, and drainage basins. `summary.json` records the input mask, generation options, output paths, entity counts, elevation range, and river statistics. `map-package.json` is the portable geometry package described in [`map-package.md`](map-package.md). Prefer setting `--seed` for agent checks so repeated runs are comparable.
 
 ## Editable region drafts
 

@@ -42,7 +42,8 @@ public sealed record MapGenerationArtifactPaths(
     string? RegionsBin,
     string? RegionsSummaryJson,
     string SummaryJson,
-    string? RegionDraftGeoJson = null);
+    string? RegionDraftGeoJson = null,
+    string? MapPackageJson = null);
 
 public sealed record MapGenerationRunSummary(
     DateTimeOffset GeneratedAtUtc,

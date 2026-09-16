@@ -94,7 +94,8 @@ public static class MapGenerationArtifactWriter
             ClimateJson: hasClimate ? Path.Combine(outputDirectory, "climate.json") : null,
             RegionsBin: hasRegionRaster ? Path.Combine(outputDirectory, "regions.bin") : null,
             RegionsSummaryJson: hasRegionRaster ? Path.Combine(outputDirectory, "regions.summary.json") : null,
-            SummaryJson: Path.Combine(outputDirectory, "summary.json"));
+            SummaryJson: Path.Combine(outputDirectory, "summary.json"),
+            MapPackageJson: Path.Combine(outputDirectory, "map-package.json"));
     }
 
     private static void WriteArtifacts(
@@ -188,6 +189,7 @@ public static class MapGenerationArtifactWriter
         GeoJsonMapWriter.WriteRegionsToFile(map, artifacts.RegionsGeoJson, outputOptions);
         GeoJsonMapWriter.WriteLandmassesToFile(map, artifacts.LandmassesGeoJson, outputOptions);
         GeoJsonMapWriter.WriteWaterBodiesToFile(map, artifacts.WaterBodiesGeoJson, outputOptions);
+        MapPackageWriter.WriteToFile(map, artifacts.MapPackageJson!);
 
         if (map.RegionRaster is not null)
             RegionRasterArtifactWriter.Write(map, artifacts.RegionsBin!, artifacts.RegionsSummaryJson!);

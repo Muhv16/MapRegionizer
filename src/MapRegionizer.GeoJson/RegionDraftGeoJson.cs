@@ -186,69 +186,10 @@ public static class RegionDraftGeoJson
     private static double RequiredDouble(JObject source, string property) => source.Value<double?>(property)
         ?? throw new InvalidOperationException($"Region draft property '{property}' is required.");
 
-    private static JObject WriteSpatialReference(MapSpatialReference reference) =>
-        new()
-        {
-            ["worldModel"] = new JObject
-            {
-                ["kind"] = reference.WorldModel.Kind.ToString(),
-                ["planetRadius"] = reference.WorldModel.PlanetRadius
-            },
-            ["gridMapping"] = reference.GridMapping.ToString(),
-            ["topology"] = reference.Topology.ToString(),
-            ["coverage"] = new JObject
-            {
-                ["kind"] = reference.Coverage.Kind.ToString(),
-                ["longitudeStart"] = reference.Longitude.StartLongitudeDegrees,
-                ["longitudeSpan"] = reference.Longitude.SpanDegrees,
-                ["southLatitude"] = reference.Coverage.SouthLatitude,
-                ["northLatitude"] = reference.Coverage.NorthLatitude
-            },
-            ["gridWidth"] = reference.GridWidth,
-            ["gridHeight"] = reference.GridHeight,
-            ["unitsPerCell"] = reference.UnitsPerCell,
-            ["canonicalCoordinates"] = reference.CanonicalCoordinates.ToString(),
-            ["preserveProjectedCellAspectRatio"] = reference.PreserveProjectedCellAspectRatio,
-            ["legacyCompatibility"] = reference.LegacyCompatibility.ToString()
-        };
+    private static JObject WriteSpatialReference(MapSpatialReference reference) => SpatialReferenceJsonFormat.Write(reference);
 
-    private static MapSpatialReference ReadSpatialReference(JObject source)
-    {
-        var world = source["worldModel"] as JObject
-            ?? throw new InvalidOperationException("Region draft spatialReference.worldModel is required.");
-        var coverage = source["coverage"] as JObject
-            ?? throw new InvalidOperationException("Region draft spatialReference.coverage is required.");
-
-        var worldKind = ParseEnum<WorldModelKind>(RequiredString(world, "kind"), "worldModel.kind");
-        var planetRadius = world.Value<double?>("planetRadius");
-        var longitudeStart = RequiredDouble(coverage, "longitudeStart");
-        var longitudeSpan = RequiredDouble(coverage, "longitudeSpan");
-        var coverageKind = ParseEnum<MapCoverageKind>(RequiredString(coverage, "kind"), "coverage.kind");
-        var reference = new MapSpatialReference
-        {
-            GridWidth = RequiredInt(source, "gridWidth"),
-            GridHeight = RequiredInt(source, "gridHeight"),
-            UnitsPerCell = RequiredDouble(source, "unitsPerCell"),
-            WorldModel = worldKind == WorldModelKind.Spherical
-                ? WorldModelDescriptor.Spherical(planetRadius)
-                : WorldModelDescriptor.Planar(),
-            Coverage = MapCoverage.Create(
-                coverageKind,
-                new LongitudeInterval(longitudeStart, longitudeSpan),
-                RequiredDouble(coverage, "southLatitude"),
-                RequiredDouble(coverage, "northLatitude")),
-            GridMapping = ParseEnum<GridMappingKind>(RequiredString(source, "gridMapping"), "gridMapping"),
-            Topology = ParseEnum<GridTopologyKind>(RequiredString(source, "topology"), "topology"),
-            CanonicalCoordinates = ParseEnum<CoordinateSpaceKind>(RequiredString(source, "canonicalCoordinates"), "canonicalCoordinates"),
-            PreserveProjectedCellAspectRatio = source.Value<bool?>("preserveProjectedCellAspectRatio") ?? true,
-            LegacyCompatibility = ParseEnum<LegacyCompatibilityProfile>(
-                source.Value<string>("legacyCompatibility") ?? nameof(LegacyCompatibilityProfile.None),
-                "legacyCompatibility",
-                LegacyCompatibilityProfile.None)
-        };
-        reference.Validate();
-        return reference;
-    }
+    private static MapSpatialReference ReadSpatialReference(JObject source) =>
+        SpatialReferenceJsonFormat.Read(source, "Region draft");
 
     private static MapSpatialReference BuildLegacyReference(MapProjectionMode projectionMode, MapBounds bounds)
     {

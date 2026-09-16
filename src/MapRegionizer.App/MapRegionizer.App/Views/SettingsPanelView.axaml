@@ -652,6 +652,11 @@
                     <CheckBox Content="{Binding L[ExportClimateHillshade]}" IsChecked="{Binding ExportDrawClimateHillshade}" ToolTip.Tip="{Binding L[HelpExportClimateHillshade]}"/>
                     <CheckBox Content="{Binding L[ExportClimateRivers]}" IsChecked="{Binding ExportDrawClimateRivers}" ToolTip.Tip="{Binding L[HelpExportClimateRivers]}"/>
                     <Button Content="{Binding L[ExportPreview]}" Command="{Binding ExportPreviewCommand}" IsEnabled="{Binding !IsGenerating}" HorizontalAlignment="Stretch"/>
+                    <views:SettingsRow Label="{Binding L[ExportMapPackage]}" Tip="{Binding L[HelpExportMapPackage]}">
+                        <views:SettingsRow.Value>
+                            <Button Content="{Binding L[Choose]}" Command="{Binding ExportMapPackageCommand}" IsEnabled="{Binding !IsGenerating}" MinWidth="72"/>
+                        </views:SettingsRow.Value>
+                    </views:SettingsRow>
                 </StackPanel>
 
                 <StackPanel Spacing="8" IsVisible="{Binding IsTectonicsSectionSelected}">
