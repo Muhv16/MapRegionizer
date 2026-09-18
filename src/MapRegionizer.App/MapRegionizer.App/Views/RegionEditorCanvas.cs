@@ -3,7 +3,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using MapRegionizer.App.ViewModels;
+using MapRegionizer.Core.Domain;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Index.Strtree;
 using System.ComponentModel;
 
 namespace MapRegionizer.App.Views;
@@ -16,6 +18,9 @@ public sealed class RegionEditorCanvas : Control
     private bool _isPanning;
     private bool _isDraggingVertex;
     private INotifyPropertyChanged? _observedViewModel;
+    private readonly Dictionary<int, CachedRegionGeometry> _regionGeometryCache = [];
+    private readonly Dictionary<(int Id, bool Selected), SolidColorBrush> _regionBrushCache = [];
+    private readonly Dictionary<(bool Selected, double Scale), Pen> _regionPenCache = [];
 
     public RegionEditorCanvas()
     {
@@ -49,12 +54,16 @@ public sealed class RegionEditorCanvas : Control
                 context.DrawImage(viewModel.BackgroundImage, new Rect(viewModel.BackgroundImage.Size), destination);
         }
 
-        foreach (var region in viewModel.DisplayRegions)
+        using (context.PushTransform(new Matrix(scale, 0, 0, scale, offsetX, offsetY)))
         {
-            var geometry = ToGeometry(region.Shape, scale, offsetX, offsetY);
-            var color = GetColor(region.Id.Value);
-            var selected = viewModel.SelectedRegionId == region.Id;
-            context.DrawGeometry(new SolidColorBrush(color, selected ? .65 : .42), new Pen(selected ? Brushes.Gold : Brushes.White, selected ? 3 : 1), geometry);
+            foreach (var region in viewModel.DisplayRegions)
+            {
+                var selected = viewModel.SelectedRegionId == region.Id;
+                context.DrawGeometry(
+                    GetRegionBrush(region.Id.Value, selected),
+                    GetRegionPen(selected, scale),
+                    GetRegionGeometry(region));
+            }
         }
 
         if (viewModel.SplitPreviewLine is { } split)
@@ -106,22 +115,27 @@ public sealed class RegionEditorCanvas : Control
         {
             if (DataContext is RegionEditorViewModel viewModel)
             {
-                var (scale, offsetX, offsetY) = GetTransform(viewModel);
-                viewModel.UpdateVertexDrag(ToMapPoint(eventArgs.GetPosition(this), scale, offsetX, offsetY));
+                var (dragScale, dragOffsetX, dragOffsetY) = GetTransform(viewModel);
+                viewModel.UpdateVertexDrag(ToMapPoint(eventArgs.GetPosition(this), dragScale, dragOffsetX, dragOffsetY));
                 InvalidateVisual();
             }
             return;
         }
-        if (DataContext is RegionEditorViewModel splitViewModel)
+        if (_isPanning)
         {
-            var (scale, offsetX, offsetY) = GetTransform(splitViewModel);
-            splitViewModel.UpdatePointerPreview(ToMapPoint(eventArgs.GetPosition(this), scale, offsetX, offsetY));
+            var position = eventArgs.GetPosition(this);
+            _pan += position - _lastPointerPosition;
+            _lastPointerPosition = position;
             InvalidateVisual();
+            return;
         }
-        if (!_isPanning) return;
-        var position = eventArgs.GetPosition(this);
-        _pan += position - _lastPointerPosition;
-        _lastPointerPosition = position;
+
+        if (DataContext is not RegionEditorViewModel splitViewModel
+            || splitViewModel.SelectedTool != RegionEditorTool.Split)
+            return;
+
+        var (scale, offsetX, offsetY) = GetTransform(splitViewModel);
+        splitViewModel.UpdatePointerPreview(ToMapPoint(eventArgs.GetPosition(this), scale, offsetX, offsetY));
         InvalidateVisual();
     }
 
@@ -190,31 +204,83 @@ public sealed class RegionEditorCanvas : Control
         _observedViewModel = DataContext as INotifyPropertyChanged;
         if (_observedViewModel is not null)
             _observedViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ClearGeometryCaches();
         InvalidateVisual();
     }
 
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs) => InvalidateVisual();
-
-    private static Avalonia.Media.Geometry ToGeometry(Polygon polygon, double scale, double offsetX, double offsetY)
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
-        var geometry = new StreamGeometry();
-        using var context = geometry.Open();
-        DrawRing(context, polygon.ExteriorRing, scale, offsetX, offsetY);
-        for (var index = 0; index < polygon.NumInteriorRings; index++)
-            DrawRing(context, polygon.GetInteriorRingN(index), scale, offsetX, offsetY);
+        if (eventArgs.PropertyName == nameof(RegionEditorViewModel.SelectedTool))
+            return;
+        if (eventArgs.PropertyName is null || eventArgs.PropertyName == nameof(RegionEditorViewModel.DisplayRegions))
+            ClearGeometryCaches();
+        InvalidateVisual();
+    }
+
+    private Avalonia.Media.Geometry GetRegionGeometry(MapRegion region)
+    {
+        var regionId = region.Id.Value;
+        if (_regionGeometryCache.TryGetValue(regionId, out var cached)
+            && ReferenceEquals(cached.Shape, region.Shape))
+            return cached.Geometry;
+
+        var geometry = ToGeometry(region.Shape);
+        _regionGeometryCache[regionId] = new CachedRegionGeometry(region.Shape, geometry);
         return geometry;
     }
 
-    private static void DrawRing(StreamGeometryContext context, LineString ring, double scale, double offsetX, double offsetY)
+    private static Avalonia.Media.Geometry ToGeometry(Polygon polygon)
+    {
+        var geometry = new StreamGeometry();
+        using var context = geometry.Open();
+        DrawRing(context, polygon.ExteriorRing);
+        for (var index = 0; index < polygon.NumInteriorRings; index++)
+            DrawRing(context, polygon.GetInteriorRingN(index));
+        return geometry;
+    }
+
+    private static void DrawRing(StreamGeometryContext context, LineString ring)
     {
         var first = ring.GetCoordinateN(0);
-        context.BeginFigure(ToPoint(first, scale, offsetX, offsetY), true);
+        context.BeginFigure(new Avalonia.Point(first.X, first.Y), true);
         for (var index = 1; index < ring.NumPoints; index++)
-            context.LineTo(ToPoint(ring.GetCoordinateN(index), scale, offsetX, offsetY));
+        {
+            var coordinate = ring.GetCoordinateN(index);
+            context.LineTo(new Avalonia.Point(coordinate.X, coordinate.Y));
+        }
         context.EndFigure(true);
     }
 
-    private static Avalonia.Point ToPoint(Coordinate coordinate, double scale, double offsetX, double offsetY) => new(offsetX + coordinate.X * scale, offsetY + coordinate.Y * scale);
+    private static Avalonia.Point ToPoint(Coordinate coordinate, double scale, double offsetX, double offsetY) =>
+        new(offsetX + coordinate.X * scale, offsetY + coordinate.Y * scale);
+
+    private SolidColorBrush GetRegionBrush(int id, bool selected)
+    {
+        if (_regionBrushCache.TryGetValue((id, selected), out var brush))
+            return brush;
+        brush = new SolidColorBrush(GetColor(id), selected ? .65 : .42);
+        _regionBrushCache[(id, selected)] = brush;
+        return brush;
+    }
+
+    private Pen GetRegionPen(bool selected, double scale)
+    {
+        if (_regionPenCache.TryGetValue((selected, scale), out var pen))
+            return pen;
+        pen = new Pen(selected ? Brushes.Gold : Brushes.White, (selected ? 3 : 1) / scale);
+        _regionPenCache[(selected, scale)] = pen;
+        return pen;
+    }
+
+    private void ClearGeometryCaches()
+    {
+        _regionGeometryCache.Clear();
+        _regionBrushCache.Clear();
+        _regionPenCache.Clear();
+    }
+
+    private readonly record struct CachedRegionGeometry(Polygon Shape, Avalonia.Media.Geometry Geometry);
+
     private static Color GetColor(int id)
     {
         unchecked { var hash = id * 1103515245 + 12345; return Color.FromRgb((byte)(70 + (hash & 127)), (byte)(70 + ((hash >> 8) & 127)), (byte)(70 + ((hash >> 16) & 127))); }

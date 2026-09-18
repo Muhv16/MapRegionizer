@@ -224,6 +224,8 @@ public sealed class ManualMapEditorCanvas : Control
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
+        if (eventArgs.PropertyName == nameof(ManualMapEditorViewModel.SelectedTool))
+            return;
         if (eventArgs.PropertyName is null
             || eventArgs.PropertyName == nameof(ManualMapEditorViewModel.DisplayRegions)
             || eventArgs.PropertyName == nameof(ManualMapEditorViewModel.VertexMarkers))

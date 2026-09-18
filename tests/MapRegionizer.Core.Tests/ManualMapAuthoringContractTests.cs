@@ -223,6 +223,32 @@ public sealed class ManualMapAuthoringContractTests
     }
 
     [Fact]
+    public void PruningAfterRegionDeletionRemovesOnlyUnreferencedVertices()
+    {
+        var draft = new ManualMapDraft(
+            12,
+            10,
+            [
+                Vertex(1, 1, 1), Vertex(2, 5, 1), Vertex(3, 5, 5), Vertex(4, 1, 5),
+                Vertex(5, 9, 1), Vertex(6, 9, 5), Vertex(7, 2, 8)
+            ],
+            [
+                new ManualRegionFace(1, [1, 2, 3, 4]),
+                new ManualRegionFace(2, [2, 5, 6, 3])
+            ]);
+        var remaining = new ManualMapDraft(
+            draft.GridWidth,
+            draft.GridHeight,
+            draft.Vertices,
+            draft.Regions.Where(region => region.Id != 1).ToArray());
+
+        var pruned = ManualMapDraftTopology.PruneUnreferencedVertices(remaining, [7]);
+
+        Assert.Equal([2, 3, 5, 6, 7], pruned.Vertices.Select(vertex => vertex.Id).ToArray());
+        Assert.Equal([2, 5, 6, 3], Assert.Single(pruned.Regions).VertexIds);
+    }
+
+    [Fact]
     public void DraftSpatialIndexFindsNearestVertexAndSharedEdgeDeterministically()
     {
         var draft = new ManualMapDraft(

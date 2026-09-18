@@ -9,6 +9,8 @@ using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
 using ReactiveUI;
 using System.Reactive;
+using NetTopologySuite.Geometries;
+using NetTopologySuite.Index.Strtree;
 
 namespace MapRegionizer.App.ViewModels;
 
@@ -26,6 +28,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
     private RegionDraft _draft;
     private IReadOnlyList<MapRegion> _canonicalRegions = [];
     private IReadOnlyList<MapRegion> _displayRegions = [];
+    private STRtree<MapRegion> _regionSelectionIndex = new();
     private RegionTopology? _topology;
     private RegionId? _selectedRegionId;
     private RegionEditorRegionViewModel? _selectedRegion;
@@ -95,13 +98,21 @@ public sealed class RegionEditorViewModel : ReactiveObject
         get => _selectedTool;
         set
         {
+            if (_selectedTool == value)
+                return;
+            var hadVertexMarkers = ShowVertexMarkers;
+            var hadSplitPreview = SplitPreviewLine;
             this.RaiseAndSetIfChanged(ref _selectedTool, value);
             _firstPoint = null;
             _splitPreviewPoint = null;
             _vertexToMove = null;
-            this.RaisePropertyChanged(nameof(ShowVertexMarkers));
-            this.RaisePropertyChanged(nameof(VertexMarkers));
-            this.RaisePropertyChanged(nameof(SplitPreviewLine));
+            if (hadVertexMarkers != ShowVertexMarkers)
+            {
+                this.RaisePropertyChanged(nameof(ShowVertexMarkers));
+                this.RaisePropertyChanged(nameof(VertexMarkers));
+            }
+            if (hadSplitPreview != SplitPreviewLine)
+                this.RaisePropertyChanged(nameof(SplitPreviewLine));
         }
     }
     public string Diagnostics { get => _diagnostics; private set => this.RaiseAndSetIfChanged(ref _diagnostics, value); }
@@ -218,7 +229,12 @@ public sealed class RegionEditorViewModel : ReactiveObject
             case RegionEditorTool.Navigate:
                 break;
             case RegionEditorTool.Select:
-                SelectedRegionId = _canonicalRegions.LastOrDefault(region => region.Shape.Covers(region.Shape.Factory.CreatePoint(new NetTopologySuite.Geometries.Coordinate(point.X, point.Y))))?.Id;
+                var pointGeometry = new Point(new Coordinate(point.X, point.Y));
+                var candidates = _regionSelectionIndex.Query(new Envelope(point.X, point.X, point.Y, point.Y));
+                SelectedRegionId = candidates
+                    .Where(region => region.Shape.Covers(pointGeometry))
+                    .OrderBy(region => region.Id.Value)
+                    .LastOrDefault()?.Id;
                 break;
             case RegionEditorTool.Split:
                 HandleSplit(point);
@@ -532,6 +548,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
             return new RegionDraftRegion(region.Id, region.LandmassId, region.Shape.Copy(), RegionDraftOrigin.GeneratedAndEdited);
         }).ToList());
         _canonicalRegions = result.Regions;
+        RebuildRegionSelectionIndex();
         _topology = RegionTopology.CreateFromVerifiedCoverage(result.Regions);
         RefreshPreview();
         RefreshSelection();
@@ -564,14 +581,39 @@ public sealed class RegionEditorViewModel : ReactiveObject
 
     private void RefreshSelection()
     {
-        Regions.Clear();
-        foreach (var region in _canonicalRegions.OrderBy(region => region.Id.Value))
-            Regions.Add(new RegionEditorRegionViewModel(region.Id, region.LandmassId, region.Id == SelectedRegionId));
+        var regionViewModels = _canonicalRegions
+            .OrderBy(region => region.Id.Value)
+            .Select(region => new RegionEditorRegionViewModel(region.Id, region.LandmassId, region.Id == SelectedRegionId))
+            .ToArray();
+        for (var index = 0; index < regionViewModels.Length; index++)
+        {
+            if (index < Regions.Count)
+            {
+                if (!Equals(Regions[index], regionViewModels[index]))
+                    Regions[index] = regionViewModels[index];
+            }
+            else
+            {
+                Regions.Add(regionViewModels[index]);
+            }
+        }
+
+        while (Regions.Count > regionViewModels.Length)
+            Regions.RemoveAt(Regions.Count - 1);
         _selectedRegion = Regions.FirstOrDefault(region => region.Id == SelectedRegionId);
         this.RaisePropertyChanged(nameof(SelectedRegion));
         var selected = _draft.Regions.SingleOrDefault(region => region.Id == SelectedRegionId);
         this.RaiseAndSetIfChanged(ref _selectedRegionName, selected?.Name ?? string.Empty, nameof(SelectedRegionName));
         this.RaisePropertyChanged(nameof(HasSelection));
+    }
+
+    private void RebuildRegionSelectionIndex()
+    {
+        var index = new STRtree<MapRegion>();
+        foreach (var region in _canonicalRegions)
+            index.Insert(region.Shape.EnvelopeInternal, region);
+        index.Build();
+        _regionSelectionIndex = index;
     }
 
     private static IReadOnlyList<MapRegion> ToMapRegions(RegionDraft draft) => draft.Regions

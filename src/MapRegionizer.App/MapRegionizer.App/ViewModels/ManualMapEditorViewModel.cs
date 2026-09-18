@@ -112,12 +112,19 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
         {
             if (_selectedTool == value)
                 return;
+            var hadPointerPreview = _currentVertexIds.Count > 0 && _pointerPreview.HasValue;
+            var hadSnapCandidate = _snapCandidatePosition.HasValue || _snapCandidateVertexId.HasValue;
             this.RaiseAndSetIfChanged(ref _selectedTool, value);
             _pointerPreview = null;
             _snapCandidateVertexId = null;
             _snapCandidatePosition = null;
-            this.RaisePropertyChanged(nameof(CurrentPolygon));
-            this.RaisePropertyChanged(nameof(SnapCandidatePosition));
+            if (hadPointerPreview)
+                this.RaisePropertyChanged(nameof(CurrentPolygon));
+            if (hadSnapCandidate)
+            {
+                this.RaisePropertyChanged(nameof(SnapCandidatePosition));
+                this.RaisePropertyChanged(nameof(SnapCandidateVertexId));
+            }
         }
     }
 
@@ -310,13 +317,13 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
         _snapCandidateVertexId = snap.VertexId;
         _snapCandidatePosition = snap.Position;
 
-        if (pointerChanged)
+        if (pointerChanged && _currentVertexIds.Count > 0)
             this.RaisePropertyChanged(nameof(CurrentPolygon));
         if (snapChanged)
         {
             this.RaisePropertyChanged(nameof(SnapCandidatePosition));
             this.RaisePropertyChanged(nameof(SnapCandidateVertexId));
-            if (!pointerChanged)
+            if (!pointerChanged && _currentVertexIds.Count > 0)
                 this.RaisePropertyChanged(nameof(CurrentPolygon));
         }
     }
@@ -460,11 +467,12 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
         if (!SelectedRegionId.HasValue)
             return;
         PushUndo();
-        _draft = new ManualMapDraft(
+        var draftWithoutRegion = new ManualMapDraft(
             _draft.GridWidth,
             _draft.GridHeight,
             _draft.Vertices,
             _draft.Regions.Where(region => region.Id != SelectedRegionId.Value).ToArray());
+        _draft = ManualMapDraftTopology.PruneUnreferencedVertices(draftWithoutRegion, _currentVertexIds);
         _selectedRegionId = null;
         RefreshState();
     }

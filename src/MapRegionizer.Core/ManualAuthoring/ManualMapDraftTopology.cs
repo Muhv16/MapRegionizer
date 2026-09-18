@@ -7,6 +7,34 @@ namespace MapRegionizer.Core.ManualAuthoring;
 /// <summary>Atomic shared-topology operations used by manual editors.</summary>
 public static class ManualMapDraftTopology
 {
+    /// <summary>
+    /// Removes vertices that are no longer referenced by a completed region.
+    /// Vertices explicitly preserved by an editor remain available for an
+    /// unfinished face.
+    /// </summary>
+    public static ManualMapDraft PruneUnreferencedVertices(
+        ManualMapDraft draft,
+        IEnumerable<int>? preservedVertexIds = null)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+
+        var referencedVertexIds = draft.Regions
+            .SelectMany(region => region.VertexIds)
+            .ToHashSet();
+
+        if (preservedVertexIds is not null)
+            referencedVertexIds.UnionWith(preservedVertexIds);
+
+        if (draft.Vertices.All(vertex => referencedVertexIds.Contains(vertex.Id)))
+            return draft;
+
+        var vertices = draft.Vertices
+            .Where(vertex => referencedVertexIds.Contains(vertex.Id))
+            .ToArray();
+
+        return new ManualMapDraft(draft.GridWidth, draft.GridHeight, vertices, draft.Regions);
+    }
+
     public static bool TrySplitEdge(
         ManualMapDraft draft,
         int startVertexId,
