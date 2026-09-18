@@ -114,7 +114,10 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
                 return;
             var hadPointerPreview = _currentVertexIds.Count > 0 && _pointerPreview.HasValue;
             var hadSnapCandidate = _snapCandidatePosition.HasValue || _snapCandidateVertexId.HasValue;
-            this.RaiseAndSetIfChanged(ref _selectedTool, value);
+            // Tool changes are forwarded by the window's selector and consumed
+            // directly by the canvas. Avoid publishing a synchronous binding
+            // notification while ComboBox is completing its selection change.
+            _selectedTool = value;
             _pointerPreview = null;
             _snapCandidateVertexId = null;
             _snapCandidatePosition = null;
