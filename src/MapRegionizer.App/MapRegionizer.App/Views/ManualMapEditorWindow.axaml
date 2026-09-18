@@ -8,7 +8,9 @@
         Title="Ручная разметка карты" Width="1550" Height="980" WindowStartupLocation="CenterOwner">
   <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10">
     <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
-      <ComboBox Width="155" ItemsSource="{Binding Tools}" SelectedItem="{Binding SelectedTool}"/>
+      <!-- Keep the selector one-way: forwarding user selection explicitly avoids
+           re-entrant ComboBox <-> ViewModel updates on large editor projects. -->
+      <ComboBox Width="155" ItemsSource="{Binding Tools}" SelectedItem="{Binding SelectedTool, Mode=OneWay}" SelectionChanged="ToolSelectionChanged"/>
       <Button Grid.Column="1" Content="Undo" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}"/>
       <Button Grid.Column="2" Content="Redo" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"/>
       <Button Grid.Column="3" Content="Проверить карту" Command="{Binding ValidateCommand}"/>

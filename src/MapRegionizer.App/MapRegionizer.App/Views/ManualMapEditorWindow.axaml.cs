@@ -10,6 +10,16 @@ public partial class ManualMapEditorWindow : Window
 
     private ManualMapEditorViewModel ViewModel => (ManualMapEditorViewModel)DataContext!;
 
+    private void ToolSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not ManualMapEditorViewModel viewModel
+            || e.AddedItems.Count == 0
+            || e.AddedItems[0] is not ManualMapEditorTool tool)
+            return;
+
+        viewModel.SelectedTool = tool;
+    }
+
     private void CancelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close(null);
 
     private void FinalizeClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
