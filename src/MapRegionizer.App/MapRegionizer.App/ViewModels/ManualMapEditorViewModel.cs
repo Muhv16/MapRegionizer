@@ -307,6 +307,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
 
     public void UpdatePointerPreview(MapPoint point, double hitTolerance)
     {
+        if (_currentVertexIds.Count == 0)
+            return;
+
         var nextPointerPreview = SelectedTool == ManualMapEditorTool.CreateRegion ? (MapPoint?)point : null;
         var snap = SelectedTool == ManualMapEditorTool.CreateRegion
             ? FindSnap(point, Math.Max(hitTolerance, RegionGeometryPrecision.LengthTolerance))

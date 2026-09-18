@@ -275,12 +275,15 @@ public sealed class RegionEditorViewModel : ReactiveObject
         else Diagnostics = diagnostic!.Message;
     }
 
-    public void UpdatePointerPreview(MapPoint point)
+    public bool UpdatePointerPreview(MapPoint point)
     {
         if (SelectedTool != RegionEditorTool.Split || _firstPoint is null)
-            return;
+            return false;
+        if (_splitPreviewPoint == point)
+            return false;
         _splitPreviewPoint = point;
         this.RaisePropertyChanged(nameof(SplitPreviewLine));
+        return true;
     }
 
     private void HandleMoveVertex(MapPoint point)

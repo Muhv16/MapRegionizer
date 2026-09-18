@@ -135,8 +135,11 @@ public sealed class ManualMapEditorCanvas : Control
             return;
         }
 
+        // Before the first click there is no visible polygon preview; defer
+        // spatial snapping until the click path needs it.
         if (DataContext is not ManualMapEditorViewModel viewModel
-            || viewModel.SelectedTool != ManualMapEditorTool.CreateRegion)
+            || viewModel.SelectedTool != ManualMapEditorTool.CreateRegion
+            || viewModel.CurrentVertexIds.Count == 0)
             return;
 
         var now = Stopwatch.GetTimestamp();
@@ -145,7 +148,6 @@ public sealed class ManualMapEditorCanvas : Control
         _lastPreviewTicks = now;
         var (scale, offsetX, offsetY) = GetTransform(viewModel);
         viewModel.UpdatePointerPreview(ToMapPoint(position, scale, offsetX, offsetY), 10 / scale);
-        InvalidateVisual();
     }
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs eventArgs)

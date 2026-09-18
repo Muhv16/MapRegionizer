@@ -135,8 +135,8 @@ public sealed class RegionEditorCanvas : Control
             return;
 
         var (scale, offsetX, offsetY) = GetTransform(splitViewModel);
-        splitViewModel.UpdatePointerPreview(ToMapPoint(eventArgs.GetPosition(this), scale, offsetX, offsetY));
-        InvalidateVisual();
+        if (splitViewModel.UpdatePointerPreview(ToMapPoint(eventArgs.GetPosition(this), scale, offsetX, offsetY)))
+            InvalidateVisual();
     }
 
     private async void OnPointerReleased(object? sender, PointerReleasedEventArgs eventArgs)
