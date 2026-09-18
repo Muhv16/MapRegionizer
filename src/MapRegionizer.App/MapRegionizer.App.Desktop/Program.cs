@@ -17,6 +17,7 @@ namespace MapRegionizer.App.Desktop
         public static AppBuilder BuildAvaloniaApp()
             => AppBuilder.Configure<App>()
                 .UsePlatformDetect()
+                .With(new Win32PlatformOptions { OverlayPopups = true })
                 .WithInterFont()
                 .UseReactiveUI()
                 .LogToTrace();

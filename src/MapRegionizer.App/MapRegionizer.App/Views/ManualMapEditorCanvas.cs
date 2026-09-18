@@ -14,6 +14,12 @@ namespace MapRegionizer.App.Views;
 
 public sealed class ManualMapEditorCanvas : Control
 {
+    private static readonly RenderOptions BackgroundRenderOptions = new()
+    {
+        BitmapInterpolationMode = BitmapInterpolationMode.LowQuality,
+        RequiresFullOpacityHandling = false
+    };
+
     private double _zoom = 1;
     private Vector _pan;
     private AvaloniaPoint _lastPointerPosition;
@@ -279,6 +285,7 @@ public sealed class ManualMapEditorCanvas : Control
         using (context.PushTransform(Matrix.CreateTranslation(center.X, center.Y)))
         using (context.PushTransform(Matrix.CreateRotation(Matrix.ToRadians(viewModel.BackgroundRotation))))
         using (context.PushTransform(Matrix.CreateTranslation(-center.X, -center.Y)))
+        using (context.PushRenderOptions(BackgroundRenderOptions))
         using (context.PushOpacity(viewModel.BackgroundOpacity))
             context.DrawImage(viewModel.BackgroundImage, new Rect(viewModel.BackgroundImage.Size), destination);
     }
@@ -298,6 +305,8 @@ public sealed class ManualMapEditorCanvas : Control
     {
         if (eventArgs.PropertyName == nameof(ManualMapEditorViewModel.SelectedTool))
             return;
+        if (eventArgs.PropertyName == nameof(ManualMapEditorViewModel.BackgroundImage))
+            ClearStaticLayer();
         if (eventArgs.PropertyName is null
             || eventArgs.PropertyName == nameof(ManualMapEditorViewModel.DisplayRegions)
             || eventArgs.PropertyName == nameof(ManualMapEditorViewModel.VertexMarkers))

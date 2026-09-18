@@ -11,6 +11,7 @@ using ReactiveUI;
 using System.Reactive;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Index.Strtree;
+using ImageSharpImage = SixLabors.ImageSharp.Image;
 
 namespace MapRegionizer.App.ViewModels;
 
@@ -36,6 +37,8 @@ public sealed record ManualMapDisplayRegion(int Id, string? Name, Polygon Shape)
 /// </summary>
 public sealed class ManualMapEditorViewModel : ReactiveObject
 {
+    private const int MaxBackgroundPixelDimension = 4096;
+
     private static readonly JsonSerializerOptions EditorStateOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -368,8 +371,24 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
 
     private void LoadBackgroundImage(string path)
     {
-        using var stream = File.OpenRead(path);
-        BackgroundImage = new Bitmap(stream);
+        var imageInfo = ImageSharpImage.Identify(path);
+        if (imageInfo is not null
+            && Math.Max(imageInfo.Width, imageInfo.Height) > MaxBackgroundPixelDimension)
+        {
+            var targetWidth = imageInfo.Width >= imageInfo.Height
+                ? MaxBackgroundPixelDimension
+                : Math.Max(1, (int)Math.Round(imageInfo.Width * (double)MaxBackgroundPixelDimension / imageInfo.Height));
+            using var scaledStream = File.OpenRead(path);
+            BackgroundImage = Bitmap.DecodeToWidth(
+                scaledStream,
+                targetWidth,
+                BitmapInterpolationMode.HighQuality);
+        }
+        else
+        {
+            using var stream = File.OpenRead(path);
+            BackgroundImage = new Bitmap(stream);
+        }
         BackgroundPath = Path.GetFullPath(path);
     }
 
