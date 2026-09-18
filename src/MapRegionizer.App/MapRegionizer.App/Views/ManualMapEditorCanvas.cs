@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using MapRegionizer.App.ViewModels;
 using MapRegionizer.Core.Domain;
 using NetTopologySuite.Geometries;
@@ -21,6 +22,8 @@ public sealed class ManualMapEditorCanvas : Control
     private readonly Dictionary<int, CachedRegionGeometry> _regionGeometryCache = [];
     private readonly Dictionary<(int Id, bool Selected), SolidColorBrush> _regionBrushCache = [];
     private readonly Dictionary<(bool Selected, double Scale), Pen> _regionPenCache = [];
+    private RenderTargetBitmap? _staticLayerBitmap;
+    private StaticLayerKey? _staticLayerKey;
     private Avalonia.Media.Geometry? _markerGeometry;
     private IReadOnlyList<MapPoint>? _markerGeometrySource;
     private double _markerGeometryScale;
@@ -46,38 +49,15 @@ public sealed class ManualMapEditorCanvas : Control
         if (DataContext is not ManualMapEditorViewModel viewModel || Bounds.Width <= 0 || Bounds.Height <= 0)
             return;
 
-        context.FillRectangle(new SolidColorBrush(Color.Parse("#0F172A")), Bounds);
+        context.FillRectangle(CanvasBrushes.MapBackground, Bounds);
         var (scale, offsetX, offsetY) = GetTransform(viewModel);
-        if (viewModel.BackgroundImage is not null && viewModel.IsBackgroundVisible)
-        {
-            var destination = new Rect(
-                offsetX + viewModel.BackgroundOffsetX,
-                offsetY + viewModel.BackgroundOffsetY,
-                viewModel.Bounds.Width * scale * viewModel.BackgroundScale,
-                viewModel.Bounds.Height * scale * viewModel.BackgroundScale);
-            var center = destination.Center;
-            using (context.PushTransform(Matrix.CreateTranslation(center.X, center.Y)))
-            using (context.PushTransform(Matrix.CreateRotation(Matrix.ToRadians(viewModel.BackgroundRotation))))
-            using (context.PushTransform(Matrix.CreateTranslation(-center.X, -center.Y)))
-            using (context.PushOpacity(viewModel.BackgroundOpacity))
-                context.DrawImage(viewModel.BackgroundImage, new Rect(viewModel.BackgroundImage.Size), destination);
-        }
 
-        using (context.PushTransform(new Matrix(scale, 0, 0, scale, offsetX, offsetY)))
-        {
-            foreach (var region in viewModel.DisplayRegions)
-            {
-                var selected = viewModel.SelectedRegionId == region.Id;
-                context.DrawGeometry(
-                    GetRegionBrush(region.Id, selected),
-                    GetRegionPen(selected, scale),
-                    GetRegionGeometry(region));
-            }
-
-            var markerGeometry = GetMarkerGeometry(viewModel, scale);
-            if (markerGeometry is not null)
-                context.DrawGeometry(Brushes.White, new Pen(Brushes.Black, 1 / scale), markerGeometry);
-        }
+        var staticLayer = GetStaticLayer(viewModel, scale);
+        var mapSize = new Size(viewModel.Bounds.Width * scale, viewModel.Bounds.Height * scale);
+        if (staticLayer is not null)
+            context.DrawImage(staticLayer, new Rect(staticLayer.Size), new Rect(offsetX, offsetY, mapSize.Width, mapSize.Height));
+        else
+            DrawStaticLayer(context, viewModel, scale, offsetX, offsetY);
 
         var current = viewModel.CurrentPolygon;
         if (current.Count > 0)
@@ -213,6 +193,90 @@ public sealed class ManualMapEditorCanvas : Control
         return (scale, (Bounds.Width - viewModel.Bounds.Width * scale) / 2 + _pan.X, (Bounds.Height - viewModel.Bounds.Height * scale) / 2 + _pan.Y);
     }
 
+    private RenderTargetBitmap? GetStaticLayer(ManualMapEditorViewModel viewModel, double scale)
+    {
+        var renderScaling = Math.Max(1, TopLevel.GetTopLevel(this)?.RenderScaling ?? 1);
+        var mapSize = new Size(viewModel.Bounds.Width * scale, viewModel.Bounds.Height * scale);
+        var pixelSize = PixelSize.FromSize(mapSize, renderScaling);
+        if (pixelSize.Width <= 0 || pixelSize.Height <= 0)
+            return null;
+
+        // Do not allocate an enormous off-screen surface at high zoom. The
+        // direct path remains available for that uncommon case.
+        if ((long)pixelSize.Width * pixelSize.Height > 64_000_000)
+            return null;
+
+        var key = new StaticLayerKey(
+            viewModel.DisplayRegions,
+            viewModel.VertexMarkers,
+            viewModel.BackgroundImage,
+            viewModel.SelectedRegionId,
+            viewModel.IsBackgroundVisible,
+            viewModel.BackgroundOpacity,
+            viewModel.BackgroundScale,
+            viewModel.BackgroundOffsetX,
+            viewModel.BackgroundOffsetY,
+            viewModel.BackgroundRotation,
+            scale,
+            renderScaling,
+            pixelSize);
+        if (_staticLayerBitmap is not null && _staticLayerKey == key)
+            return _staticLayerBitmap;
+
+        DisposeStaticLayer();
+        var bitmap = new RenderTargetBitmap(
+            pixelSize,
+            new Vector(96 * renderScaling, 96 * renderScaling));
+        using (var layerContext = bitmap.CreateDrawingContext())
+            DrawStaticLayer(layerContext, viewModel, scale, 0, 0);
+
+        _staticLayerBitmap = bitmap;
+        _staticLayerKey = key;
+        return bitmap;
+    }
+
+    private void DrawStaticLayer(
+        DrawingContext context,
+        ManualMapEditorViewModel viewModel,
+        double scale,
+        double offsetX,
+        double offsetY)
+    {
+        var mapSize = new Size(viewModel.Bounds.Width * scale, viewModel.Bounds.Height * scale);
+        context.FillRectangle(CanvasBrushes.MapBackground, new Rect(offsetX, offsetY, mapSize.Width, mapSize.Height));
+
+        if (viewModel.BackgroundImage is not null && viewModel.IsBackgroundVisible)
+        {
+            var destination = new Rect(
+                offsetX + viewModel.BackgroundOffsetX,
+                offsetY + viewModel.BackgroundOffsetY,
+                viewModel.Bounds.Width * scale * viewModel.BackgroundScale,
+                viewModel.Bounds.Height * scale * viewModel.BackgroundScale);
+            var center = destination.Center;
+            using (context.PushTransform(Matrix.CreateTranslation(center.X, center.Y)))
+            using (context.PushTransform(Matrix.CreateRotation(Matrix.ToRadians(viewModel.BackgroundRotation))))
+            using (context.PushTransform(Matrix.CreateTranslation(-center.X, -center.Y)))
+            using (context.PushOpacity(viewModel.BackgroundOpacity))
+                context.DrawImage(viewModel.BackgroundImage, new Rect(viewModel.BackgroundImage.Size), destination);
+        }
+
+        using (context.PushTransform(new Matrix(scale, 0, 0, scale, offsetX, offsetY)))
+        {
+            foreach (var region in viewModel.DisplayRegions)
+            {
+                var selected = viewModel.SelectedRegionId == region.Id;
+                context.DrawGeometry(
+                    GetRegionBrush(region.Id, selected),
+                    GetRegionPen(selected, scale),
+                    GetRegionGeometry(region));
+            }
+
+            var markerGeometry = GetMarkerGeometry(viewModel, scale);
+            if (markerGeometry is not null)
+                context.DrawGeometry(Brushes.White, new Pen(Brushes.Black, 1 / scale), markerGeometry);
+        }
+    }
+
     private void ObserveViewModel()
     {
         if (_observedViewModel is not null)
@@ -339,9 +403,32 @@ public sealed class ManualMapEditorCanvas : Control
         _markerGeometry = null;
         _markerGeometrySource = null;
         _markerGeometryScale = 0;
+        DisposeStaticLayer();
+    }
+
+    private void DisposeStaticLayer()
+    {
+        _staticLayerBitmap?.Dispose();
+        _staticLayerBitmap = null;
+        _staticLayerKey = null;
     }
 
     private readonly record struct CachedRegionGeometry(Polygon Shape, Avalonia.Media.Geometry Geometry);
+
+    private readonly record struct StaticLayerKey(
+        IReadOnlyList<ManualMapDisplayRegion> DisplayRegions,
+        IReadOnlyList<MapPoint> VertexMarkers,
+        Bitmap? BackgroundImage,
+        int? SelectedRegionId,
+        bool IsBackgroundVisible,
+        double BackgroundOpacity,
+        double BackgroundScale,
+        double BackgroundOffsetX,
+        double BackgroundOffsetY,
+        double BackgroundRotation,
+        double Scale,
+        double RenderScaling,
+        PixelSize PixelSize);
 
     private static Color GetColor(int id)
     {
@@ -350,5 +437,10 @@ public sealed class ManualMapEditorCanvas : Control
             var hash = id * 1103515245 + 12345;
             return Color.FromRgb((byte)(70 + (hash & 127)), (byte)(70 + ((hash >> 8) & 127)), (byte)(70 + ((hash >> 16) & 127)));
         }
+    }
+
+    private static class CanvasBrushes
+    {
+        public static readonly SolidColorBrush MapBackground = new(Color.Parse("#0F172A"));
     }
 }
