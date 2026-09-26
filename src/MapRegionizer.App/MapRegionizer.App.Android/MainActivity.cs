@@ -2,7 +2,7 @@ using Android.App;
 using Android.Content.PM;
 using Avalonia;
 using Avalonia.Android;
-using Avalonia.ReactiveUI;
+using ReactiveUI.Avalonia;
 
 namespace MapRegionizer.App.Android
 {
@@ -18,7 +18,7 @@ namespace MapRegionizer.App.Android
         {
             return base.CustomizeAppBuilder(builder)
                 .WithInterFont()
-                .UseReactiveUI();
+                .UseReactiveUI(_ => { });
         }
     }
 }

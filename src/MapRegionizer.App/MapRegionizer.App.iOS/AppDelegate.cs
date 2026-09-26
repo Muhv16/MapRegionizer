@@ -2,8 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.iOS;
 using Avalonia.Media;
-using Avalonia.ReactiveUI;
 using Foundation;
+using ReactiveUI.Avalonia;
 using UIKit;
 
 namespace MapRegionizer.App.iOS
@@ -20,7 +20,7 @@ namespace MapRegionizer.App.iOS
         {
             return base.CustomizeAppBuilder(builder)
                 .WithInterFont()
-                .UseReactiveUI();
+                .UseReactiveUI(_ => { });
         }
     }
 }

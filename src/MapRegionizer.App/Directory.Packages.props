@@ -9,12 +9,12 @@
     <PackageVersion Include="Avalonia" Version="12.0.2" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.0.2" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.2" />
-    <PackageVersion Include="Avalonia.Diagnostics" Version="11.3.14" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.0.2" />
     <PackageVersion Include="Avalonia.iOS" Version="11.2.6" />
     <PackageVersion Include="Avalonia.Browser" Version="11.2.6" />
     <PackageVersion Include="Avalonia.Android" Version="11.2.6" />
-    <PackageVersion Include="Avalonia.ReactiveUI" Version="11.3.8" />
+    <!-- Avalonia 12 uses the renamed integration package; Avalonia.ReactiveUI is the legacy v11 line. -->
+    <PackageVersion Include="ReactiveUI.Avalonia" Version="12.0.2" />
     <PackageVersion Include="Xamarin.AndroidX.Core.SplashScreen" Version="1.0.1.1" />
   </ItemGroup>
 </Project>

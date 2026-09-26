@@ -1,5 +1,5 @@
 using Avalonia;
-using Avalonia.ReactiveUI;
+using ReactiveUI.Avalonia;
 using System;
 
 namespace MapRegionizer.App.Desktop
@@ -19,7 +19,7 @@ namespace MapRegionizer.App.Desktop
                 .UsePlatformDetect()
                 .With(new Win32PlatformOptions { OverlayPopups = true })
                 .WithInterFont()
-                .UseReactiveUI()
+                .UseReactiveUI(_ => { })
                 .LogToTrace();
     }
 }
