@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Media.Imaging;
+using MapRegionizer.App.Services;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.ManualAuthoring;
@@ -12,6 +13,7 @@ using ReactiveUI;
 using System.Reactive;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Index.Strtree;
+using MapRegionizer.Core.Spatial;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
 
 namespace MapRegionizer.App.ViewModels;
@@ -26,7 +28,8 @@ public enum ManualMapEditorTool
 public sealed record ManualMapEditorResult(
     ManualMapDraft Draft,
     ManualMapFinalizationResult Finalization,
-    bool ApplyBoundaryDistortion);
+    bool ApplyBoundaryDistortion,
+    MapSpatialOptions SpatialOptions);
 
 public sealed record ManualMapEditorRegionViewModel(int Id, string Label, bool IsSelected);
 
@@ -48,9 +51,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     private readonly ManualMapDraftValidator _validator = new();
     private readonly ManualMapDraftFinalizer _finalizer = new();
-    private readonly MapSpatialReference _spatialReference;
+    private MapSpatialReference _spatialReference;
     private readonly MapGenerationOptions _options;
-    private readonly ManualMapDraftSpatialIndex _spatialIndex;
+    private ManualMapDraftSpatialIndex _spatialIndex;
     private readonly Stack<ManualMapEditorSnapshot> _undo = [];
     private readonly Stack<ManualMapEditorSnapshot> _redo = [];
     private readonly Dictionary<int, MapPoint> _vertexPositions = [];
@@ -84,14 +87,18 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     public ManualMapEditorViewModel(
         ManualMapDraft draft,
         MapSpatialReference spatialReference,
-        MapGenerationOptions options)
+        MapGenerationOptions options,
+        SpatialConfigurationViewModel spatialConfiguration)
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(spatialReference);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(spatialConfiguration);
         _draft = draft;
         _spatialReference = spatialReference;
         _options = options;
+        SpatialConfiguration = spatialConfiguration;
+        SpatialConfiguration.PropertyChanged += OnSpatialConfigurationChanged;
         _spatialIndex = new ManualMapDraftSpatialIndex(
             draft,
             Math.Max(spatialReference.UnitsPerCell * 16, RegionGeometryPrecision.LengthTolerance * 4));
@@ -108,6 +115,8 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     public int GridWidth => _draft.GridWidth;
     public int GridHeight => _draft.GridHeight;
+    public LocalizationService? L => SpatialConfiguration.L;
+    public SpatialConfigurationViewModel SpatialConfiguration { get; }
     public MapBounds Bounds => new(_spatialReference.WidthInMapUnits, _spatialReference.HeightInMapUnits, _spatialReference.UnitsPerCell);
     public IReadOnlyList<ManualMapEditorTool> Tools { get; } = Enum.GetValues<ManualMapEditorTool>();
     public ManualMapEditorTool SelectedTool
@@ -360,6 +369,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             return;
 
         _disposed = true;
+        SpatialConfiguration.PropertyChanged -= OnSpatialConfigurationChanged;
         var backgroundImage = BackgroundImage;
         BackgroundImage = null;
         backgroundImage?.Dispose();
@@ -464,7 +474,11 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         ValidateDraft();
         if (!CanFinalize || _lastFinalization is null)
             throw new InvalidOperationException("Сначала исправьте ошибки ручной карты.");
-        return new ManualMapEditorResult(_draft, _lastFinalization, ApplyBoundaryDistortion);
+        return new ManualMapEditorResult(
+            _draft,
+            _lastFinalization,
+            ApplyBoundaryDistortion,
+            SpatialConfiguration.BuildSpatialOptions());
     }
 
     public void FitBackground()
@@ -559,11 +573,53 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private void OnSpatialConfigurationChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(SpatialConfigurationViewModel.WorldModel)
+            or nameof(SpatialConfigurationViewModel.UnitsPerCell)
+            or nameof(SpatialConfigurationViewModel.CoverageKind)
+            or nameof(SpatialConfigurationViewModel.WestLongitude)
+            or nameof(SpatialConfigurationViewModel.EastLongitude)
+            or nameof(SpatialConfigurationViewModel.SouthLatitude)
+            or nameof(SpatialConfigurationViewModel.NorthLatitude)
+            or nameof(SpatialConfigurationViewModel.GridMapping)
+            or nameof(SpatialConfigurationViewModel.Topology)))
+        {
+            return;
+        }
+
+        try
+        {
+            var spatial = SpatialConfiguration.BuildSpatialOptions();
+            _spatialReference = MapSpatialContext.Create(_draft.GridWidth, _draft.GridHeight, spatial).SpatialReference;
+            if (e.PropertyName == nameof(SpatialConfigurationViewModel.UnitsPerCell))
+            {
+                _spatialIndex = new ManualMapDraftSpatialIndex(
+                    _draft,
+                    Math.Max(_spatialReference.UnitsPerCell * 16, RegionGeometryPrecision.LengthTolerance * 4));
+            }
+            this.RaisePropertyChanged(nameof(Bounds));
+            _lastFinalization = null;
+            Diagnostics = "Пространственные параметры изменены. Проверьте карту перед формированием.";
+            ValidationSummary = string.Empty;
+            WaterBodyCount = 0;
+            RefreshEditorProperties();
+        }
+        catch (Exception exception)
+        {
+            _lastFinalization = null;
+            Diagnostics = $"Пространственные параметры некорректны: {exception.Message}";
+            ValidationSummary = string.Empty;
+            WaterBodyCount = 0;
+            RefreshEditorProperties();
+        }
+    }
+
     private int ComputeWaterBodyCount(ManualMapFinalizationResult finalization)
     {
         try
         {
-            var options = _options.WithSpatial(_options.EffectiveSpatial);
+            var options = _options.WithSpatial(SpatialConfiguration.BuildSpatialOptions());
             var request = MapGenerationRequest.Isolated(
                 new RequestedDomain(finalization.DerivedMask.Window),
                 finalization.DerivedMask,

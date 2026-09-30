@@ -97,8 +97,10 @@ compatibility and intentionally planar configurations.
 
 `Coverage` states which geographic extent the generation grid represents.
 `MapCoverage.Global` describes a full longitude span and normally reaches the
-geographic poles. `MapCoverage.Regional` describes an explicit latitude range
-and directed longitude interval; a longitude interval may cross the
+geographic poles, but it can use a narrower latitude range when the map needs
+an inset from both poles. The App exposes this as a symmetric pole inset.
+`MapCoverage.Regional` describes explicit south/north latitude bounds and a
+directed west/east longitude interval; a longitude interval may cross the
 antimeridian.
 
 Coverage does not choose a world context. A regional map may be isolated, use

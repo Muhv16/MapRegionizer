@@ -62,7 +62,12 @@ check.
 grid, shared vertices, and faces. The Avalonia editor stores background image
 visibility, lock, opacity, transform, and a relative image path in the
 `*.manual-map.json.editor.json` sidecar. Background state is presentation-only
-and never enters Core finalization.
+and never enters Core finalization. The editor's Spatial controls configure
+full-world coverage with a symmetric inset from the poles, or regional coverage
+with explicit west/east longitude and south/north latitude bounds. Accepted
+spatial settings update the App configuration and are used to finalize and
+generate the map; cancelling the editor discards those edits. Spatial settings
+remain App configuration and are not stored in the manual-map geometry file.
 
 ## Current limitations and future work
 

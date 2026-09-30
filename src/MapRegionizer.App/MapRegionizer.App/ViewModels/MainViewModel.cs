@@ -975,20 +975,23 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
             var draft = _manualMapDraft ?? ManualMapDraft.Empty(ManualGridWidth, ManualGridHeight);
             if (draft.GridWidth != ManualGridWidth || draft.GridHeight != ManualGridHeight)
                 draft = ManualMapDraft.Empty(ManualGridWidth, ManualGridHeight);
+            var editorSpatialConfiguration = new SpatialConfigurationViewModel(_localization);
+            editorSpatialConfiguration.LoadSpatialOptions(options.EffectiveSpatial);
 
             var editor = new ManualMapEditorWindow
             {
-                DataContext = new ManualMapEditorViewModel(draft, spatialReference, options)
+                DataContext = new ManualMapEditorViewModel(draft, spatialReference, options, editorSpatialConfiguration)
             };
             var owner = GetMainWindow();
             var result = owner is null ? null : await editor.ShowDialog<ManualMapEditorResult?>(owner);
             if (_disposed || result is null)
                 return;
 
+            _spatialConfiguration.LoadSpatialOptions(result.SpatialOptions);
             _manualMapDraft = result.Draft;
             _manualMapFinalization = result.Finalization;
             _manualGeometrySeed = new MapGeometrySeed(result.Finalization.Landmasses, result.Finalization.RegionDraft);
-            _manualFinalizationSpatial = options.EffectiveSpatial;
+            _manualFinalizationSpatial = result.SpatialOptions;
             BoundaryDistortionEnabled = result.ApplyBoundaryDistortion;
             _sessionResetRequired = true;
             _workspace.Reset();

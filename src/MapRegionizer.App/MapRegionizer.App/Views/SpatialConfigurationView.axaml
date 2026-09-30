@@ -1,0 +1,115 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:MapRegionizer.App.Views"
+             x:Class="MapRegionizer.App.Views.SpatialConfigurationView"
+             x:CompileBindings="False">
+    <StackPanel Spacing="8">
+        <TextBlock Text="{Binding L[SpatialReference]}" FontWeight="Bold"/>
+
+        <views:SettingsRow Label="{Binding L[UnitsPerCell]}" Tip="{Binding L[HelpUnitsPerCell]}">
+            <views:SettingsRow.Value>
+                <NumericUpDown Value="{Binding SpatialConfiguration.UnitsPerCell}" Minimum="0.01" FormatString="N2"/>
+            </views:SettingsRow.Value>
+        </views:SettingsRow>
+
+        <views:SettingsRow Label="{Binding L[WorldModel]}">
+            <views:SettingsRow.Value>
+                <StackPanel Spacing="5">
+                    <RadioButton GroupName="SpatialWorldModel" IsChecked="{Binding SpatialConfiguration.IsSpherical, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[WorldSpherical]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[WorldSphericalDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton GroupName="SpatialWorldModel" IsChecked="{Binding SpatialConfiguration.IsFlat, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[WorldFlat]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[WorldFlatDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </views:SettingsRow.Value>
+        </views:SettingsRow>
+
+        <views:SettingsRow Label="{Binding L[Coverage]}">
+            <views:SettingsRow.Value>
+                <StackPanel Spacing="5">
+                    <RadioButton GroupName="SpatialCoverage" IsChecked="{Binding SpatialConfiguration.IsWholeWorld, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[CoverageWorld]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[CoverageWorldDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton GroupName="SpatialCoverage" IsChecked="{Binding SpatialConfiguration.IsRegion, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[CoverageRegion]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[CoverageRegionDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </views:SettingsRow.Value>
+        </views:SettingsRow>
+
+        <views:SettingsRow Label="{Binding L[GridMapping]}">
+            <views:SettingsRow.Value>
+                <StackPanel Spacing="5">
+                    <RadioButton GroupName="SpatialGridMapping" IsChecked="{Binding SpatialConfiguration.IsEquirectangular, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[MappingEquirectangular]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[MappingEquirectangularDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton GroupName="SpatialGridMapping" IsChecked="{Binding SpatialConfiguration.IsWebMercator, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[MappingWebMercator]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[MappingWebMercatorDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </views:SettingsRow.Value>
+        </views:SettingsRow>
+
+        <views:SettingsRow Label="{Binding L[Topology]}" IsVisible="{Binding SpatialConfiguration.IsWholeWorld}">
+            <views:SettingsRow.Value>
+                <StackPanel Spacing="5">
+                    <RadioButton GroupName="SpatialTopology" IsChecked="{Binding SpatialConfiguration.IsOpenRectangular, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[TopologyOpen]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[TopologyOpenDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton GroupName="SpatialTopology" IsVisible="{Binding SpatialConfiguration.ShowHorizontalWrapping}" IsChecked="{Binding SpatialConfiguration.IsHorizontalWrapping, Mode=TwoWay}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding L[TopologyWrap]}" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding L[TopologyWrapDescription]}" FontSize="11" Opacity="0.72" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </views:SettingsRow.Value>
+        </views:SettingsRow>
+
+        <views:SettingsRow Label="{Binding L[PolarInset]}" IsVisible="{Binding SpatialConfiguration.ShowPolarInset}">
+            <views:SettingsRow.Value>
+                <NumericUpDown Value="{Binding SpatialConfiguration.PolarInsetDegrees}" Minimum="{Binding SpatialConfiguration.MinimumPolarInsetDegrees}" Maximum="89.99" FormatString="N2"/>
+            </views:SettingsRow.Value>
+        </views:SettingsRow>
+
+        <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowLongitudeBounds}">
+            <views:SettingsRow Label="{Binding L[WestLongitude]}">
+                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.WestLongitude}" Minimum="-360" Maximum="360" FormatString="N2"/></views:SettingsRow.Value>
+            </views:SettingsRow>
+            <views:SettingsRow Label="{Binding L[EastLongitude]}">
+                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.EastLongitude}" Minimum="-360" Maximum="360" FormatString="N2"/></views:SettingsRow.Value>
+            </views:SettingsRow>
+        </StackPanel>
+
+        <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowLatitudeBounds}">
+            <views:SettingsRow Label="{Binding L[SouthLatitude]}">
+                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.SouthLatitude}" Minimum="-90" Maximum="90" FormatString="N2"/></views:SettingsRow.Value>
+            </views:SettingsRow>
+            <views:SettingsRow Label="{Binding L[NorthLatitude]}">
+                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.NorthLatitude}" Minimum="-90" Maximum="90" FormatString="N2"/></views:SettingsRow.Value>
+            </views:SettingsRow>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

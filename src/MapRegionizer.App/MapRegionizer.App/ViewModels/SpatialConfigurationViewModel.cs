@@ -56,6 +56,7 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         [OutputCoordinateSystem.GridMapUnits, OutputCoordinateSystem.GeographicLongitudeLatitude, OutputCoordinateSystem.WebMercator3857];
     public IReadOnlyList<LatitudeOverflowPolicy> OutputLatitudeOverflowPolicies { get; } = Enum.GetValues<LatitudeOverflowPolicy>();
     public IReadOnlyList<AntimeridianOutputPolicy> OutputAntimeridianPolicies { get; } = Enum.GetValues<AntimeridianOutputPolicy>();
+    public LocalizationService? L => _localization;
 
     public WorldModelKind WorldModel
     {
@@ -233,8 +234,48 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     public double UnitsPerCell { get => _unitsPerCell; set => this.RaiseAndSetIfChanged(ref _unitsPerCell, value); }
     public double WestLongitude { get => _westLongitude; set => this.RaiseAndSetIfChanged(ref _westLongitude, value); }
     public double EastLongitude { get => _eastLongitude; set => this.RaiseAndSetIfChanged(ref _eastLongitude, value); }
-    public double SouthLatitude { get => _southLatitude; set => this.RaiseAndSetIfChanged(ref _southLatitude, value); }
-    public double NorthLatitude { get => _northLatitude; set => this.RaiseAndSetIfChanged(ref _northLatitude, value); }
+    public double SouthLatitude
+    {
+        get => _southLatitude;
+        set
+        {
+            if (_southLatitude == value)
+                return;
+            this.RaiseAndSetIfChanged(ref _southLatitude, value);
+            this.RaisePropertyChanged(nameof(PolarInsetDegrees));
+        }
+    }
+
+    public double NorthLatitude
+    {
+        get => _northLatitude;
+        set
+        {
+            if (_northLatitude == value)
+                return;
+            this.RaiseAndSetIfChanged(ref _northLatitude, value);
+            this.RaisePropertyChanged(nameof(PolarInsetDegrees));
+        }
+    }
+
+    /// <summary>Symmetric latitude inset from both poles for full-longitude coverage.</summary>
+    public double PolarInsetDegrees
+    {
+        get => ((90 + SouthLatitude) + (90 - NorthLatitude)) / 2;
+        set
+        {
+            if (!double.IsFinite(value) || value < MinimumPolarInsetDegrees || value >= 90)
+                return;
+            if (Math.Abs(value - PolarInsetDegrees) <= 1e-10)
+                return;
+            SouthLatitude = -90 + value;
+            NorthLatitude = 90 - value;
+        }
+    }
+
+    public double MinimumPolarInsetDegrees => GridMapping == GridMappingKind.WebMercator
+        ? 90 - WebMercatorGridMapping.WebMercatorLatitudeLimit
+        : 0;
     public WorldContextMode WorldContextMode
     {
         get => _worldContextMode;
@@ -418,6 +459,9 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     public bool ShowRequestedOrigin => IsAutomatic;
     public bool ShowWorkingHalo => IsAutomatic;
     public bool ShowRegionBounds => IsRegional;
+    public bool ShowLongitudeBounds => IsRegional;
+    public bool ShowLatitudeBounds => IsRegional;
+    public bool ShowPolarInset => !IsRegional;
     public bool ShowHorizontalWrapping => !IsRegional;
 
     public string WebMercatorLatitudeValidationMessage => Format(
@@ -574,6 +618,9 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(IsWholeWorld));
         this.RaisePropertyChanged(nameof(IsRegion));
         this.RaisePropertyChanged(nameof(ShowRegionBounds));
+        this.RaisePropertyChanged(nameof(ShowLongitudeBounds));
+        this.RaisePropertyChanged(nameof(ShowLatitudeBounds));
+        this.RaisePropertyChanged(nameof(ShowPolarInset));
         this.RaisePropertyChanged(nameof(ShowHorizontalWrapping));
         this.RaisePropertyChanged(nameof(ShowWorldContext));
     }
@@ -582,6 +629,8 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     {
         this.RaisePropertyChanged(nameof(IsEquirectangular));
         this.RaisePropertyChanged(nameof(IsWebMercator));
+        this.RaisePropertyChanged(nameof(PolarInsetDegrees));
+        this.RaisePropertyChanged(nameof(MinimumPolarInsetDegrees));
     }
 
     private void RaiseTopologyChoicesChanged()

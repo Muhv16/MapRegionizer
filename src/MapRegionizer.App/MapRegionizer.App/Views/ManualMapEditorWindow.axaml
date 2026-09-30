@@ -38,7 +38,10 @@
       </Border>
       <views:ManualMapEditorCanvas Grid.Column="1"/>
       <Border Grid.Column="2" BorderBrush="#475569" BorderThickness="1" Padding="8">
+        <ScrollViewer>
         <StackPanel Spacing="8">
+          <views:SpatialConfigurationView/>
+          <Separator/>
           <TextBlock Text="Проверка" FontWeight="Bold"/>
           <TextBox Text="{Binding ValidationSummary}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" Height="130"/>
           <TextBlock Text="Диагностика" FontWeight="Bold"/>
@@ -49,6 +52,7 @@
           <Button Content="Загрузить фон" Click="LoadBackgroundClick"/>
           <Button Content="Вписать фон" Command="{Binding FitBackgroundCommand}" IsEnabled="{Binding CanEditBackground}"/>
         </StackPanel>
+        </ScrollViewer>
       </Border>
     </Grid>
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
