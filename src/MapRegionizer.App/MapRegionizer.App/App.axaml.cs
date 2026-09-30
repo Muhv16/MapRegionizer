@@ -17,9 +17,17 @@ namespace MapRegionizer.App
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                desktop.MainWindow = new MainWindow
+                var mainViewModel = new MainViewModel();
+                var mainWindow = new MainWindow
                 {
-                    DataContext = new MainViewModel()
+                    DataContext = mainViewModel
+                };
+
+                desktop.MainWindow = mainWindow;
+                desktop.Exit += (_, _) =>
+                {
+                    mainWindow.DataContext = null;
+                    mainViewModel.Dispose();
                 };
             }
             else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)

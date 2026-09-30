@@ -1,7 +1,10 @@
 #pragma warning disable CS0618
 
+using System;
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
@@ -18,7 +21,7 @@ public enum RegionEditorTool { Navigate, Select, Split, MoveVertex, AddVertex, D
 
 public sealed record RegionEditorResult(RegionDraft Draft, bool ApplyBoundaryDistortion);
 
-public sealed class RegionEditorViewModel : ReactiveObject
+public sealed class RegionEditorViewModel : ReactiveObject, IDisposable
 {
     private readonly MapMask _mask;
     private readonly MapGenerationOptions _options;
@@ -41,6 +44,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
     private RegionTopologyVertexId? _draggedVertexId;
     private MapPoint? _draggedVertexPosition;
     private readonly SemaphoreSlim _dragValidationGate = new(1, 1);
+    private readonly object _dragValidationGateSync = new();
     private CancellationTokenSource? _dragValidationCancellation;
     private RegionDraft? _dragValidationDraft;
     private Task<RegionCanonicalizationResult?>? _dragValidationTask;
@@ -60,6 +64,9 @@ public sealed class RegionEditorViewModel : ReactiveObject
     private double _backgroundOffsetX;
     private double _backgroundOffsetY;
     private double _backgroundRotation;
+    private int _activeDragValidationTasks;
+    private bool _dragValidationGateDisposed;
+    private volatile bool _disposed;
 
     public RegionEditorViewModel(MapMask mask, MapGenerationOptions options, IReadOnlyList<Landmass> landmasses, RegionDraft draft, bool applyBoundaryDistortion)
     {
@@ -74,6 +81,33 @@ public sealed class RegionEditorViewModel : ReactiveObject
         DeleteRegionCommand = ReactiveCommand.Create(MergeSelectedWithFirstNeighbour, this.WhenAnyValue(vm => vm.HasSelection));
         FitBackgroundCommand = ReactiveCommand.Create(FitBackground);
         RefreshFromDraft();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        Interlocked.Increment(ref _dragValidationRevision);
+        CancelDragValidation();
+
+        var backgroundImage = BackgroundImage;
+        BackgroundImage = null;
+        backgroundImage?.Dispose();
+
+        var disposeGate = false;
+        lock (_dragValidationGateSync)
+        {
+            if (_activeDragValidationTasks == 0 && !_dragValidationGateDisposed)
+            {
+                _dragValidationGateDisposed = true;
+                disposeGate = true;
+            }
+        }
+
+        if (disposeGate)
+            _dragValidationGate.Dispose();
     }
 
     public MapBounds Bounds => new(_mask.Width * _options.EffectiveSpatial.UnitsPerCell, _mask.Height * _options.EffectiveSpatial.UnitsPerCell, _options.EffectiveSpatial.UnitsPerCell);
@@ -151,6 +185,9 @@ public sealed class RegionEditorViewModel : ReactiveObject
 
     public void LoadBackground(string path)
     {
+        if (_disposed)
+            return;
+
         using var stream = File.OpenRead(path);
         BackgroundImage = new Bitmap(stream);
         BackgroundPath = path;
@@ -320,7 +357,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
 
     public void UpdateVertexDrag(MapPoint point)
     {
-        if (_topology is null || _draggedVertexId is null)
+        if (_disposed || _topology is null || _draggedVertexId is null)
             return;
         if (!_topology.TryMoveVertex(_draggedVertexId.Value, point, out var draft, out var diagnostic))
         {
@@ -345,7 +382,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
 
     public async Task EndVertexDragAsync()
     {
-        if (_draggedVertexId is null || _isCompletingVertexDrag)
+        if (_disposed || _draggedVertexId is null || _isCompletingVertexDrag)
             return;
         var draft = _dragDraft;
         var validationTask = ReferenceEquals(_dragValidationDraft, draft) ? _dragValidationTask : null;
@@ -365,6 +402,9 @@ public sealed class RegionEditorViewModel : ReactiveObject
             var result = validationTask is null
                 ? await Task.Run(() => new RegionCoverageCanonicalizer().Canonicalize(_landmasses, draft))
                 : (await validationTask) ?? await Task.Run(() => new RegionCoverageCanonicalizer().Canonicalize(_landmasses, draft));
+            if (_disposed)
+                return;
+
             if (result.IsSuccessful)
             {
                 CommitCanonicalized(draft, result, recordUndo: true);
@@ -378,6 +418,9 @@ public sealed class RegionEditorViewModel : ReactiveObject
         }
         catch (Exception exception)
         {
+            if (_disposed)
+                return;
+
             IsVertexDragValid = false;
             Diagnostics = "Не удалось проверить новое положение вершины; изменение отменено." + Environment.NewLine + exception.Message;
             RefreshPreview();
@@ -387,17 +430,23 @@ public sealed class RegionEditorViewModel : ReactiveObject
             CancelDragValidation();
             _draggedVertexId = null;
             _draggedVertexPosition = null;
-            this.RaisePropertyChanged(nameof(VertexMarkers));
+            if (!_disposed)
+                this.RaisePropertyChanged(nameof(VertexMarkers));
             _isCompletingVertexDrag = false;
         }
     }
 
     private void ValidateDraggedDraftAsync(RegionDraft draft)
     {
+        if (_disposed)
+            return;
+
         var revision = Interlocked.Increment(ref _dragValidationRevision);
         CancelDragValidation();
         var cancellation = _dragValidationCancellation = new CancellationTokenSource();
         _dragValidationDraft = draft;
+        lock (_dragValidationGateSync)
+            _activeDragValidationTasks++;
         _dragValidationTask = ValidateDraggedDraftAsync(draft, revision, cancellation);
     }
 
@@ -414,7 +463,7 @@ public sealed class RegionEditorViewModel : ReactiveObject
             {
                 cancellation.Token.ThrowIfCancellationRequested();
                 var result = await Task.Run(() => new RegionCoverageCanonicalizer().Canonicalize(_landmasses, draft), cancellation.Token);
-                if (cancellation.IsCancellationRequested || revision != _dragValidationRevision || _draggedVertexId is null)
+                if (_disposed || cancellation.IsCancellationRequested || revision != _dragValidationRevision || _draggedVertexId is null)
                     return result;
 
                 IsVertexDragValid = result.IsSuccessful;
@@ -435,20 +484,51 @@ public sealed class RegionEditorViewModel : ReactiveObject
         }
         catch (Exception exception)
         {
-            if (cancellation.IsCancellationRequested || revision != _dragValidationRevision || _draggedVertexId is null)
+            if (_disposed || cancellation.IsCancellationRequested || revision != _dragValidationRevision || _draggedVertexId is null)
                 return null;
             IsVertexDragValid = false;
             Diagnostics = "Не удалось проверить новое положение вершины." + Environment.NewLine + exception.Message;
             return null;
         }
+        finally
+        {
+            cancellation.Dispose();
+            CompleteDragValidationTask();
+        }
     }
 
     private void CancelDragValidation()
     {
-        _dragValidationCancellation?.Cancel();
+        var cancellation = _dragValidationCancellation;
         _dragValidationCancellation = null;
         _dragValidationDraft = null;
         _dragValidationTask = null;
+
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The validation task completed and disposed its source concurrently.
+        }
+    }
+
+    private void CompleteDragValidationTask()
+    {
+        var disposeGate = false;
+        lock (_dragValidationGateSync)
+        {
+            _activeDragValidationTasks--;
+            if (_disposed && _activeDragValidationTasks == 0 && !_dragValidationGateDisposed)
+            {
+                _dragValidationGateDisposed = true;
+                disposeGate = true;
+            }
+        }
+
+        if (disposeGate)
+            _dragValidationGate.Dispose();
     }
 
     private void HandleAddVertex(MapPoint point)

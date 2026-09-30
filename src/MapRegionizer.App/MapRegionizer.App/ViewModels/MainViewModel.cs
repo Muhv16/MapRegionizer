@@ -33,16 +33,18 @@ using System.Reactive;
 using System.Threading;
 using System.Threading.Tasks;
 
-public sealed class MainViewModel : ReactiveObject
+public sealed class MainViewModel : ReactiveObject, IDisposable
 {
     private readonly LocalizationService _localization = new();
     private readonly UserSettingsService _settingsService = new();
     private readonly GenerationWorkspaceService _workspace = new();
     private readonly GenerationExecutionService _execution = new();
     private readonly MapPreviewService _preview = new();
+    private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly SpatialConfigurationViewModel _spatialConfiguration;
     private readonly UserSettings _settings;
     private CancellationTokenSource? _generationCts;
+    private bool _disposed;
     private bool _sessionResetRequired = true;
     private bool _suppressDirty;
     private MapSourceMode _mapSourceMode = MapSourceMode.Mask;
@@ -243,6 +245,27 @@ public sealed class MainViewModel : ReactiveObject
         _localization.LanguageChanged += (_, _) => RefreshLocalization();
         StatusMessage = string.IsNullOrWhiteSpace(MaskPath) ? L["StatusChooseMask"] : L["Ready"];
         ValidateAll();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _generationCts?.Cancel();
+        _generationCts?.Dispose();
+        _generationCts = null;
+        _lifetimeCts.Cancel();
+        _lifetimeCts.Dispose();
+        _workspace.Reset();
+
+        if (Application.Current is { } application)
+            application.ActualThemeVariantChanged -= OnActualThemeVariantChanged;
+
+        _spatialConfiguration.PropertyChanged -= OnSpatialConfigurationChanged;
+        _currentPreview?.Dispose();
+        _currentPreview = null;
     }
 
     public LocalizationService L => _localization;
@@ -890,7 +913,10 @@ public sealed class MainViewModel : ReactiveObject
             _workspace.EnsureSession(BuildGenerationRequest(options), GetGeometrySeed(), _sessionResetRequired);
             _sessionResetRequired = false;
             var session = _workspace.Session ?? throw new InvalidOperationException("Generation session was not created.");
-            await _execution.RunUntilAsync(session, frozenVisibleRegions ? MapDataKeys.Regions : MapDataKeys.RawRegions, CancellationToken.None);
+            await _execution.RunUntilAsync(session, frozenVisibleRegions ? MapDataKeys.Regions : MapDataKeys.RawRegions, _lifetimeCts.Token);
+
+            if (_disposed)
+                return;
 
             var source = frozenVisibleRegions ? session.Regions : session.RawRegions;
             var draft = RegionDraft.FromRegions(source, frozenVisibleRegions ? RegionDraftOrigin.GeneratedAndEdited : RegionDraftOrigin.Generated);
@@ -901,7 +927,7 @@ public sealed class MainViewModel : ReactiveObject
             };
             var owner = GetMainWindow();
             var result = owner is null ? null : await editor.ShowDialog<RegionEditorResult?>(owner);
-            if (result is null)
+            if (_disposed || result is null)
                 return;
 
             BoundaryDistortionEnabled = result.ApplyBoundaryDistortion;
@@ -912,7 +938,7 @@ public sealed class MainViewModel : ReactiveObject
                 if (_manualMapFinalization is not null)
                     _manualMapFinalization = _manualMapFinalization with { RegionDraft = result.Draft };
             }
-            await _execution.RunUntilAsync(session, MapDataKeys.Regions, CancellationToken.None);
+            await _execution.RunUntilAsync(session, MapDataKeys.Regions, _lifetimeCts.Token);
             RefreshStageStates();
             RefreshLayerAvailability();
             SelectBestAvailableLayer(MapDataKeys.Regions);
@@ -924,6 +950,9 @@ public sealed class MainViewModel : ReactiveObject
         }
         catch (Exception ex)
         {
+            if (_disposed)
+                return;
+
             StatusMessage = $"{L["Failed"]}: {ex.Message}";
             AddLog(StatusMessage, "error");
         }
@@ -953,7 +982,7 @@ public sealed class MainViewModel : ReactiveObject
             };
             var owner = GetMainWindow();
             var result = owner is null ? null : await editor.ShowDialog<ManualMapEditorResult?>(owner);
-            if (result is null)
+            if (_disposed || result is null)
                 return;
 
             _manualMapDraft = result.Draft;
@@ -972,6 +1001,9 @@ public sealed class MainViewModel : ReactiveObject
         }
         catch (Exception exception)
         {
+            if (_disposed)
+                return;
+
             StatusMessage = $"{L["Failed"]}: {exception.Message}";
             AddLog(StatusMessage, "error");
         }
@@ -1122,21 +1154,34 @@ public sealed class MainViewModel : ReactiveObject
         if (_workspace.Session is null)
             await RunFullAsync();
 
-        if (_workspace.Session is null)
+        var session = _workspace.Session;
+        if (_disposed || session is null)
             return;
 
         try
         {
+            var map = session.CurrentMap;
+            var sourceName = IsManualSource ? "manual-map" : MaskPath;
+            var outputDirectory = OutputDirectory;
+            var options = BuildOptions();
+            var tectonicJsonMode = TectonicJsonMode;
+            var elevationJsonMode = ElevationJsonMode;
+            var climateJsonMode = ClimateJsonMode;
+            var renderOptions = BuildExportRenderOptions();
+            var spatialOptions = SpatialConfiguration.BuildOutputOptions();
             var result = await Task.Run(() => MapGenerationArtifactWriter.Write(
-                _workspace.Session.CurrentMap,
-                IsManualSource ? "manual-map" : MaskPath,
-                OutputDirectory,
-                BuildOptions(),
-                TectonicJsonMode,
-                ElevationJsonMode,
-                ClimateJsonMode,
-                BuildExportRenderOptions(),
-                SpatialConfiguration.BuildOutputOptions()));
+                map,
+                sourceName,
+                outputDirectory,
+                options,
+                tectonicJsonMode,
+                elevationJsonMode,
+                climateJsonMode,
+                renderOptions,
+                spatialOptions));
+
+            if (_disposed)
+                return;
 
             ArtifactSummary = FormatArtifactSummary(result.Artifacts);
             StatusMessage = L["StatusExported"];
@@ -1153,20 +1198,22 @@ public sealed class MainViewModel : ReactiveObject
 
     private async Task ExportPreviewAsync()
     {
-        if (_workspace.Session is null)
+        var session = _workspace.Session;
+        var layer = SelectedPreviewLayer;
+        if (session is null)
         {
             StatusMessage = L["StatusGenerateFirst"];
             return;
         }
 
-        if (SelectedPreviewLayer is null)
+        if (layer is null)
             return;
 
         var window = GetMainWindow();
         if (window is null)
             return;
 
-        var layerName = SelectedPreviewLayer.Name ?? "preview";
+        var layerName = layer.Name ?? "preview";
         var result = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = L["ExportPreview"],
@@ -1179,12 +1226,15 @@ public sealed class MainViewModel : ReactiveObject
             SuggestedFileName = $"{SanitizeFileName(layerName)}.png"
         });
 
-        if (result?.Path.LocalPath is not { Length: > 0 } path)
+        if (_disposed || result?.Path.LocalPath is not { Length: > 0 } path)
             return;
 
         try
         {
-            await _preview.SavePreviewToFileAsync(_workspace.Session, SelectedPreviewLayer, path, BuildExportRenderOptions());
+            await _preview.SavePreviewToFileAsync(session, layer, path, BuildExportRenderOptions());
+            if (_disposed)
+                return;
+
             StatusMessage = $"{L["StatusPreviewExported"]}: {Path.GetFileName(path)}";
             AddLog(StatusMessage);
         }
@@ -1197,7 +1247,8 @@ public sealed class MainViewModel : ReactiveObject
 
     private async Task ExportMapPackageAsync()
     {
-        if (_workspace.Session is null)
+        var session = _workspace.Session;
+        if (session is null)
         {
             StatusMessage = L["StatusGenerateFirst"];
             return;
@@ -1218,12 +1269,16 @@ public sealed class MainViewModel : ReactiveObject
             SuggestedFileName = "map-package.map.json"
         });
 
-        if (result?.Path.LocalPath is not { Length: > 0 } path)
+        if (_disposed || result?.Path.LocalPath is not { Length: > 0 } path)
             return;
 
         try
         {
-            await Task.Run(() => MapPackageWriter.WriteToFile(_workspace.Session.CurrentMap, path));
+            var map = session.CurrentMap;
+            await Task.Run(() => MapPackageWriter.WriteToFile(map, path));
+            if (_disposed)
+                return;
+
             StatusMessage = $"{L["StatusMapPackageExported"]}: {Path.GetFileName(path)}";
             AddLog(StatusMessage);
         }
@@ -1363,6 +1418,9 @@ public sealed class MainViewModel : ReactiveObject
 
     private bool PrepareForGeneration()
     {
+        if (_disposed)
+            return false;
+
         ValidateAll();
         if (HasValidationMessage)
             return false;
@@ -1903,6 +1961,9 @@ public sealed class MainViewModel : ReactiveObject
 
     private void RefreshPreview()
     {
+        if (_disposed)
+            return;
+
         try
         {
             var nextPreview = _preview.Render(_workspace.Session, SelectedPreviewLayer);

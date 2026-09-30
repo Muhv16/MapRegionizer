@@ -1,3 +1,4 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Media.Imaging;
@@ -35,7 +36,7 @@ public sealed record ManualMapDisplayRegion(int Id, string? Name, Polygon Shape)
 /// App-only editor state for manual geography. Core receives only the draft;
 /// bitmap/background state never crosses that boundary.
 /// </summary>
-public sealed class ManualMapEditorViewModel : ReactiveObject
+public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 {
     private const int MaxBackgroundPixelDimension = 4096;
 
@@ -78,6 +79,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
     private double _backgroundRotation;
     private int _waterBodyCount;
     private int _nextVertexId;
+    private bool _disposed;
 
     public ManualMapEditorViewModel(
         ManualMapDraft draft,
@@ -352,6 +354,17 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
         RefreshEditorProperties();
     }
 
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        var backgroundImage = BackgroundImage;
+        BackgroundImage = null;
+        backgroundImage?.Dispose();
+    }
+
     public void RemoveLastCurrentVertex()
     {
         if (_currentVertexIds.Count == 0)
@@ -365,6 +378,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
 
     public void LoadBackground(string path)
     {
+        if (_disposed)
+            return;
+
         LoadBackgroundImage(path);
         FitBackground();
     }
@@ -416,6 +432,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject
 
     public void LoadProject(string path)
     {
+        if (_disposed)
+            return;
+
         try
         {
             var draft = ManualMapJson.Load(path);

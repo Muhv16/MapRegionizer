@@ -1,3 +1,4 @@
+using System;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using MapRegionizer.App.ViewModels;
@@ -6,7 +7,20 @@ namespace MapRegionizer.App.Views;
 
 public partial class ManualMapEditorWindow : Window
 {
+    private bool _isClosed;
+
     public ManualMapEditorWindow() => InitializeComponent();
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _isClosed = true;
+        var dataContext = DataContext;
+        DataContext = null;
+        if (dataContext is IDisposable disposable)
+            disposable.Dispose();
+
+        base.OnClosed(e);
+    }
 
     private ManualMapEditorViewModel ViewModel => (ManualMapEditorViewModel)DataContext!;
 
@@ -43,7 +57,7 @@ public partial class ManualMapEditorWindow : Window
             AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("Manual map") { Patterns = ["*.manual-map.json", "*.json"] }]
         });
-        if (files.Count > 0)
+        if (!_isClosed && files.Count > 0)
             ViewModel.LoadProject(files[0].Path.LocalPath);
     }
 
@@ -54,7 +68,7 @@ public partial class ManualMapEditorWindow : Window
             DefaultExtension = "manual-map.json",
             SuggestedFileName = "map.manual-map.json"
         });
-        if (file is not null)
+        if (!_isClosed && file is not null)
             ViewModel.SaveProject(file.Path.LocalPath);
     }
 
@@ -65,7 +79,7 @@ public partial class ManualMapEditorWindow : Window
             AllowMultiple = false,
             FileTypeFilter = [FilePickerFileTypes.ImageAll]
         });
-        if (files.Count > 0)
+        if (!_isClosed && files.Count > 0)
             ViewModel.LoadBackground(files[0].Path.LocalPath);
     }
 }
