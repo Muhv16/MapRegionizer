@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using MapRegionizer.App.Services;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
@@ -11,6 +12,7 @@ using MapRegionizer.Core.Regions;
 using MapRegionizer.GeoJson;
 using ReactiveUI;
 using System.Reactive;
+using System.Threading.Tasks;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Index.Strtree;
 using MapRegionizer.Core.Spatial;
@@ -82,6 +84,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private double _backgroundRotation;
     private int _waterBodyCount;
     private int _nextVertexId;
+    private bool _isValidating;
     private bool _disposed;
 
     public ManualMapEditorViewModel(
@@ -107,7 +110,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
         UndoCommand = ReactiveCommand.Create(Undo, this.WhenAnyValue(vm => vm.CanUndo));
         RedoCommand = ReactiveCommand.Create(Redo, this.WhenAnyValue(vm => vm.CanRedo));
-        ValidateCommand = ReactiveCommand.Create(ValidateDraft);
+        ValidateCommand = ReactiveCommand.CreateFromTask(ValidateDraftAsync, this.WhenAnyValue(vm => vm.IsValidating, isValidating => !isValidating));
         DeleteRegionCommand = ReactiveCommand.Create(DeleteSelectedRegion, this.WhenAnyValue(vm => vm.HasSelection));
         FitBackgroundCommand = ReactiveCommand.Create(FitBackground);
         RefreshState();
@@ -219,7 +222,12 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     public string ValidationSummary { get => _validationSummary; private set => this.RaiseAndSetIfChanged(ref _validationSummary, value); }
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
-    public bool CanFinalize => _lastFinalization?.IsSuccessful == true && _currentVertexIds.Count == 0;
+    public bool CanFinalize => _lastFinalization?.IsSuccessful == true && _currentVertexIds.Count == 0 && !IsValidating;
+    public bool IsValidating
+    {
+        get => _isValidating;
+        private set => this.RaiseAndSetIfChanged(ref _isValidating, value);
+    }
     public bool HasCurrentPolygon => _currentVertexIds.Count > 0;
     public bool ApplyBoundaryDistortion
     {
@@ -471,7 +479,8 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     public ManualMapEditorResult CreateResult()
     {
-        ValidateDraft();
+        if (IsValidating)
+            throw new InvalidOperationException("Дождитесь завершения проверки ручной карты.");
         if (!CanFinalize || _lastFinalization is null)
             throw new InvalidOperationException("Сначала исправьте ошибки ручной карты.");
         return new ManualMapEditorResult(
@@ -546,30 +555,95 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         SelectedRegionId = selected?.Id;
     }
 
-    private void ValidateDraft()
+    private async Task ValidateDraftAsync()
     {
-        if (_currentVertexIds.Count != 0)
-        {
-            Diagnostics = "Завершите или отмените текущий polygon перед формированием карты.";
-            return;
-        }
-
+        ManualMapValidationInput? input = null;
+        var started = false;
         try
         {
-            _lastFinalization = _finalizer.FinalizeDraft(_draft, _spatialReference);
-            Diagnostics = FormatDiagnostics(_lastFinalization.Diagnostics);
-            ValidationSummary = _lastFinalization.IsSuccessful
-                ? $"Regions: {_lastFinalization.RegionCount}   Landmasses: {_lastFinalization.LandmassCount}   Water bodies: {ComputeWaterBodyCount(_lastFinalization)}\n✓ Geometry valid\n✓ No region overlaps\n✓ Shared edges validated\n✓ Regions inside map bounds"
-                : "Карта не может быть сформирована: есть блокирующие ошибки.";
-            WaterBodyCount = _lastFinalization.IsSuccessful ? ComputeWaterBodyCount(_lastFinalization) : 0;
-            RefreshEditorProperties();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (IsValidating)
+                    return;
+
+                if (_currentVertexIds.Count != 0)
+                {
+                    Diagnostics = "Завершите или отмените текущий polygon перед формированием карты.";
+                    return;
+                }
+
+                input = new ManualMapValidationInput(
+                    _draft,
+                    _spatialReference,
+                    _options.WithSpatial(SpatialConfiguration.BuildSpatialOptions()));
+                IsValidating = true;
+                started = true;
+                _lastFinalization = null;
+                WaterBodyCount = 0;
+                ValidationSummary = "Проверка карты выполняется в фоне…";
+                Diagnostics = string.Empty;
+                RefreshEditorProperties();
+            });
+
+            if (input is null)
+                return;
+
+            var validationInput = input;
+            var output = await Task.Run(() =>
+            {
+                var finalization = _finalizer.FinalizeDraft(validationInput.Draft, validationInput.SpatialReference);
+                var waterBodyCount = finalization.IsSuccessful
+                    ? ComputeWaterBodyCount(finalization, validationInput.Options)
+                    : 0;
+                return new ManualMapValidationOutput(finalization, waterBodyCount);
+            });
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed)
+                    return;
+
+                if (!ReferenceEquals(_draft, validationInput.Draft) || !ReferenceEquals(_spatialReference, validationInput.SpatialReference))
+                {
+                    _lastFinalization = null;
+                    ValidationSummary = string.Empty;
+                    Diagnostics = "Карта изменилась во время проверки. Запустите проверку ещё раз.";
+                    return;
+                }
+
+                _lastFinalization = output.Finalization;
+                Diagnostics = FormatDiagnostics(output.Finalization.Diagnostics);
+                ValidationSummary = output.Finalization.IsSuccessful
+                    ? $"Regions: {output.Finalization.RegionCount}   Landmasses: {output.Finalization.LandmassCount}   Water bodies: {output.WaterBodyCount}\n✓ Geometry valid\n✓ No region overlaps\n✓ Shared edges validated\n✓ Regions inside map bounds"
+                    : "Карта не может быть сформирована: есть блокирующие ошибки.";
+                WaterBodyCount = output.WaterBodyCount;
+                RefreshEditorProperties();
+            });
         }
         catch (Exception exception)
         {
-            _lastFinalization = null;
-            Diagnostics = $"Проверка не выполнена: {exception.Message}";
-            ValidationSummary = string.Empty;
-            RefreshEditorProperties();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed)
+                    return;
+
+                _lastFinalization = null;
+                Diagnostics = $"Проверка не выполнена: {exception.Message}";
+                ValidationSummary = string.Empty;
+                WaterBodyCount = 0;
+                RefreshEditorProperties();
+            });
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed || !started)
+                    return;
+
+                IsValidating = false;
+                RefreshEditorProperties();
+            });
         }
     }
 
@@ -615,11 +689,10 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private int ComputeWaterBodyCount(ManualMapFinalizationResult finalization)
+    private static int ComputeWaterBodyCount(ManualMapFinalizationResult finalization, MapGenerationOptions options)
     {
         try
         {
-            var options = _options.WithSpatial(SpatialConfiguration.BuildSpatialOptions());
             var request = MapGenerationRequest.Isolated(
                 new RequestedDomain(finalization.DerivedMask.Window),
                 finalization.DerivedMask,
@@ -852,6 +925,8 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     }
 
     private readonly record struct SnapResult(int? VertexId, MapPoint? Position, ManualMapEdgeSnap? Edge);
+    private sealed record ManualMapValidationInput(ManualMapDraft Draft, MapSpatialReference SpatialReference, MapGenerationOptions Options);
+    private sealed record ManualMapValidationOutput(ManualMapFinalizationResult Finalization, int WaterBodyCount);
     private sealed record ManualMapEditorSnapshot(ManualMapDraft Draft, IReadOnlyList<int> CurrentVertexIds, int? SelectedRegionId);
 }
 

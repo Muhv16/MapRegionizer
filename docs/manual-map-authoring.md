@@ -56,6 +56,13 @@ render time, while pointer previews are sampled at approximately 60 Hz. Region
 selection uses an envelope index before running the exact polygon containment
 check.
 
+Full map validation runs finalization and water-body counting on a background
+thread. The editor shows that the check is running, stays interactive, and
+applies the result only if the draft and spatial settings are unchanged. Water
+bodies are counted once per check. Rasterization checks cell centers only
+inside each landmass envelope, and shared-boundary canonicalization uses a
+spatial index to find nearby vertex candidates.
+
 ## Persistence and App state
 
 `ManualMapJson` writes a versioned `*.manual-map.json` document containing the

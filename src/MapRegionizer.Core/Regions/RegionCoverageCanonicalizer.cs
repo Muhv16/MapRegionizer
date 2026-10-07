@@ -157,17 +157,26 @@ public sealed class RegionCoverageCanonicalizer
             }
         }
 
+        var orderedNodes = nodes.Values.ToArray();
+        var nodeIndex = new STRtree<IndexedCoordinate>();
+        for (var nodeIndexValue = 0; nodeIndexValue < orderedNodes.Length; nodeIndexValue++)
+        {
+            var node = orderedNodes[nodeIndexValue];
+            nodeIndex.Insert(new Envelope(node, node), new IndexedCoordinate(node, nodeIndexValue));
+        }
+        nodeIndex.Build();
+
         for (var index = 0; index < regions.Count; index++)
         {
             var region = regions[index];
-            var shell = InsertNodes(region.Shape.ExteriorRing, nodes.Values, region.Shape.Factory);
+            var shell = InsertNodes(region.Shape.ExteriorRing, nodeIndex, region.Shape.Factory);
             var holes = Enumerable.Range(0, region.Shape.NumInteriorRings)
-                .Select(holeIndex => InsertNodes(region.Shape.GetInteriorRingN(holeIndex), nodes.Values, region.Shape.Factory)).ToArray();
+                .Select(holeIndex => InsertNodes(region.Shape.GetInteriorRingN(holeIndex), nodeIndex, region.Shape.Factory)).ToArray();
             regions[index] = region with { Shape = region.Shape.Factory.CreatePolygon(shell, holes) };
         }
     }
 
-    private static LinearRing InsertNodes(LineString ring, IEnumerable<Coordinate> nodes, GeometryFactory factory)
+    private static LinearRing InsertNodes(LineString ring, STRtree<IndexedCoordinate> nodeIndex, GeometryFactory factory)
     {
         var coordinates = new List<Coordinate>();
         for (var index = 0; index < ring.NumPoints - 1; index++)
@@ -176,10 +185,13 @@ public sealed class RegionCoverageCanonicalizer
             var end = ring.GetCoordinateN(index + 1);
             coordinates.Add(start.Copy());
             var segment = new LineSegment(start, end);
-            coordinates.AddRange(nodes
-                .Where(node => IsStrictlyOnSegment(segment, node))
-                .OrderBy(node => segment.ProjectionFactor(node))
-                .Select(node => node.Copy()));
+            var searchEnvelope = new Envelope(start, end);
+            searchEnvelope.ExpandBy(RegionGeometryPrecision.LengthTolerance);
+            coordinates.AddRange(nodeIndex.Query(searchEnvelope)
+                .Where(node => IsStrictlyOnSegment(segment, node.Coordinate))
+                .OrderBy(node => segment.ProjectionFactor(node.Coordinate))
+                .ThenBy(node => node.Order)
+                .Select(node => node.Coordinate.Copy()));
         }
         coordinates.Add(coordinates[0].Copy());
         return factory.CreateLinearRing(coordinates.ToArray());
@@ -220,4 +232,6 @@ public sealed class RegionCoverageCanonicalizer
 
     private static bool HasFiniteCoordinates(Geometry geometry) => geometry.Coordinates.All(coordinate =>
         double.IsFinite(coordinate.X) && double.IsFinite(coordinate.Y));
+
+    private sealed record IndexedCoordinate(Coordinate Coordinate, int Order);
 }
