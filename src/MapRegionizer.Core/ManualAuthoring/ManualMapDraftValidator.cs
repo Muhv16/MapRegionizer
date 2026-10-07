@@ -3,6 +3,7 @@ using MapRegionizer.Core.Regions;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Index.Strtree;
 using NetTopologySuite.Operation.Valid;
+using System.Threading;
 
 namespace MapRegionizer.Core.ManualAuthoring;
 
@@ -20,12 +21,19 @@ public sealed class ManualMapDraftValidator
     }
 
     public ManualMapValidationResult Validate(ManualMapDraft draft) =>
-        Validate(draft, CreateUnitSpatialReference(draft));
+        Validate(draft, CreateUnitSpatialReference(draft), CancellationToken.None);
 
     public ManualMapValidationResult Validate(ManualMapDraft draft, MapSpatialReference spatialReference)
+        => Validate(draft, spatialReference, CancellationToken.None);
+
+    public ManualMapValidationResult Validate(
+        ManualMapDraft draft,
+        MapSpatialReference spatialReference,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(spatialReference);
+        cancellationToken.ThrowIfCancellationRequested();
         spatialReference.Validate();
 
         var diagnostics = new List<ManualMapDiagnostic>();
@@ -37,6 +45,7 @@ public sealed class ManualMapDraftValidator
 
         foreach (var vertex in draft.Vertices)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (vertex.Id <= 0)
             {
                 diagnostics.Add(new(
@@ -100,6 +109,7 @@ public sealed class ManualMapDraftValidator
         var regionIds = new HashSet<int>();
         foreach (var face in draft.Regions)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (face.Id <= 0 || !regionIds.Add(face.Id))
             {
                 diagnostics.Add(new(
@@ -209,24 +219,33 @@ public sealed class ManualMapDraftValidator
             polygons[face.Id] = polygon;
         }
 
-        AddOverlapDiagnostics(polygons, diagnostics);
+        AddOverlapDiagnostics(polygons, diagnostics, cancellationToken);
         return new ManualMapValidationResult(diagnostics, polygons);
     }
 
     private static void AddOverlapDiagnostics(
         IReadOnlyDictionary<int, Polygon> polygons,
-        ICollection<ManualMapDiagnostic> diagnostics)
+        ICollection<ManualMapDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
     {
         var index = new STRtree<int>();
         var ordered = polygons.OrderBy(pair => pair.Key).ToArray();
         for (var i = 0; i < ordered.Length; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             index.Insert(ordered[i].Value.EnvelopeInternal, i);
+        }
 
         index.Build();
         for (var i = 0; i < ordered.Length; i++)
         {
-            foreach (var j in index.Query(ordered[i].Value.EnvelopeInternal).Where(candidate => candidate > i))
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var j in index.Query(ordered[i].Value.EnvelopeInternal))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (j <= i)
+                    continue;
+
                 Geometry intersection;
                 try
                 {

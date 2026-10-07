@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Threading;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using MapRegionizer.App.Services;
@@ -85,6 +86,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private int _waterBodyCount;
     private int _nextVertexId;
     private bool _isValidating;
+    private CancellationTokenSource? _validationCancellation;
     private bool _disposed;
 
     public ManualMapEditorViewModel(
@@ -377,6 +379,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             return;
 
         _disposed = true;
+        _validationCancellation?.Cancel();
         SpatialConfiguration.PropertyChanged -= OnSpatialConfigurationChanged;
         var backgroundImage = BackgroundImage;
         BackgroundImage = null;
@@ -558,6 +561,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private async Task ValidateDraftAsync()
     {
         ManualMapValidationInput? input = null;
+        CancellationTokenSource? validationCancellation = null;
         var started = false;
         try
         {
@@ -572,10 +576,10 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                     return;
                 }
 
-                input = new ManualMapValidationInput(
-                    _draft,
-                    _spatialReference,
-                    _options.WithSpatial(SpatialConfiguration.BuildSpatialOptions()));
+                var options = _options.WithSpatial(SpatialConfiguration.BuildSpatialOptions());
+                validationCancellation = new CancellationTokenSource();
+                _validationCancellation = validationCancellation;
+                input = new ManualMapValidationInput(_draft, _spatialReference, options, validationCancellation.Token);
                 IsValidating = true;
                 started = true;
                 _lastFinalization = null;
@@ -591,12 +595,16 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             var validationInput = input;
             var output = await Task.Run(() =>
             {
-                var finalization = _finalizer.FinalizeDraft(validationInput.Draft, validationInput.SpatialReference);
+                validationInput.CancellationToken.ThrowIfCancellationRequested();
+                var finalization = _finalizer.FinalizeDraft(
+                    validationInput.Draft,
+                    validationInput.SpatialReference,
+                    validationInput.CancellationToken);
                 var waterBodyCount = finalization.IsSuccessful
-                    ? ComputeWaterBodyCount(finalization, validationInput.Options)
+                    ? ComputeWaterBodyCount(finalization, validationInput.Options, validationInput.CancellationToken)
                     : 0;
                 return new ManualMapValidationOutput(finalization, waterBodyCount);
-            });
+            }, validationInput.CancellationToken);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -638,12 +646,16 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (ReferenceEquals(_validationCancellation, validationCancellation))
+                    _validationCancellation = null;
+
                 if (_disposed || !started)
                     return;
 
                 IsValidating = false;
                 RefreshEditorProperties();
             });
+            validationCancellation?.Dispose();
         }
     }
 
@@ -689,10 +701,14 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private static int ComputeWaterBodyCount(ManualMapFinalizationResult finalization, MapGenerationOptions options)
+    private static int ComputeWaterBodyCount(
+        ManualMapFinalizationResult finalization,
+        MapGenerationOptions options,
+        CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var request = MapGenerationRequest.Isolated(
                 new RequestedDomain(finalization.DerivedMask.Window),
                 finalization.DerivedMask,
@@ -700,8 +716,13 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             var session = MapGenerationSession.Create(
                 request,
                 new MapGeometrySeed(finalization.Landmasses, finalization.RegionDraft));
-            session.RunUntil(MapDataKeys.WaterBodies);
+            session.RunUntil(MapDataKeys.WaterBodies, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             return session.WaterBodies.Count;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {
@@ -925,7 +946,11 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     }
 
     private readonly record struct SnapResult(int? VertexId, MapPoint? Position, ManualMapEdgeSnap? Edge);
-    private sealed record ManualMapValidationInput(ManualMapDraft Draft, MapSpatialReference SpatialReference, MapGenerationOptions Options);
+    private sealed record ManualMapValidationInput(
+        ManualMapDraft Draft,
+        MapSpatialReference SpatialReference,
+        MapGenerationOptions Options,
+        CancellationToken CancellationToken);
     private sealed record ManualMapValidationOutput(ManualMapFinalizationResult Finalization, int WaterBodyCount);
     private sealed record ManualMapEditorSnapshot(ManualMapDraft Draft, IReadOnlyList<int> CurrentVertexIds, int? SelectedRegionId);
 }

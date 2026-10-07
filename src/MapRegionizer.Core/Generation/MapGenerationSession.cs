@@ -6,6 +6,7 @@ using MapRegionizer.Core.Climate;
 using MapRegionizer.Core.Tectonics;
 using MapRegionizer.Core.Terrain;
 using NetTopologySuite.Geometries;
+using System.Threading;
 
 namespace MapRegionizer.Core.Generation;
 
@@ -127,6 +128,9 @@ public sealed class MapGenerationSession
     public void RunFull() => _pipeline.RunFull(_context);
 
     public void RunUntil(MapDataKey target) => _pipeline.RunUntil(_context, target);
+
+    public void RunUntil(MapDataKey target, CancellationToken cancellationToken) =>
+        _pipeline.RunUntil(_context, target, cancellationToken);
 
     public void Regenerate(MapDataKey target) => _pipeline.Regenerate(_context, target);
 

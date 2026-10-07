@@ -2,6 +2,7 @@ using MapRegionizer.Core.Domain;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Index.Strtree;
 using NetTopologySuite.Operation.Union;
+using System.Threading;
 
 namespace MapRegionizer.Core.Regions;
 
@@ -11,18 +12,29 @@ namespace MapRegionizer.Core.Regions;
 public static class RegionGeometryContract
 {
     public static IReadOnlyList<string> Validate(IReadOnlyList<Landmass> landmasses, IReadOnlyList<MapRegion> regions)
+        => Validate(landmasses, regions, CancellationToken.None);
+
+    public static IReadOnlyList<string> Validate(
+        IReadOnlyList<Landmass> landmasses,
+        IReadOnlyList<MapRegion> regions,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(landmasses);
         ArgumentNullException.ThrowIfNull(regions);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var violations = new List<string>();
         var landmassesById = landmasses.GroupBy(landmass => landmass.Id).ToDictionary(group => group.Key, group => group.ToList());
         foreach (var duplicate in landmassesById.Where(pair => pair.Value.Count != 1))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             violations.Add($"Landmass id {duplicate.Key.Value} is not unique.");
+        }
 
         var seenRegionIds = new HashSet<RegionId>();
         foreach (var region in regions)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (region.Id.Value <= 0 || !seenRegionIds.Add(region.Id))
                 violations.Add($"Region id {region.Id.Value} is not unique and positive.");
             if (!landmassesById.ContainsKey(region.LandmassId))
@@ -33,6 +45,7 @@ public static class RegionGeometryContract
 
         foreach (var landmass in landmasses)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (landmass.Shape.IsEmpty || !landmass.Shape.IsValid)
             {
                 violations.Add($"Landmass {landmass.Id.Value} is not a valid polygon.");
@@ -45,9 +58,9 @@ public static class RegionGeometryContract
                 continue;
             }
 
-            ValidateNoOverlaps(landmassRegions, violations);
-            ValidateCoverage(landmass, landmassRegions, violations);
-            ValidateBoundarySegments(landmass, landmassRegions, violations);
+            ValidateNoOverlaps(landmassRegions, violations, cancellationToken);
+            ValidateCoverage(landmass, landmassRegions, violations, cancellationToken);
+            ValidateBoundarySegments(landmass, landmassRegions, violations, cancellationToken);
         }
 
         return violations;
@@ -77,74 +90,129 @@ public static class RegionGeometryContract
             .Any(firstSegments.Contains);
     }
 
-    private static void ValidateNoOverlaps(IReadOnlyList<MapRegion> regions, ICollection<string> violations)
+    private static void ValidateNoOverlaps(
+        IReadOnlyList<MapRegion> regions,
+        ICollection<string> violations,
+        CancellationToken cancellationToken)
     {
         var spatialIndex = new STRtree<int>();
         for (var index = 0; index < regions.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             spatialIndex.Insert(regions[index].Shape.EnvelopeInternal, index);
+        }
 
         spatialIndex.Build();
         for (var i = 0; i < regions.Count; i++)
         {
-            foreach (var j in spatialIndex.Query(regions[i].Shape.EnvelopeInternal).Where(index => index > i))
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var j in spatialIndex.Query(regions[i].Shape.EnvelopeInternal))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (j <= i)
+                    continue;
+
                 if (regions[i].Shape.Intersection(regions[j].Shape).Area > RegionGeometryPrecision.GetAreaTolerance(regions[i].Shape))
                     violations.Add($"Regions {regions[i].Id.Value} and {regions[j].Id.Value} overlap.");
             }
         }
     }
 
-    private static void ValidateCoverage(Landmass landmass, IReadOnlyList<MapRegion> regions, ICollection<string> violations)
+    private static void ValidateCoverage(
+        Landmass landmass,
+        IReadOnlyList<MapRegion> regions,
+        ICollection<string> violations,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var union = UnaryUnionOp.Union(regions.Select(region => region.Shape).ToArray());
+        cancellationToken.ThrowIfCancellationRequested();
         var toleranceArea = RegionGeometryPrecision.GetAreaTolerance(landmass.Shape);
         if (landmass.Shape.Difference(union).Area > toleranceArea)
             violations.Add($"Regions leave uncovered area in landmass {landmass.Id.Value}.");
+        cancellationToken.ThrowIfCancellationRequested();
         if (union.Difference(landmass.Shape).Area > toleranceArea)
             violations.Add($"Regions of landmass {landmass.Id.Value} extend into water or another landmass.");
     }
 
-    private static void ValidateBoundarySegments(Landmass landmass, IReadOnlyList<MapRegion> regions, ICollection<string> violations)
+    private static void ValidateBoundarySegments(
+        Landmass landmass,
+        IReadOnlyList<MapRegion> regions,
+        ICollection<string> violations,
+        CancellationToken cancellationToken)
     {
         var landmassBoundaryIndex = new STRtree<LineString>();
-        foreach (var segment in GetSegments(landmass.Shape))
+        foreach (var segment in GetSegments(landmass.Shape, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             landmassBoundaryIndex.Insert(segment.Geometry.EnvelopeInternal, segment.Geometry);
+        }
 
         landmassBoundaryIndex.Build();
-        var regionEdges = regions.SelectMany(region => GetSegments(region.Shape)).GroupBy(segment => segment.UndirectedKey).ToList();
+        var regionEdges = new Dictionary<string, List<Segment>>(StringComparer.Ordinal);
+        foreach (var region in regions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var segment in GetSegments(region.Shape, cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!regionEdges.TryGetValue(segment.UndirectedKey, out var edge))
+                {
+                    edge = [];
+                    regionEdges.Add(segment.UndirectedKey, edge);
+                }
+                edge.Add(segment);
+            }
+        }
+
         foreach (var edge in regionEdges)
         {
-            if (edge.Count() == 1)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (edge.Value.Count == 1)
             {
-                var segment = edge.First().Geometry;
+                var segment = edge.Value[0].Geometry;
                 var envelope = new Envelope(segment.EnvelopeInternal);
                 envelope.ExpandBy(RegionGeometryPrecision.LengthTolerance);
-                var isOnLandmassBoundary = landmassBoundaryIndex.Query(envelope)
-                    .Any(boundarySegment => boundarySegment.Distance(segment) <= RegionGeometryPrecision.LengthTolerance);
+                var isOnLandmassBoundary = false;
+                foreach (var boundarySegment in landmassBoundaryIndex.Query(envelope))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (boundarySegment.Distance(segment) <= RegionGeometryPrecision.LengthTolerance)
+                    {
+                        isOnLandmassBoundary = true;
+                        break;
+                    }
+                }
                 if (!isOnLandmassBoundary)
                     violations.Add($"Region boundary {edge.Key} is not part of landmass {landmass.Id.Value}.");
             }
-            else if (edge.Count() != 2 || !edge.First().IsReverseOf(edge.Last()))
+            else if (edge.Value.Count != 2 || !edge.Value[0].IsReverseOf(edge.Value[^1]))
             {
                 violations.Add($"Region boundary {edge.Key} is not represented by matching reverse coordinates.");
             }
         }
     }
 
-    private static IEnumerable<Segment> GetSegments(Polygon polygon)
+    private static IEnumerable<Segment> GetSegments(Polygon polygon, CancellationToken cancellationToken)
     {
-        foreach (var ring in GetRings(polygon))
+        foreach (var ring in GetRings(polygon, cancellationToken))
         {
             for (var index = 0; index < ring.NumPoints - 1; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 yield return new Segment(ring.GetCoordinateN(index), ring.GetCoordinateN(index + 1), polygon.Factory);
+            }
         }
     }
 
-    private static IEnumerable<LineString> GetRings(Polygon polygon)
+    private static IEnumerable<LineString> GetRings(Polygon polygon, CancellationToken cancellationToken)
     {
         yield return polygon.ExteriorRing;
         for (var index = 0; index < polygon.NumInteriorRings; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             yield return polygon.GetInteriorRingN(index);
+        }
     }
 
     private static IEnumerable<LineString> GetLineStrings(Geometry geometry)

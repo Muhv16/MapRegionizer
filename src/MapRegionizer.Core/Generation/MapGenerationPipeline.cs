@@ -1,5 +1,7 @@
 namespace MapRegionizer.Core.Generation;
 
+using System.Threading;
+
 public sealed class MapGenerationPipeline
 {
     private readonly IReadOnlyList<IMapGenerationStage> _stages;
@@ -39,9 +41,12 @@ public sealed class MapGenerationPipeline
         }
     }
 
-    public void RunUntil(MapGenerationContext context, MapDataKey target)
+    public void RunUntil(MapGenerationContext context, MapDataKey target) =>
+        RunUntil(context, target, CancellationToken.None);
+
+    public void RunUntil(MapGenerationContext context, MapDataKey target, CancellationToken cancellationToken)
     {
-        EnsureData(context, target);
+        EnsureData(context, target, cancellationToken);
     }
 
     public void Regenerate(MapGenerationContext context, MapDataKey target)
@@ -69,33 +74,55 @@ public sealed class MapGenerationPipeline
     }
 
     private void EnsureData(MapGenerationContext context, MapDataKey key)
+        => EnsureData(context, key, CancellationToken.None);
+
+    private void EnsureData(MapGenerationContext context, MapDataKey key, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (context.Has(key))
             return;
 
         if (!_producerByDataKey.TryGetValue(key, out var stage))
             throw new InvalidOperationException($"No generation stage produces required data '{key}'.");
 
-        ExecuteStageIfRequired(context, stage);
+        ExecuteStageIfRequired(context, stage, cancellationToken);
     }
 
     private void ExecuteStageIfRequired(MapGenerationContext context, IMapGenerationStage stage)
+        => ExecuteStageIfRequired(context, stage, CancellationToken.None);
+
+    private void ExecuteStageIfRequired(
+        MapGenerationContext context,
+        IMapGenerationStage stage,
+        CancellationToken cancellationToken)
     {
         foreach (var required in stage.Requires)
-            EnsureData(context, required);
+            EnsureData(context, required, cancellationToken);
 
         if (stage.Produces.All(context.Has))
             return;
 
-        ExecuteStage(context, stage);
+        ExecuteStage(context, stage, cancellationToken);
     }
 
-    private static void ExecuteStage(MapGenerationContext context, IMapGenerationStage stage)
+    private static void ExecuteStage(MapGenerationContext context, IMapGenerationStage stage) =>
+        ExecuteStage(context, stage, CancellationToken.None);
+
+    private static void ExecuteStage(
+        MapGenerationContext context,
+        IMapGenerationStage stage,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         foreach (var produced in stage.Produces)
             context.ClearData(produced);
 
-        stage.Execute(context);
+        if (stage is ICancellableMapGenerationStage cancellableStage)
+            cancellableStage.Execute(context, cancellationToken);
+        else
+            stage.Execute(context);
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         foreach (var produced in stage.Produces)
             context.MarkProduced(produced);

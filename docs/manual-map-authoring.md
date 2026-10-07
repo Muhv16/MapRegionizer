@@ -61,7 +61,10 @@ thread. The editor shows that the check is running, stays interactive, and
 applies the result only if the draft and spatial settings are unchanged. Water
 bodies are counted once per check. Rasterization checks cell centers only
 inside each landmass envelope, and shared-boundary canonicalization uses a
-spatial index to find nearby vertex candidates.
+spatial index to find nearby vertex candidates. Closing the editor cancels an
+active validation. Geometry, rasterization, and water-body extraction check
+for cancellation between their expensive operations so the background work can
+stop after the editor closes.
 
 ## Persistence and App state
 

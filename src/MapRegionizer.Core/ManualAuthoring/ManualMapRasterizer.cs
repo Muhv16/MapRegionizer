@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using NetTopologySuite.Geometries;
+using System.Threading;
 
 namespace MapRegionizer.Core.ManualAuthoring;
 
@@ -17,15 +18,23 @@ public sealed class ManualMapRasterizer
     }
 
     public MapMask Rasterize(IReadOnlyList<Landmass> landmasses, MapSpatialReference spatialReference)
+        => Rasterize(landmasses, spatialReference, CancellationToken.None);
+
+    public MapMask Rasterize(
+        IReadOnlyList<Landmass> landmasses,
+        MapSpatialReference spatialReference,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(landmasses);
         ArgumentNullException.ThrowIfNull(spatialReference);
+        cancellationToken.ThrowIfCancellationRequested();
         spatialReference.Validate();
 
         var landPoints = new HashSet<GridPoint>();
         var unitsPerCell = spatialReference.UnitsPerCell;
         foreach (var landmass in landmasses)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (landmass.Shape.IsEmpty)
                 continue;
 
@@ -39,8 +48,12 @@ public sealed class ManualMapRasterizer
 
             for (var y = (int)minY; y <= (int)maxY; y++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 for (var x = (int)minX; x <= (int)maxX; x++)
                 {
+                    if ((x & 0xFF) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+
                     var sample = _geometryFactory.CreatePoint(new Coordinate(
                         (x + 0.5) * unitsPerCell,
                         (y + 0.5) * unitsPerCell));

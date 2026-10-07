@@ -6,6 +6,7 @@ using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
 using MapRegionizer.GeoJson;
 using NetTopologySuite.Geometries;
+using System.Threading;
 using Xunit;
 
 namespace MapRegionizer.Core.Tests;
@@ -59,6 +60,19 @@ public sealed class ManualMapAuthoringContractTests
         Assert.Equal(
             new[] { new GridPoint(0, 0), new GridPoint(1, 0), new GridPoint(0, 1), new GridPoint(1, 1) },
             mask.LandPoints.OrderBy(point => point.Y).ThenBy(point => point.X).ToArray());
+    }
+
+    [Fact]
+    public void FinalizerStopsWhenItsCancellationTokenIsCancelled()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() =>
+            _finalizer.FinalizeDraft(
+                SquareDraft(10, 10, 1, 1, 5, 5),
+                CreateSpatialReference(10, 10),
+                cancellation.Token));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Regions;
 using NetTopologySuite.Geometries;
+using System.Threading;
 
 namespace MapRegionizer.Core.ManualAuthoring;
 
@@ -25,9 +26,16 @@ public sealed class ManualMapDraftFinalizer
     }
 
     public ManualMapFinalizationResult FinalizeDraft(ManualMapDraft draft, MapSpatialReference spatialReference)
+        => FinalizeDraft(draft, spatialReference, CancellationToken.None);
+
+    public ManualMapFinalizationResult FinalizeDraft(
+        ManualMapDraft draft,
+        MapSpatialReference spatialReference,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(spatialReference);
+        cancellationToken.ThrowIfCancellationRequested();
         spatialReference.Validate();
 
         if (draft.GridWidth != spatialReference.GridWidth || draft.GridHeight != spatialReference.GridHeight)
@@ -42,15 +50,17 @@ public sealed class ManualMapDraftFinalizer
             return EmptyResult(spatialReference, gridDiagnostics);
         }
 
-        var validation = _validator.Validate(draft, spatialReference);
+        var validation = _validator.Validate(draft, spatialReference, cancellationToken);
         if (!validation.IsSuccessful)
             return EmptyResult(spatialReference, validation.Diagnostics);
 
+        cancellationToken.ThrowIfCancellationRequested();
         var polygonsById = validation.RegionPolygons;
         IReadOnlyList<Landmass> landmasses;
         try
         {
             landmasses = _landmassBuilder.Build(polygonsById.Values, _geometryFactory);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         catch (TopologyException exception)
         {
@@ -67,10 +77,21 @@ public sealed class ManualMapDraftFinalizer
 
         foreach (var face in draft.Regions.OrderBy(region => region.Id))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!polygonsById.TryGetValue(face.Id, out var polygon))
                 continue;
 
-            var landmass = landmasses.FirstOrDefault(candidate => candidate.Shape.Covers(polygon));
+            Landmass? landmass = null;
+            foreach (var candidate in landmasses)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!candidate.Shape.Covers(polygon))
+                    continue;
+
+                landmass = candidate;
+                break;
+            }
+
             if (landmass is null)
             {
                 diagnostics.Add(new ManualMapDiagnostic(
@@ -93,7 +114,7 @@ public sealed class ManualMapDraftFinalizer
         RegionCanonicalizationResult canonical;
         try
         {
-            canonical = new RegionCoverageCanonicalizer().Canonicalize(landmasses, regionDraft);
+            canonical = new RegionCoverageCanonicalizer().Canonicalize(landmasses, regionDraft, cancellationToken);
         }
         catch (TopologyException exception)
         {
@@ -114,7 +135,8 @@ public sealed class ManualMapDraftFinalizer
             return EmptyResult(spatialReference, diagnostics);
         }
 
-        var derivedMask = _rasterizer.Rasterize(landmasses, spatialReference);
+        cancellationToken.ThrowIfCancellationRequested();
+        var derivedMask = _rasterizer.Rasterize(landmasses, spatialReference, cancellationToken);
         return new ManualMapFinalizationResult(derivedMask, landmasses, regionDraft, diagnostics);
     }
 
