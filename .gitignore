@@ -365,3 +365,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Six Labors local license key
+/src/MapRegionizer.ImageSharp/sixlabors.lic
