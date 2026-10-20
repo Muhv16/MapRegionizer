@@ -49,16 +49,21 @@ public sealed class ManualMapAuthoringContractTests
             LegacyCompatibility = LegacyCompatibilityProfile.None
         };
         var shape = _factory.CreatePolygon([
-            new Coordinate(.5, .5), new Coordinate(3.5, .5),
-            new Coordinate(3.5, 3.5), new Coordinate(.5, 3.5),
-            new Coordinate(.5, .5)
+            new Coordinate(1, 1), new Coordinate(5, 1),
+            new Coordinate(5, 5), new Coordinate(1, 5),
+            new Coordinate(1, 1)
         ]);
         var landmass = new Landmass(new LandmassId(1), shape);
 
         var mask = new ManualMapRasterizer(_factory).Rasterize([landmass], spatialReference);
 
         Assert.Equal(
-            new[] { new GridPoint(0, 0), new GridPoint(1, 0), new GridPoint(0, 1), new GridPoint(1, 1) },
+            new[]
+            {
+                new GridPoint(0, 0), new GridPoint(1, 0), new GridPoint(2, 0),
+                new GridPoint(0, 1), new GridPoint(1, 1), new GridPoint(2, 1),
+                new GridPoint(0, 2), new GridPoint(1, 2), new GridPoint(2, 2)
+            },
             mask.LandPoints.OrderBy(point => point.Y).ThenBy(point => point.X).ToArray());
     }
 

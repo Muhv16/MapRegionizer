@@ -1,4 +1,5 @@
 using MapRegionizer.Core.Domain;
+using NetTopologySuite.Algorithm.Locate;
 using NetTopologySuite.Geometries;
 using System.Threading;
 
@@ -10,11 +11,11 @@ namespace MapRegionizer.Core.ManualAuthoring;
 /// </summary>
 public sealed class ManualMapRasterizer
 {
-    private readonly GeometryFactory _geometryFactory;
-
     public ManualMapRasterizer(GeometryFactory? geometryFactory = null)
     {
-        _geometryFactory = geometryFactory ?? new GeometryFactory();
+        // Retained for source compatibility; indexed coordinate lookup does
+        // not need to allocate point geometries through this factory.
+        _ = geometryFactory;
     }
 
     public MapMask Rasterize(IReadOnlyList<Landmass> landmasses, MapSpatialReference spatialReference)
@@ -38,6 +39,12 @@ public sealed class ManualMapRasterizer
             if (landmass.Shape.IsEmpty)
                 continue;
 
+            // Rasterization queries many cell centers against each polygon.
+            // Build the point-in-area index once instead of repeating a full
+            // geometry Covers operation for every center.
+            var locator = new IndexedPointInAreaLocator(landmass.Shape);
+            var sample = new Coordinate(0, 0);
+
             var bounds = landmass.Shape.EnvelopeInternal;
             var minX = Math.Max(0, Math.Ceiling(bounds.MinX / unitsPerCell - 0.5 - 1e-12));
             var maxX = Math.Min(spatialReference.GridWidth - 1, Math.Floor(bounds.MaxX / unitsPerCell - 0.5 + 1e-12));
@@ -54,10 +61,10 @@ public sealed class ManualMapRasterizer
                     if ((x & 0xFF) == 0)
                         cancellationToken.ThrowIfCancellationRequested();
 
-                    var sample = _geometryFactory.CreatePoint(new Coordinate(
-                        (x + 0.5) * unitsPerCell,
-                        (y + 0.5) * unitsPerCell));
-                    if (landmass.Shape.Covers(sample))
+                    sample.X = (x + 0.5) * unitsPerCell;
+                    sample.Y = (y + 0.5) * unitsPerCell;
+                    var location = locator.Locate(sample);
+                    if (location is Location.Interior or Location.Boundary)
                         landPoints.Add(new GridPoint(x, y));
                 }
             }
