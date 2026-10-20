@@ -1,7 +1,5 @@
 using MapRegionizer.Core.Domain;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Drawing;
-using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
@@ -75,7 +73,7 @@ internal static class TectonicFeatureRenderer
             color = ColorBlending.Blend(color, options.UpliftColor.ToPixel<Rgba32>(), uplift * options.FieldIntensity);
             color = ColorBlending.Blend(color, options.VolcanismColor.ToPixel<Rgba32>(), volcanism * options.FieldIntensity);
             color = ColorBlending.Blend(color, options.SeismicityColor.ToPixel<Rgba32>(), seismicity * options.FieldIntensity * 0.8);
-            return color;
+            return Color.FromPixel(color);
         }
 
         var normalizedSubsidence = NormalizeFeatureField(subsidence, options.SubsidenceFieldThreshold, options.FieldSaturation, options.FieldGamma);
@@ -92,14 +90,14 @@ internal static class TectonicFeatureRenderer
             Math.Max(Math.Max(normalizedUplift, normalizedVolcanism), normalizedSeismicity));
 
         if (strongest < options.MinimumVisibleFieldStrength)
-            return color;
+            return Color.FromPixel(color);
 
         color = ColorBlending.Blend(color, options.SubsidenceColor.ToPixel<Rgba32>(), normalizedSubsidence * options.FieldIntensity);
         color = ColorBlending.Blend(color, options.HeatFlowColor.ToPixel<Rgba32>(), normalizedHeatFlow * options.FieldIntensity);
         color = ColorBlending.Blend(color, options.UpliftColor.ToPixel<Rgba32>(), normalizedUplift * options.FieldIntensity);
         color = ColorBlending.Blend(color, options.VolcanismColor.ToPixel<Rgba32>(), normalizedVolcanism * options.FieldIntensity);
         color = ColorBlending.Blend(color, options.SeismicityColor.ToPixel<Rgba32>(), normalizedSeismicity * options.SeismicityFieldIntensity);
-        return color;
+        return Color.FromPixel(color);
     }
 
     internal static double NormalizeFeatureField(double value, double threshold, double saturation, double gamma)
@@ -128,7 +126,7 @@ internal static class TectonicFeatureRenderer
             return;
         }
 
-        image.Mutate(ctx =>
+        RenderingGeometry.Paint(image, canvas =>
         {
             for (var index = 1; index < feature.Points.Count; index++)
             {
@@ -137,7 +135,8 @@ internal static class TectonicFeatureRenderer
                 if (!CanConnectFeaturePoints(previous, current, mapWidth, options.MaxConnectedFeatureStep))
                     continue;
 
-                ctx.DrawLine(
+                RenderingGeometry.DrawLine(
+                    canvas,
                     color,
                     width,
                     RenderingGeometry.ToPixelCenter(previous, pixelSize, options.Scale),
@@ -274,7 +273,9 @@ internal static class TectonicFeatureRenderer
     {
         var center = RenderingGeometry.ToPixelCenter(point, pixelSize, scale);
         var size = radius * 2 + 1;
-        image.Mutate(ctx => ctx.Fill(color, new RectangleF(center.X - radius, center.Y - radius, size, size)));
+        RenderingGeometry.Paint(
+            image,
+            canvas => RenderingGeometry.FillRectangle(canvas, color, new RectangleF(center.X - radius, center.Y - radius, size, size)));
     }
 
     internal static Color GetFeatureColor(TectonicFeatureKind kind, TectonicFeatureRenderOptions options) => kind switch

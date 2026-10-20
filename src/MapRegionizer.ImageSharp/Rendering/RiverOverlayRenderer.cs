@@ -1,6 +1,5 @@
 using MapRegionizer.Core.Domain;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
@@ -42,12 +41,11 @@ internal static class RiverOverlayRenderer
 
             var color = ApplyRiverOpacity(GetRiverColor(river, options), options);
             var width = RiverRendering.GetRiverWidth(river, options, widthScale);
-            image.Mutate(ctx =>
+            RenderingGeometry.Paint(image, canvas =>
             {
-                ctx.SetGraphicsOptions(new GraphicsOptions { Antialias = true });
                 foreach (var run in RiverRendering.BuildRiverRenderRuns(river.Polyline, hydrology.Width, pixelSize, options.Scale))
-                    ctx.DrawLine(color, width, run);
-            });
+                    RenderingGeometry.DrawLine(canvas, color, width, run);
+            }, antialias: true);
 
             if (options.DrawDebugMarkers && river.MouthKind is RiverMouthKind.Delta or RiverMouthKind.MarshDelta or RiverMouthKind.InlandDelta)
                 DrawMouthMarker(image, river, pixelSize, options);
@@ -89,7 +87,7 @@ internal static class RiverOverlayRenderer
 
         var rgba = color.ToPixel<Rgba32>();
         var alpha = (byte)Math.Clamp((int)Math.Round(rgba.A * Math.Clamp(options.Opacity, 0.0, 1.0)), 0, 255);
-        return Color.FromRgba(rgba.R, rgba.G, rgba.B, alpha);
+        return Color.FromPixel(new Rgba32(rgba.R, rgba.G, rgba.B, alpha));
     }
 
     internal static void DrawRiverValleyAccents(Image<Rgba32> image, HydrologyMap hydrology, double pixelSize, ClimateRenderOptions options)
@@ -112,12 +110,11 @@ internal static class RiverOverlayRenderer
             normalized = Math.Pow(normalized, options.RiverValleyAccentGamma);
             var width = (float)((options.RiverValleyAccentMinWidth + (options.RiverValleyAccentMaxWidth - options.RiverValleyAccentMinWidth) * normalized) * RiverRendering.GetRiverStrokeScale(options.Scale));
             var color = Color.FromPixel(ColorBlending.Blend(options.RiverValleyAccentColor.ToPixel<Rgba32>(), options.RiverValleyMajorAccentColor.ToPixel<Rgba32>(), normalized));
-            image.Mutate(ctx =>
+            RenderingGeometry.Paint(image, canvas =>
             {
-                ctx.SetGraphicsOptions(new GraphicsOptions { Antialias = true });
                 foreach (var run in RiverRendering.BuildRiverRenderRuns(river.Polyline, hydrology.Width, pixelSize, options.Scale))
-                    ctx.DrawLine(color, width, run);
-            });
+                    RenderingGeometry.DrawLine(canvas, color, width, run);
+            }, antialias: true);
         }
     }
 }

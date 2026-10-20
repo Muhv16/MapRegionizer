@@ -42,6 +42,10 @@ summary.json
 
 `lakes.json` records inland lake and inland-sea classification, profile, surface, spill, margin, shoreline metrics, tectonic/volcanic influence, and maximum depth. `rivers.json` records river summaries, visible river segments, lake outlets, mouths, and drainage basins. `summary.json` records the input mask, generation options, output paths, entity counts, elevation range, and river statistics. `map-package.json` is the portable geometry package described in [`map-package.md`](map-package.md). Prefer setting `--seed` for agent checks so repeated runs are comparable.
 
+Raster artifacts use ImageSharp 4 and ImageSharp.Drawing 3. Drawing 3 has a new rasterizer, so pixels along rendered vector edges may differ from earlier versions. The migration preserves map-generation data and JSON/GeoJSON formats.
+
+ImageSharp 4 and ImageSharp.Drawing 3 require a valid Six Labors license at build time. Provide `sixlabors.lic` in the `MapRegionizer.ImageSharp` project directory or configure `SixLaborsLicenseFile` for the build environment.
+
 ## Editable region drafts
 
 Export the generated canonical layout to the versioned editable format:

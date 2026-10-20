@@ -26,18 +26,22 @@ internal static class RenderingGeometry
     internal static void FillPolygon(Image<Rgba32> image, NtsPolygon polygon, Color color, float scale)
     {
         var path = BuildPath(polygon, scale);
-        image.Mutate(ctx => ctx.SetGraphicsOptions(new GraphicsOptions { Antialias = false }).Fill(color, path));
+        Paint(
+            image,
+            canvas => canvas.Fill(Brushes.Solid(color), path),
+            antialias: false,
+            fillRule: IntersectionRule.EvenOdd);
     }
 
     internal static void DrawPolygonBoundary(Image<Rgba32> image, NtsPolygon polygon, Color color, float width, float scale)
     {
         var path = BuildPath(polygon, scale);
-        image.Mutate(ctx => ctx.SetGraphicsOptions(new GraphicsOptions { Antialias = false }).Draw(color, width, path));
+        Paint(image, canvas => canvas.Draw(Pens.Solid(color, width), path), antialias: false);
     }
 
     internal static IPath BuildPath(NtsPolygon polygon, float scale)
     {
-        var builder = new SixLabors.ImageSharp.Drawing.PathBuilder().SetTransform(Matrix3x2.CreateScale(scale, scale));
+        var builder = new PathBuilder().SetTransform(Matrix4x4.CreateScale(scale, scale, 1));
         builder.AddLines(polygon.ExteriorRing.Coordinates.Select(c => new PointF((float)c.X, (float)c.Y)));
         builder.CloseFigure();
 
@@ -52,11 +56,37 @@ internal static class RenderingGeometry
 
     internal static void DrawLine(Image<Rgba32> image, double x1, double y1, double x2, double y2, TectonicPlateRenderOptions options)
     {
-        image.Mutate(ctx => ctx.DrawLine(
-            options.PlateBoundaryColor,
-            options.PlateBoundaryWidth,
-            new PointF((float)(x1 * options.Scale), (float)(y1 * options.Scale)),
-            new PointF((float)(x2 * options.Scale), (float)(y2 * options.Scale))));
+        var start = new PointF((float)(x1 * options.Scale), (float)(y1 * options.Scale));
+        var end = new PointF((float)(x2 * options.Scale), (float)(y2 * options.Scale));
+        Paint(image, canvas => canvas.DrawLine(Pens.Solid(options.PlateBoundaryColor, options.PlateBoundaryWidth), start, end));
+    }
+
+    internal static void Paint(
+        Image<Rgba32> image,
+        CanvasAction draw,
+        bool antialias = true,
+        IntersectionRule? fillRule = null)
+    {
+        var options = new DrawingOptions
+        {
+            GraphicsOptions = new GraphicsOptions { Antialias = antialias }
+        };
+
+        if (fillRule.HasValue)
+            options.IntersectionRule = fillRule.Value;
+
+        image.Mutate(context => context.Paint(options, draw));
+    }
+
+    internal static void DrawLine(DrawingCanvas canvas, Color color, float width, params PointF[] points)
+    {
+        if (points.Length >= 2)
+            canvas.DrawLine(Pens.Solid(color, width), points);
+    }
+
+    internal static void FillRectangle(DrawingCanvas canvas, Color color, RectangleF rectangle)
+    {
+        canvas.Fill(Brushes.Solid(color), new RectanglePolygon(rectangle));
     }
 
     internal static IEnumerable<GridPoint> EnumeratePoints(int width, int height)

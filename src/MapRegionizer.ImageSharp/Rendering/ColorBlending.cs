@@ -34,17 +34,17 @@ internal static class ColorBlending
     internal static Rgba32 GetDivergingHeightColor(double value, double low, double high)
     {
         if (value < 0)
-            return LerpColor(Color.FromRgb(105, 199, 198), Color.FromRgb(11, 44, 89), Math.Clamp(value / Math.Min(-1.0, low), 0, 1));
+            return LerpColor(RenderingColor.FromRgb(105, 199, 198), RenderingColor.FromRgb(11, 44, 89), Math.Clamp(value / Math.Min(-1.0, low), 0, 1));
 
-        return LerpColor(Color.FromRgb(213, 200, 143), Color.FromRgb(126, 121, 116), Math.Clamp(value / Math.Max(1.0, high), 0, 1));
+        return LerpColor(RenderingColor.FromRgb(213, 200, 143), RenderingColor.FromRgb(126, 121, 116), Math.Clamp(value / Math.Max(1.0, high), 0, 1));
     }
 
     internal static Rgba32 GetDivergingContributionColor(double value, double low, double high)
     {
         if (value < 0)
-            return LerpColor(Color.FromRgb(42, 89, 156), Color.FromRgb(23, 37, 58), Math.Clamp(value / Math.Min(-1.0, low), 0, 1));
+            return LerpColor(RenderingColor.FromRgb(42, 89, 156), RenderingColor.FromRgb(23, 37, 58), Math.Clamp(value / Math.Min(-1.0, low), 0, 1));
 
-        return LerpColor(Color.FromRgb(44, 68, 55), Color.FromRgb(224, 180, 99), Math.Clamp(value / Math.Max(1.0, high), 0, 1));
+        return LerpColor(RenderingColor.FromRgb(44, 68, 55), RenderingColor.FromRgb(224, 180, 99), Math.Clamp(value / Math.Max(1.0, high), 0, 1));
     }
 
     internal static Rgba32 GetUnitColor(double value, Color low, Color high)

@@ -98,11 +98,11 @@ internal static class ElevationMapRenderer
         {
             ElevationRenderMode.BaseElevation => ColorBlending.GetDivergingHeightColor(elevation.GetBaseElevation(x, y), -4600, 2600),
             ElevationRenderMode.TectonicContribution => ColorBlending.GetDivergingContributionColor(elevation.GetTectonicElevation(x, y), -900, 2800),
-            ElevationRenderMode.Roughness => ColorBlending.GetUnitColor(elevation.GetRoughness(x, y), Color.FromRgb(36, 73, 82), Color.FromRgb(226, 206, 142)),
-            ElevationRenderMode.ErosionMask => ColorBlending.GetUnitColor(elevation.GetErosionMask(x, y), Color.FromRgb(40, 46, 73), Color.FromRgb(128, 219, 196)),
+            ElevationRenderMode.Roughness => ColorBlending.GetUnitColor(elevation.GetRoughness(x, y), RenderingColor.FromRgb(36, 73, 82), RenderingColor.FromRgb(226, 206, 142)),
+            ElevationRenderMode.ErosionMask => ColorBlending.GetUnitColor(elevation.GetErosionMask(x, y), RenderingColor.FromRgb(40, 46, 73), RenderingColor.FromRgb(128, 219, 196)),
             ElevationRenderMode.TerrainZones => GetTerrainClassColor(elevation.GetTerrainClass(x, y), 1.0, options),
             ElevationRenderMode.MountainInfluence => GetMountainInfluenceColor(elevation, x, y),
-            ElevationRenderMode.BasinInfluence => ColorBlending.GetUnitColor(elevation.GetBasinInfluence(x, y), Color.FromRgb(58, 93, 84), Color.FromRgb(207, 184, 108)),
+            ElevationRenderMode.BasinInfluence => ColorBlending.GetUnitColor(elevation.GetBasinInfluence(x, y), RenderingColor.FromRgb(58, 93, 84), RenderingColor.FromRgb(207, 184, 108)),
             _ => GetFinalElevationColor(elevation, waterSurfaces, waterBodyTopology, x, y, shade, options)
         };
     }
@@ -236,9 +236,9 @@ internal static class ElevationMapRenderer
         var ridge = elevation.GetRidgeContinuity(x, y);
         var foothill = elevation.GetFoothillInfluence(x, y);
         var pass = elevation.GetMountainPassPotential(x, y);
-        var color = ColorBlending.Blend(Color.FromRgb(43, 74, 70).ToPixel<Rgba32>(), Color.FromRgb(116, 104, 91).ToPixel<Rgba32>(), foothill);
-        color = ColorBlending.Blend(color, Color.FromRgb(226, 219, 197).ToPixel<Rgba32>(), ridge);
-        return ColorBlending.Blend(color, Color.FromRgb(92, 168, 196).ToPixel<Rgba32>(), pass * 0.85);
+        var color = ColorBlending.Blend(RenderingColor.FromRgb(43, 74, 70).ToPixel<Rgba32>(), RenderingColor.FromRgb(116, 104, 91).ToPixel<Rgba32>(), foothill);
+        color = ColorBlending.Blend(color, RenderingColor.FromRgb(226, 219, 197).ToPixel<Rgba32>(), ridge);
+        return ColorBlending.Blend(color, RenderingColor.FromRgb(92, 168, 196).ToPixel<Rgba32>(), pass * 0.85);
     }
 
     internal static double ComputeHillshade(ElevationMap elevation, int x, int y, ElevationRenderOptions options)

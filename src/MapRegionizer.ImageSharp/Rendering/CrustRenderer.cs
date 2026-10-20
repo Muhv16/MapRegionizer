@@ -39,7 +39,7 @@ internal static class CrustRenderer
                     if (options.CoastalZoneTintStrength > 0)
                     {
                         var coastalZone = GetDominantCoastalZone(crustFields, sourceX, sourceY, options.CrustSmoothingRadius);
-                        color = ApplyCoastalZoneTint(color, coastalZone, options);
+                        color = Color.FromPixel(ApplyCoastalZoneTint(color, coastalZone, options));
                     }
 
                     row[x] = color.ToPixel<Rgba32>();

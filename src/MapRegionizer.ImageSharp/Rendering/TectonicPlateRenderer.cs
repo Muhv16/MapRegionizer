@@ -5,7 +5,6 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Drawing;
 using SixLabors.ImageSharp.Drawing.Processing;
-using System.Numerics;
 
 namespace MapRegionizer.ImageSharp;
 
@@ -101,16 +100,19 @@ internal static class TectonicPlateRenderer
         var startX = centerX - totalWidth / 2;
         var startY = centerY - digitHeight / 2;
 
-        image.Mutate(ctx =>
+        RenderingGeometry.Paint(image, canvas =>
         {
-            ctx.Fill(options.PlateIdBackgroundColor, new RectangleF(startX - scale, startY - scale, totalWidth + scale * 2, digitHeight + scale * 2));
+            RenderingGeometry.FillRectangle(
+                canvas,
+                options.PlateIdBackgroundColor,
+                new RectangleF(startX - scale, startY - scale, totalWidth + scale * 2, digitHeight + scale * 2));
 
             for (var index = 0; index < text.Length; index++)
-                DrawDigit(ctx, text[index], startX + index * (digitWidth + spacing), startY, scale, options.PlateIdColor);
+                DrawDigit(canvas, text[index], startX + index * (digitWidth + spacing), startY, scale, options.PlateIdColor);
         });
     }
 
-    internal static void DrawDigit(IImageProcessingContext ctx, char digit, int x, int y, int scale, Color color)
+    internal static void DrawDigit(DrawingCanvas canvas, char digit, int x, int y, int scale, Color color)
     {
         var pattern = digit switch
         {
@@ -134,7 +136,7 @@ internal static class TectonicPlateRenderer
                 if (pattern[row][column] != '1')
                     continue;
 
-                ctx.Fill(color, new RectangleF(x + column * scale, y + row * scale, scale, scale));
+                RenderingGeometry.FillRectangle(canvas, color, new RectangleF(x + column * scale, y + row * scale, scale, scale));
             }
         }
     }
