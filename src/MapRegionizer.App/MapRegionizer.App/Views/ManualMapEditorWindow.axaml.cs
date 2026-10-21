@@ -17,13 +17,7 @@ public partial class ManualMapEditorWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _isClosed = true;
-        var dataContext = DataContext;
-        DataContext = null;
-        // Complete the owner's ShowDialog task before tearing down an editor
-        // that may still be cancelling a long-running background validation.
         base.OnClosed(e);
-        if (dataContext is IDisposable disposable)
-            disposable.Dispose();
     }
 
     private ManualMapEditorViewModel ViewModel => (ManualMapEditorViewModel)DataContext!;

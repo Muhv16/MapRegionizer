@@ -100,6 +100,11 @@ index preparation also run in the background while the dialog shows a spinner.
 The resize preview caches the region outlines and translates them during
 rendering instead of rebuilding coordinate lists on every frame.
 
+Selecting the manual map source does not show an invalid-map warning by itself.
+The warning appears when generation or export is requested without a finalized
+manual map. Closing the editor without creating a map refreshes validation and
+returns the main window without leaving that warning visible.
+
 Global coverage exposes independent south and north latitude bounds. Regional
 coverage also uses explicit west/east and south/north bounds. Accepted spatial
 settings update the App configuration and are used to finalize and generate the

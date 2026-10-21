@@ -36,7 +36,7 @@ using System.Threading.Tasks;
 public sealed class MainViewModel : ReactiveObject, IDisposable
 {
     private readonly LocalizationService _localization = new();
-    private readonly UserSettingsService _settingsService = new();
+    private readonly UserSettingsService _settingsService;
     private readonly GenerationWorkspaceService _workspace = new();
     private readonly GenerationExecutionService _execution = new();
     private readonly MapPreviewService _preview = new();
@@ -207,7 +207,14 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
     private bool _exportDrawClimateRiverValleyAccents = true;
 
     public MainViewModel()
+        : this(new UserSettingsService())
     {
+    }
+
+    public MainViewModel(UserSettingsService settingsService)
+    {
+        ArgumentNullException.ThrowIfNull(settingsService);
+        _settingsService = settingsService;
         _spatialConfiguration = new SpatialConfigurationViewModel(_localization);
         _settings = _settingsService.Load();
 
@@ -977,14 +984,27 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
             var editorSpatialConfiguration = new SpatialConfigurationViewModel(_localization);
             editorSpatialConfiguration.LoadSpatialOptions(options.EffectiveSpatial);
 
-            var editor = new ManualMapEditorWindow
-            {
-                DataContext = new ManualMapEditorViewModel(draft, spatialReference, options, editorSpatialConfiguration)
-            };
+            var editorViewModel = new ManualMapEditorViewModel(draft, spatialReference, options, editorSpatialConfiguration);
+            var editor = new ManualMapEditorWindow { DataContext = editorViewModel };
             var owner = GetMainWindow();
-            var result = owner is null ? null : await editor.ShowDialog<ManualMapEditorResult?>(owner);
-            if (_disposed || result is null)
+            ManualMapEditorResult? result;
+            try
+            {
+                result = owner is null ? null : await editor.ShowDialog<ManualMapEditorResult?>(owner);
+            }
+            finally
+            {
+                editor.DataContext = null;
+                editorViewModel.Dispose();
+            }
+
+            if (_disposed)
                 return;
+            if (result is null)
+            {
+                ValidateAll();
+                return;
+            }
 
             _suppressDirty = true;
             try
@@ -1436,6 +1456,13 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
         if (_disposed)
             return false;
 
+        if (IsManualSource && (_manualMapFinalization is null || !_manualMapFinalization.IsSuccessful))
+        {
+            ValidationMessage = "Сначала откройте manual editor и сформируйте корректную карту.";
+            this.RaisePropertyChanged(nameof(HasValidationMessage));
+            return false;
+        }
+
         ValidateAll();
         if (HasValidationMessage)
             return false;
@@ -1456,8 +1483,6 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
     {
         if (IsMaskSource && (string.IsNullOrWhiteSpace(MaskPath) || !File.Exists(MaskPath)))
             ValidationMessage = L["ValidationMask"];
-        else if (IsManualSource && (_manualMapFinalization is null || !_manualMapFinalization.IsSuccessful))
-            ValidationMessage = "Сначала откройте manual editor и сформируйте корректную карту.";
         else if (string.IsNullOrWhiteSpace(OutputDirectory))
             ValidationMessage = L["ValidationOutput"];
         else if (SpatialConfiguration.IsAutomatic &&
