@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using MapRegionizer.App.ViewModels;
+using MapRegionizer.Core.ManualAuthoring;
 using System.ComponentModel;
 
 namespace MapRegionizer.App.Views;
@@ -10,6 +11,7 @@ namespace MapRegionizer.App.Views;
 public sealed class ManualCanvasResizePreview : Control
 {
     private INotifyPropertyChanged? _observedViewModel;
+    private StreamGeometry? _regionGeometry;
 
     public ManualCanvasResizePreview()
     {
@@ -58,17 +60,11 @@ public sealed class ManualCanvasResizePreview : Control
             }
 
             context.DrawRectangle(new SolidColorBrush(Color.Parse("#253B50"), .22), new Pen(new SolidColorBrush(Color.Parse("#F8FAFC"), .9), 1 / scale), oldRect);
-            var regionPen = new Pen(new SolidColorBrush(Color.Parse("#FDE68A"), .95), 1.4 / scale);
-            foreach (var ring in viewModel.PreviewRegionPoints)
+            if (_regionGeometry is not null)
             {
-                if (ring.Count < 2)
-                    continue;
-                for (var index = 0; index < ring.Count; index++)
-                {
-                    var start = ring[index];
-                    var end = ring[(index + 1) % ring.Count];
-                    context.DrawLine(regionPen, new Point(start.X, start.Y), new Point(end.X, end.Y));
-                }
+                var regionPen = new Pen(new SolidColorBrush(Color.Parse("#FDE68A"), .95), 1.4 / scale);
+                using (context.PushTransform(Matrix.CreateTranslation(viewModel.PreviewOldX, viewModel.PreviewOldY)))
+                    context.DrawGeometry(null, regionPen, _regionGeometry);
             }
         }
 
@@ -108,8 +104,46 @@ public sealed class ManualCanvasResizePreview : Control
         _observedViewModel = DataContext as INotifyPropertyChanged;
         if (_observedViewModel is not null)
             _observedViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        _regionGeometry = (DataContext as ManualCanvasResizeDialogViewModel)?.Draft is { } draft
+            ? CreateRegionGeometry(draft)
+            : null;
         InvalidateVisual();
     }
 
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e) => InvalidateVisual();
+    private static StreamGeometry CreateRegionGeometry(ManualMapDraft draft)
+    {
+        var positions = draft.Vertices.ToDictionary(vertex => vertex.Id, vertex => vertex.Position);
+        var geometry = new StreamGeometry();
+        using var builder = geometry.Open();
+        foreach (var region in draft.Regions)
+        {
+            var ring = region.VertexIds
+                .Where(positions.ContainsKey)
+                .Select(id => positions[id])
+                .ToArray();
+            if (ring.Length < 2)
+                continue;
+
+            builder.BeginFigure(new Point(ring[0].X, ring[0].Y), isFilled: false);
+            for (var index = 1; index < ring.Length; index++)
+                builder.LineTo(new Point(ring[index].X, ring[index].Y));
+            builder.EndFigure(isClosed: true);
+        }
+
+        return geometry;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ManualCanvasResizeDialogViewModel.NewSizeLabel)
+            or nameof(ManualCanvasResizeDialogViewModel.PreviewWidthMapUnits)
+            or nameof(ManualCanvasResizeDialogViewModel.PreviewHeightMapUnits)
+            or nameof(ManualCanvasResizeDialogViewModel.PreviewOldX)
+            or nameof(ManualCanvasResizeDialogViewModel.PreviewOldY)
+            or nameof(ManualCanvasResizeDialogViewModel.PreviewBackgroundX)
+            or nameof(ManualCanvasResizeDialogViewModel.PreviewBackgroundY))
+        {
+            InvalidateVisual();
+        }
+    }
 }

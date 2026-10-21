@@ -1,5 +1,6 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Regions;
+using System.Threading;
 
 namespace MapRegionizer.Core.ManualAuthoring;
 
@@ -17,28 +18,43 @@ public sealed class ManualMapDraftSpatialIndex
     private readonly Dictionary<SpatialCell, List<IndexedEdge>> _edgesByCell = [];
 
     public ManualMapDraftSpatialIndex(ManualMapDraft draft, double cellSize)
+        : this(draft, cellSize, CancellationToken.None)
+    {
+    }
+
+    public ManualMapDraftSpatialIndex(
+        ManualMapDraft draft,
+        double cellSize,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         if (!double.IsFinite(cellSize) || cellSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(cellSize), "Spatial index cell size must be finite and greater than zero.");
 
         _cellSize = cellSize;
-        Rebuild(draft);
+        Rebuild(draft, cancellationToken);
     }
 
-    public void Rebuild(ManualMapDraft draft)
+    public void Rebuild(ManualMapDraft draft) => Rebuild(draft, CancellationToken.None);
+
+    public void Rebuild(ManualMapDraft draft, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
+        cancellationToken.ThrowIfCancellationRequested();
         _vertexPositions.Clear();
         _verticesByCell.Clear();
         _edgesByCell.Clear();
 
         foreach (var vertex in draft.Vertices)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             AddVertex(vertex);
+        }
 
         var indexedEdges = new HashSet<EdgeKey>();
         foreach (var face in draft.Regions)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var vertexIds = face.VertexIds.ToArray();
             if (vertexIds.Length > 1 && vertexIds[0] == vertexIds[^1])
                 vertexIds = vertexIds[..^1];
@@ -47,6 +63,7 @@ public sealed class ManualMapDraftSpatialIndex
 
             for (var index = 0; index < vertexIds.Length; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var startId = vertexIds[index];
                 var endId = vertexIds[(index + 1) % vertexIds.Length];
                 if (startId == endId)
@@ -61,7 +78,7 @@ public sealed class ManualMapDraftSpatialIndex
                     continue;
 
                 indexedEdges.Add(key);
-                AddEdge(new IndexedEdge(key, start, end));
+                AddEdge(new IndexedEdge(key, start, end), cancellationToken);
             }
         }
     }
@@ -152,7 +169,7 @@ public sealed class ManualMapDraftSpatialIndex
         return nearest;
     }
 
-    private void AddEdge(IndexedEdge edge)
+    private void AddEdge(IndexedEdge edge, CancellationToken cancellationToken)
     {
         var minX = GetCellCoordinate(Math.Min(edge.Start.X, edge.End.X));
         var maxX = GetCellCoordinate(Math.Max(edge.Start.X, edge.End.X));
@@ -162,7 +179,10 @@ public sealed class ManualMapDraftSpatialIndex
         for (var x = minX; x <= maxX; x++)
         {
             for (var y = minY; y <= maxY; y++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 AddToCell(_edgesByCell, new SpatialCell(x, y), edge);
+            }
         }
     }
 

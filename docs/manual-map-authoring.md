@@ -94,6 +94,12 @@ The background rectangle moves with the map vertices and keeps its map-unit
 size, so it does not stretch when the canvas changes. **Fit background** remains
 an explicit action that fills the current canvas.
 
+Resize preview work is debounced and cancellable, and runs off the UI thread.
+Applying a resize reuses the calculated draft; geometry validation and spatial
+index preparation also run in the background while the dialog shows a spinner.
+The resize preview caches the region outlines and translates them during
+rendering instead of rebuilding coordinate lists on every frame.
+
 Global coverage exposes independent south and north latitude bounds. Regional
 coverage also uses explicit west/east and south/north bounds. Accepted spatial
 settings update the App configuration and are used to finalize and generate the

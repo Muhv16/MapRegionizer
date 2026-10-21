@@ -1,6 +1,7 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Regions;
 using MapRegionizer.Core.Spatial;
+using System.Threading;
 
 namespace MapRegionizer.Core.ManualAuthoring;
 
@@ -54,11 +55,19 @@ public sealed class ManualMapCanvasResizer
     public ManualCanvasResizeResult Resize(
         ManualMapDraft draft,
         MapSpatialReference spatialReference,
-        ManualCanvasResizeRequest request)
+        ManualCanvasResizeRequest request) =>
+        Resize(draft, spatialReference, request, CancellationToken.None);
+
+    public ManualCanvasResizeResult Resize(
+        ManualMapDraft draft,
+        MapSpatialReference spatialReference,
+        ManualCanvasResizeRequest request,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(spatialReference);
         ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
 
         try
         {
@@ -185,6 +194,9 @@ public sealed class ManualMapCanvasResizer
         var vertices = new ManualMapVertex[draft.Vertices.Count];
         for (var index = 0; index < draft.Vertices.Count; index++)
         {
+            if ((index & 255) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+
             var vertex = draft.Vertices[index];
             var position = new MapPoint(vertex.Position.X + deltaX, vertex.Position.Y + deltaY);
             if (!double.IsFinite(position.X) || !double.IsFinite(position.Y) ||
@@ -201,6 +213,7 @@ public sealed class ManualMapCanvasResizer
 
         // All vertices and straight edges inside a rectangular canvas are
         // retained. No clipping or ID repair is performed during a shrink.
+        cancellationToken.ThrowIfCancellationRequested();
         var resizedDraft = new ManualMapDraft(newWidth, newHeight, vertices, draft.Regions);
         return new ManualCanvasResizeResult(resizedDraft, newReference, request);
     }

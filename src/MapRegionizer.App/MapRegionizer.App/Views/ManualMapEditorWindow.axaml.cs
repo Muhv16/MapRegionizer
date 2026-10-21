@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using MapRegionizer.App.ViewModels;
@@ -97,23 +99,31 @@ public partial class ManualMapEditorWindow : Window
     {
         var dialog = new ManualCanvasResizeDialog
         {
-            DataContext = ViewModel.CreateCanvasResizeDialogViewModel()
+            DataContext = ViewModel.CreateCanvasResizeDialogViewModel(),
+            ApplyResizeAsync = ApplyCanvasResizeAsync
         };
-        var request = await dialog.ShowDialog<ManualCanvasResizeRequest?>(this);
-        if (_isClosed || request is null)
-            return;
+        await dialog.ShowDialog<bool>(this);
+    }
 
+    private async Task ApplyCanvasResizeAsync(ManualCanvasResizeResult result, CancellationToken cancellationToken)
+    {
         try
         {
-            ViewModel.ApplyCanvasResize(request);
+            await ViewModel.ApplyCanvasResizeAsync(result, cancellationToken);
         }
         catch (ManualCanvasResizeException exception)
         {
             ViewModel.ShowDiagnostic($"Размер холста не изменён ({exception.Code}): {exception.Message}");
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception)
         {
             ViewModel.ShowDiagnostic($"Размер холста не изменён: {exception.Message}");
+            throw;
         }
     }
 

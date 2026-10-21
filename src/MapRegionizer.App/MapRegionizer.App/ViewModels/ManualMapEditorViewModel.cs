@@ -15,6 +15,7 @@ using ReactiveUI;
 using System.Reactive;
 using System.Threading.Tasks;
 using NetTopologySuite.Geometries;
+using NetTopologySuite.Geometries.Utilities;
 using NetTopologySuite.Index.Strtree;
 using MapRegionizer.Core.Spatial;
 using ImageSharpImage = SixLabors.ImageSharp.Image;
@@ -70,6 +71,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private MapPoint? _snapCandidatePosition;
     private int? _selectedRegionId;
     private ManualMapFinalizationResult? _lastFinalization;
+    private ManualMapValidationResult? _cachedDraftValidation;
+    private ManualMapDraft? _validatedDraft;
+    private MapSpatialReference? _validatedSpatialReference;
     private string _diagnostics = string.Empty;
     private string _validationSummary = string.Empty;
     private ManualMapEditorTool _selectedTool = ManualMapEditorTool.Navigate;
@@ -335,12 +339,59 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
         var result = _canvasResizer.Resize(_draft, _spatialReference, request);
         var resizedValidation = _validator.Validate(result.Draft, result.SpatialReference);
+        ApplyCanvasResizeResult(result, resizedValidation);
+    }
+
+    public async Task ApplyCanvasResizeAsync(
+        ManualCanvasResizeResult result,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (_disposed)
+            return;
+
+        var sourceDraft = _draft;
+        var sourceSpatialReference = _spatialReference;
+        var cachedValidation = ReferenceEquals(_validatedDraft, sourceDraft) &&
+                               ReferenceEquals(_validatedSpatialReference, sourceSpatialReference)
+            ? _cachedDraftValidation
+            : null;
+        var preparedState = await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var validation = TranslateCachedValidation(cachedValidation, sourceSpatialReference, result, cancellationToken)
+                             ?? _validator.Validate(result.Draft, result.SpatialReference, cancellationToken);
+            var spatialIndex = new ManualMapDraftSpatialIndex(
+                result.Draft,
+                Math.Max(result.SpatialReference.UnitsPerCell * 16, RegionGeometryPrecision.LengthTolerance * 4),
+                cancellationToken);
+            return (Validation: validation, SpatialIndex: spatialIndex);
+        }, cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed)
+                return;
+            if (!ReferenceEquals(_draft, sourceDraft) || !ReferenceEquals(_spatialReference, sourceSpatialReference))
+                throw new InvalidOperationException("Карта изменилась во время изменения размера. Запустите действие ещё раз.");
+
+            ApplyCanvasResizeResult(result, preparedState.Validation, preparedState.SpatialIndex);
+        });
+    }
+
+    private void ApplyCanvasResizeResult(
+        ManualCanvasResizeResult result,
+        ManualMapValidationResult resizedValidation,
+        ManualMapDraftSpatialIndex? preparedSpatialIndex = null)
+    {
         _validationCancellation?.Cancel();
         PushUndo();
         _draft = result.Draft;
         _spatialReference = result.SpatialReference;
-        _backgroundMapX += request.LeftCells * result.SpatialReference.UnitsPerCell;
-        _backgroundMapY += request.TopCells * result.SpatialReference.UnitsPerCell;
+        _backgroundMapX += result.Request.LeftCells * result.SpatialReference.UnitsPerCell;
+        _backgroundMapY += result.Request.TopCells * result.SpatialReference.UnitsPerCell;
         _currentVertexIds = _currentVertexIds
             .Where(id => _draft.Vertices.Any(vertex => vertex.Id == id))
             .ToList();
@@ -362,7 +413,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         ValidationSummary = string.Empty;
         WaterBodyCount = 0;
         Diagnostics = "Размер холста изменён. Повторно проверьте карту перед формированием.";
-        RefreshState(resizedValidation);
+        RefreshState(resizedValidation, preparedSpatialIndex);
         this.RaisePropertyChanged(nameof(GridWidth));
         this.RaisePropertyChanged(nameof(GridHeight));
         this.RaisePropertyChanged(nameof(Bounds));
@@ -882,6 +933,10 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             return;
         }
 
+        _cachedDraftValidation = null;
+        _validatedDraft = null;
+        _validatedSpatialReference = null;
+
         try
         {
             var spatial = SpatialConfiguration.BuildSpatialOptions();
@@ -938,9 +993,14 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         }
     }
 
-    private void RefreshState(ManualMapValidationResult? cachedValidation = null)
+    private void RefreshState(
+        ManualMapValidationResult? cachedValidation = null,
+        ManualMapDraftSpatialIndex? preparedSpatialIndex = null)
     {
         var validation = cachedValidation ?? _validator.Validate(_draft, _spatialReference);
+        _cachedDraftValidation = validation;
+        _validatedDraft = _draft;
+        _validatedSpatialReference = _spatialReference;
         DisplayRegions = validation.RegionPolygons
             .OrderBy(pair => pair.Key)
             .Select(pair => new ManualMapDisplayRegion(
@@ -950,11 +1010,46 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             .ToArray();
         RebuildRegionSelectionIndex();
         RefreshRegions(validation.RegionPolygons);
-        _spatialIndex.Rebuild(_draft);
+        if (preparedSpatialIndex is null)
+            _spatialIndex.Rebuild(_draft);
+        else
+            _spatialIndex = preparedSpatialIndex;
         RefreshVertexCache();
         _lastFinalization = null;
         this.RaisePropertyChanged(nameof(Draft));
         RefreshEditorProperties(includeDisplayRegions: true);
+    }
+
+    private static ManualMapValidationResult? TranslateCachedValidation(
+        ManualMapValidationResult? cachedValidation,
+        MapSpatialReference sourceSpatialReference,
+        ManualCanvasResizeResult resizeResult,
+        CancellationToken cancellationToken)
+    {
+        if (cachedValidation is not { IsSuccessful: true })
+            return null;
+
+        var deltaX = resizeResult.Request.LeftCells * sourceSpatialReference.UnitsPerCell;
+        var deltaY = resizeResult.Request.TopCells * sourceSpatialReference.UnitsPerCell;
+        if (!IsCanonicalTranslation(deltaX) || !IsCanonicalTranslation(deltaY))
+            return null;
+
+        var transform = AffineTransformation.TranslationInstance(deltaX, deltaY);
+        var polygons = new Dictionary<int, Polygon>(cachedValidation.RegionPolygons.Count);
+        foreach (var (regionId, polygon) in cachedValidation.RegionPolygons)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            polygons.Add(regionId, (Polygon)transform.Transform(polygon));
+        }
+
+        return new ManualMapValidationResult(cachedValidation.Diagnostics, polygons);
+    }
+
+    private static bool IsCanonicalTranslation(double value)
+    {
+        var scaled = value * RegionGeometryPrecision.Scale;
+        return double.IsFinite(scaled) &&
+               Math.Abs(scaled - Math.Round(scaled, MidpointRounding.AwayFromZero)) <= 1e-6;
     }
 
     private void RefreshInteractiveState(bool rebuildSpatialIndex = false)

@@ -12,7 +12,7 @@
       <TextBlock Text="Изменение размеров холста" FontSize="20" FontWeight="Bold"/>
       <TextBlock Text="Положительное число добавляет ячейки, отрицательное удаляет. Географическое положение существующих регионов сохраняется." TextWrapping="Wrap" Opacity="0.78"/>
     </StackPanel>
-    <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
+    <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" ColumnSpacing="10" IsEnabled="{Binding !IsApplying}">
       <StackPanel Spacing="4">
         <TextBlock Text="Сверху, ячейки"/>
         <NumericUpDown Value="{Binding TopCells}" Minimum="-100000" Maximum="100000" Increment="1" FormatString="N0"/>
@@ -31,6 +31,10 @@
       </StackPanel>
     </Grid>
     <StackPanel Grid.Row="2" Spacing="8">
+      <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsBusy}">
+        <views:LoadingSpinner Width="24" Height="24" IsVisible="{Binding IsBusy}"/>
+        <TextBlock Text="{Binding BusyMessage}" VerticalAlignment="Center" IsVisible="{Binding IsBusy}"/>
+      </StackPanel>
       <views:ManualCanvasResizePreview Height="280"/>
       <TextBlock Text="Размер" FontWeight="SemiBold"/>
       <TextBlock Text="{Binding CurrentSizeLabel}"/>

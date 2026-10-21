@@ -1,6 +1,7 @@
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.ManualAuthoring;
 using MapRegionizer.Core.Spatial;
+using System.Threading;
 using Xunit;
 
 namespace MapRegionizer.Core.Tests;
@@ -205,6 +206,19 @@ public sealed class ManualCanvasResizerContractTests
         Assert.Equal(reference.Longitude.SpanDegrees, restored.SpatialReference.Longitude.SpanDegrees, 10);
         Assert.Equal(reference.SouthLatitude, restored.SpatialReference.SouthLatitude, 10);
         Assert.Equal(reference.NorthLatitude, restored.SpatialReference.NorthLatitude, 10);
+    }
+
+    [Fact]
+    public void ResizeHonorsCancellationBeforeProcessingTheDraft()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => new ManualMapCanvasResizer().Resize(
+            SharedEdgeDraft(20, 10),
+            RegionalReference(20, 10),
+            new ManualCanvasResizeRequest(1, 0, 0, 0),
+            cancellation.Token));
     }
 
     [Fact]
