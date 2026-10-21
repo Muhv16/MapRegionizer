@@ -352,6 +352,7 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
         set => SetManualGridSize(ref _manualGridHeight, value, nameof(ManualGridHeight));
     }
     public bool HasManualMapDraft => _manualMapFinalization?.IsSuccessful == true;
+    public bool CanEditManualGridSize => _manualMapDraft is null;
     public string WorldMaskPath { get => _worldMaskPath; set => SetWorldMaskPath(value); }
     public string MaskFileName => string.IsNullOrWhiteSpace(MaskPath) ? string.Empty : Path.GetFileName(MaskPath);
     public string WorldMaskFileName => string.IsNullOrWhiteSpace(WorldMaskPath) ? string.Empty : Path.GetFileName(WorldMaskPath);
@@ -971,10 +972,8 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
         try
         {
             var options = BuildOptions();
-            var spatialReference = MapSpatialContext.Create(ManualGridWidth, ManualGridHeight, options.EffectiveSpatial).SpatialReference;
             var draft = _manualMapDraft ?? ManualMapDraft.Empty(ManualGridWidth, ManualGridHeight);
-            if (draft.GridWidth != ManualGridWidth || draft.GridHeight != ManualGridHeight)
-                draft = ManualMapDraft.Empty(ManualGridWidth, ManualGridHeight);
+            var spatialReference = MapSpatialContext.Create(draft.GridWidth, draft.GridHeight, options.EffectiveSpatial).SpatialReference;
             var editorSpatialConfiguration = new SpatialConfigurationViewModel(_localization);
             editorSpatialConfiguration.LoadSpatialOptions(options.EffectiveSpatial);
 
@@ -987,8 +986,20 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
             if (_disposed || result is null)
                 return;
 
-            _spatialConfiguration.LoadSpatialOptions(result.SpatialOptions);
-            _manualMapDraft = result.Draft;
+            _suppressDirty = true;
+            try
+            {
+                _spatialConfiguration.LoadSpatialOptions(result.SpatialOptions);
+                _manualMapDraft = result.Draft;
+                _manualGridWidth = result.Draft.GridWidth;
+                _manualGridHeight = result.Draft.GridHeight;
+                this.RaisePropertyChanged(nameof(ManualGridWidth));
+                this.RaisePropertyChanged(nameof(ManualGridHeight));
+            }
+            finally
+            {
+                _suppressDirty = false;
+            }
             _manualMapFinalization = result.Finalization;
             _manualGeometrySeed = new MapGeometrySeed(result.Finalization.Landmasses, result.Finalization.RegionDraft);
             _manualFinalizationSpatial = result.SpatialOptions;
@@ -999,6 +1010,7 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
             PreviewTitle = "Manual map";
             PreviewLegend = "Manual vector coastline + derived mask";
             this.RaisePropertyChanged(nameof(HasManualMapDraft));
+            this.RaisePropertyChanged(nameof(CanEditManualGridSize));
             ValidateAll();
             StatusMessage = "Ручная карта сформирована. Запустите генерацию для preview/export.";
         }
@@ -1688,6 +1700,12 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
     {
         if (field == value)
             return;
+        if (!_suppressDirty && _manualMapDraft is not null)
+        {
+            this.RaisePropertyChanged(propertyName);
+            StatusMessage = "Изменение размера существующей карты доступно в окне ручного редактора.";
+            return;
+        }
         field = value;
         this.RaisePropertyChanged(propertyName);
         if (_suppressDirty)

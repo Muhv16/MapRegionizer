@@ -2,6 +2,7 @@ using System;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using MapRegionizer.App.ViewModels;
+using MapRegionizer.Core.ManualAuthoring;
 
 namespace MapRegionizer.App.Views;
 
@@ -58,9 +59,17 @@ public partial class ManualMapEditorWindow : Window
             AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("Manual map") { Patterns = ["*.manual-map.json", "*.json"] }]
         });
-        if (!_isClosed && files.Count > 0)
-            ViewModel.LoadProject(files[0].Path.LocalPath);
+        if (_isClosed || files.Count == 0)
+            return;
+
+        ViewModel.RequestLoadProject(files[0].Path.LocalPath);
     }
+
+    private void CancelProjectLoadClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
+        ViewModel.CancelPendingProjectLoad();
+
+    private void ConfirmLegacyProjectLoadClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
+        ViewModel.ConfirmPendingLegacyProjectLoad();
 
     private async void SaveProjectClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
@@ -83,4 +92,29 @@ public partial class ManualMapEditorWindow : Window
         if (!_isClosed && files.Count > 0)
             ViewModel.LoadBackground(files[0].Path.LocalPath);
     }
+
+    private async void ResizeCanvasClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var dialog = new ManualCanvasResizeDialog
+        {
+            DataContext = ViewModel.CreateCanvasResizeDialogViewModel()
+        };
+        var request = await dialog.ShowDialog<ManualCanvasResizeRequest?>(this);
+        if (_isClosed || request is null)
+            return;
+
+        try
+        {
+            ViewModel.ApplyCanvasResize(request);
+        }
+        catch (ManualCanvasResizeException exception)
+        {
+            ViewModel.ShowDiagnostic($"Размер холста не изменён ({exception.Code}): {exception.Message}");
+        }
+        catch (Exception exception)
+        {
+            ViewModel.ShowDiagnostic($"Размер холста не изменён: {exception.Message}");
+        }
+    }
+
 }

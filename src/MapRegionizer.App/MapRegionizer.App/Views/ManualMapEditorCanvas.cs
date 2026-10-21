@@ -277,10 +277,10 @@ public sealed class ManualMapEditorCanvas : Control
             return;
 
         var destination = new Rect(
-            offsetX + viewModel.BackgroundOffsetX,
-            offsetY + viewModel.BackgroundOffsetY,
-            viewModel.Bounds.Width * scale * viewModel.BackgroundScale,
-            viewModel.Bounds.Height * scale * viewModel.BackgroundScale);
+            offsetX + viewModel.BackgroundMapX * scale,
+            offsetY + viewModel.BackgroundMapY * scale,
+            viewModel.BackgroundMapWidth * scale,
+            viewModel.BackgroundMapHeight * scale);
         var center = destination.Center;
         using (context.PushTransform(Matrix.CreateTranslation(center.X, center.Y)))
         using (context.PushTransform(Matrix.CreateRotation(Matrix.ToRadians(viewModel.BackgroundRotation))))
@@ -305,6 +305,12 @@ public sealed class ManualMapEditorCanvas : Control
     {
         if (eventArgs.PropertyName == nameof(ManualMapEditorViewModel.SelectedTool))
             return;
+        if (eventArgs.PropertyName == nameof(ManualMapEditorViewModel.Bounds))
+        {
+            // Keep the full resized canvas visible after its extent changes.
+            _zoom = 1;
+            _pan = default;
+        }
         if (eventArgs.PropertyName == nameof(ManualMapEditorViewModel.BackgroundImage))
             ClearStaticLayer();
         if (eventArgs.PropertyName is null

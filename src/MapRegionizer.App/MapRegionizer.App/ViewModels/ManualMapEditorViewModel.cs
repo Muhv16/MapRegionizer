@@ -54,6 +54,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     private readonly ManualMapDraftValidator _validator = new();
     private readonly ManualMapDraftFinalizer _finalizer = new();
+    private readonly ManualMapCanvasResizer _canvasResizer = new();
     private MapSpatialReference _spatialReference;
     private readonly MapGenerationOptions _options;
     private ManualMapDraftSpatialIndex _spatialIndex;
@@ -80,12 +81,16 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private bool _isBackgroundLocked;
     private double _backgroundOpacity = .55;
     private double _backgroundScale = 1;
-    private double _backgroundOffsetX;
-    private double _backgroundOffsetY;
+    private double _backgroundMapX;
+    private double _backgroundMapY;
+    private double _backgroundMapWidth;
+    private double _backgroundMapHeight;
     private double _backgroundRotation;
     private int _waterBodyCount;
     private int _nextVertexId;
     private bool _isValidating;
+    private string? _pendingLegacyProjectPath;
+    private bool _suppressSpatialConfigurationChanges;
     private CancellationTokenSource? _validationCancellation;
     private bool _disposed;
 
@@ -107,6 +112,8 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         _spatialIndex = new ManualMapDraftSpatialIndex(
             draft,
             Math.Max(spatialReference.UnitsPerCell * 16, RegionGeometryPrecision.LengthTolerance * 4));
+        _backgroundMapWidth = spatialReference.WidthInMapUnits;
+        _backgroundMapHeight = spatialReference.HeightInMapUnits;
         _nextVertexId = GetNextVertexId(draft);
         _applyBoundaryDistortion = false;
 
@@ -225,6 +232,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public bool CanFinalize => _lastFinalization?.IsSuccessful == true && _currentVertexIds.Count == 0 && !IsValidating;
+    public bool IsLegacyProjectConfirmationVisible => _pendingLegacyProjectPath is not null;
     public bool IsValidating
     {
         get => _isValidating;
@@ -253,9 +261,49 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     }
     public bool CanEditBackground => !IsBackgroundLocked;
     public double BackgroundOpacity { get => _backgroundOpacity; set => this.RaiseAndSetIfChanged(ref _backgroundOpacity, value); }
-    public double BackgroundScale { get => _backgroundScale; set => this.RaiseAndSetIfChanged(ref _backgroundScale, value); }
-    public double BackgroundOffsetX { get => _backgroundOffsetX; set => this.RaiseAndSetIfChanged(ref _backgroundOffsetX, value); }
-    public double BackgroundOffsetY { get => _backgroundOffsetY; set => this.RaiseAndSetIfChanged(ref _backgroundOffsetY, value); }
+    public double BackgroundScale
+    {
+        get => Bounds.Width > 0 ? _backgroundMapWidth / Bounds.Width : _backgroundScale;
+        set
+        {
+            if (!double.IsFinite(value) || value <= 0 || Bounds.Width <= 0 || Bounds.Height <= 0)
+                return;
+            _backgroundScale = value;
+            _backgroundMapWidth = Bounds.Width * value;
+            _backgroundMapHeight = Bounds.Height * value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(BackgroundMapWidth));
+            this.RaisePropertyChanged(nameof(BackgroundMapHeight));
+        }
+    }
+    public double BackgroundOffsetX
+    {
+        get => _backgroundMapX;
+        set
+        {
+            if (!double.IsFinite(value) || Math.Abs(_backgroundMapX - value) < 1e-12)
+                return;
+            _backgroundMapX = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(BackgroundMapX));
+        }
+    }
+    public double BackgroundOffsetY
+    {
+        get => _backgroundMapY;
+        set
+        {
+            if (!double.IsFinite(value) || Math.Abs(_backgroundMapY - value) < 1e-12)
+                return;
+            _backgroundMapY = value;
+            this.RaisePropertyChanged();
+            this.RaisePropertyChanged(nameof(BackgroundMapY));
+        }
+    }
+    public double BackgroundMapX => _backgroundMapX;
+    public double BackgroundMapY => _backgroundMapY;
+    public double BackgroundMapWidth => _backgroundMapWidth;
+    public double BackgroundMapHeight => _backgroundMapHeight;
     public double BackgroundRotation { get => _backgroundRotation; set => this.RaiseAndSetIfChanged(ref _backgroundRotation, value); }
     public int WaterBodyCount { get => _waterBodyCount; private set => this.RaiseAndSetIfChanged(ref _waterBodyCount, value); }
 
@@ -266,6 +314,60 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     public ReactiveCommand<Unit, Unit> ValidateCommand { get; }
     public ReactiveCommand<Unit, Unit> DeleteRegionCommand { get; }
     public ReactiveCommand<Unit, Unit> FitBackgroundCommand { get; }
+
+    public ManualCanvasResizeDialogViewModel CreateCanvasResizeDialogViewModel() => new(
+        _draft,
+        _spatialReference,
+        _canvasResizer,
+        BackgroundImage,
+        IsBackgroundVisible,
+        BackgroundOpacity,
+        _backgroundMapX,
+        _backgroundMapY,
+        _backgroundMapWidth,
+        _backgroundMapHeight,
+        BackgroundRotation);
+
+    public void ApplyCanvasResize(ManualCanvasResizeRequest request)
+    {
+        if (_disposed)
+            return;
+
+        var result = _canvasResizer.Resize(_draft, _spatialReference, request);
+        var resizedValidation = _validator.Validate(result.Draft, result.SpatialReference);
+        _validationCancellation?.Cancel();
+        PushUndo();
+        _draft = result.Draft;
+        _spatialReference = result.SpatialReference;
+        _backgroundMapX += request.LeftCells * result.SpatialReference.UnitsPerCell;
+        _backgroundMapY += request.TopCells * result.SpatialReference.UnitsPerCell;
+        _currentVertexIds = _currentVertexIds
+            .Where(id => _draft.Vertices.Any(vertex => vertex.Id == id))
+            .ToList();
+        _selectedRegionId = _draft.Regions.Any(region => region.Id == _selectedRegionId) ? _selectedRegionId : null;
+
+        _suppressSpatialConfigurationChanges = true;
+        try
+        {
+            SpatialConfiguration.LoadSpatialOptions(ToSpatialOptions(_spatialReference));
+        }
+        finally
+        {
+            _suppressSpatialConfigurationChanges = false;
+        }
+
+        _nextVertexId = GetNextVertexId(_draft);
+        ClearPointerPreview();
+        _lastFinalization = null;
+        ValidationSummary = string.Empty;
+        WaterBodyCount = 0;
+        Diagnostics = "Размер холста изменён. Повторно проверьте карту перед формированием.";
+        RefreshState(resizedValidation);
+        this.RaisePropertyChanged(nameof(GridWidth));
+        this.RaisePropertyChanged(nameof(GridHeight));
+        this.RaisePropertyChanged(nameof(Bounds));
+        RaiseBackgroundTransformProperties();
+    }
 
     public void HandlePointer(MapPoint point, double hitTolerance)
     {
@@ -408,6 +510,15 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     private void LoadBackgroundImage(string path)
     {
+        var bitmap = DecodeBackgroundImage(path);
+        var previous = BackgroundImage;
+        BackgroundImage = bitmap;
+        previous?.Dispose();
+        BackgroundPath = Path.GetFullPath(path);
+    }
+
+    private static Bitmap DecodeBackgroundImage(string path)
+    {
         var imageInfo = ImageSharpImage.Identify(path);
         if (imageInfo is not null
             && Math.Max(imageInfo.Width, imageInfo.Height) > MaxBackgroundPixelDimension)
@@ -416,7 +527,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                 ? MaxBackgroundPixelDimension
                 : Math.Max(1, (int)Math.Round(imageInfo.Width * (double)MaxBackgroundPixelDimension / imageInfo.Height));
             using var scaledStream = File.OpenRead(path);
-            BackgroundImage = Bitmap.DecodeToWidth(
+            return Bitmap.DecodeToWidth(
                 scaledStream,
                 targetWidth,
                 BitmapInterpolationMode.HighQuality);
@@ -424,14 +535,13 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         else
         {
             using var stream = File.OpenRead(path);
-            BackgroundImage = new Bitmap(stream);
+            return new Bitmap(stream);
         }
-        BackgroundPath = Path.GetFullPath(path);
     }
 
     public void SaveProject(string path)
     {
-        ManualMapJson.Save(path, _draft);
+        ManualMapJson.Save(path, _draft, _spatialReference);
         var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         var relativeBackground = string.IsNullOrWhiteSpace(BackgroundPath)
             ? null
@@ -446,33 +556,115 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                 BackgroundOffsetX,
                 BackgroundOffsetY,
                 BackgroundRotation,
-                _currentVertexIds.ToArray()),
+                _currentVertexIds.ToArray(),
+                BackgroundMapX,
+                BackgroundMapY,
+                BackgroundMapWidth,
+                BackgroundMapHeight),
             EditorStateOptions));
         Diagnostics = "Ручной проект сохранён.";
     }
 
-    public void LoadProject(string path)
+    public static bool ProjectNeedsSpatialReferenceConfirmation(string path) =>
+        !ManualMapJson.LoadProject(path).HasSpatialReference;
+
+    public void RequestLoadProject(string path)
     {
         if (_disposed)
             return;
 
         try
         {
-            var draft = ManualMapJson.Load(path);
-            if (draft.GridWidth != GridWidth || draft.GridHeight != GridHeight)
+            var project = ManualMapJson.LoadProject(path);
+            if (!project.HasSpatialReference)
             {
-                Diagnostics = "Проект не загружен: размеры grid не совпадают с текущим редактором.";
+                _pendingLegacyProjectPath = path;
+                this.RaisePropertyChanged(nameof(IsLegacyProjectConfirmationVisible));
+                Diagnostics = "Старый проект не содержит пространственные настройки. Подтвердите загрузку с настройками текущего редактора.";
                 return;
             }
 
+            LoadProject(path);
+        }
+        catch (Exception exception)
+        {
+            Diagnostics = $"Проект не загружен: {exception.Message}";
+        }
+    }
+
+    public void CancelPendingProjectLoad()
+    {
+        if (_pendingLegacyProjectPath is null)
+            return;
+
+        _pendingLegacyProjectPath = null;
+        this.RaisePropertyChanged(nameof(IsLegacyProjectConfirmationVisible));
+        Diagnostics = "Загрузка проекта отменена.";
+    }
+
+    public void ConfirmPendingLegacyProjectLoad()
+    {
+        var path = _pendingLegacyProjectPath;
+        if (path is null || _disposed)
+            return;
+
+        _pendingLegacyProjectPath = null;
+        this.RaisePropertyChanged(nameof(IsLegacyProjectConfirmationVisible));
+        LoadProject(path, useCurrentSpatialReferenceForLegacy: true);
+    }
+
+    public void LoadProject(string path, bool useCurrentSpatialReferenceForLegacy = false)
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            var project = ManualMapJson.LoadProject(path);
+            if (!project.HasSpatialReference && !useCurrentSpatialReferenceForLegacy)
+            {
+                Diagnostics = "Проект старого формата не содержит географическую привязку. Подтвердите загрузку с текущими пространственными настройками.";
+                return;
+            }
+
+            var draft = project.Draft;
+            var spatialReference = project.SpatialReference ?? _spatialReference with
+            {
+                GridWidth = draft.GridWidth,
+                GridHeight = draft.GridHeight
+            };
+            spatialReference.Validate();
+            var projectValidation = _validator.Validate(draft, spatialReference);
+            var editorState = ReadEditorState(path);
+            var backgroundBitmap = PrepareBackgroundImage(path, editorState?.BackgroundPath);
+
+            _validationCancellation?.Cancel();
             _draft = draft;
+            _spatialReference = spatialReference;
             _nextVertexId = GetNextVertexId(draft);
-            _currentVertexIds.Clear();
+            _currentVertexIds = GetCurrentVertexIds(draft, editorState);
+            _selectedRegionId = null;
+            ClearPointerPreview();
             _undo.Clear();
             _redo.Clear();
-            LoadEditorState(path);
-            RefreshState();
-            Diagnostics = "Ручной проект загружен.";
+            _suppressSpatialConfigurationChanges = true;
+            try
+            {
+                SpatialConfiguration.LoadSpatialOptions(ToSpatialOptions(_spatialReference));
+            }
+            finally
+            {
+                _suppressSpatialConfigurationChanges = false;
+            }
+            ApplyEditorState(path, editorState, backgroundBitmap);
+            RefreshState(projectValidation);
+            this.RaisePropertyChanged(nameof(GridWidth));
+            this.RaisePropertyChanged(nameof(GridHeight));
+            this.RaisePropertyChanged(nameof(Bounds));
+            RaiseBackgroundTransformProperties();
+            Diagnostics = project.HasSpatialReference
+                ? "Ручной проект загружен."
+                : "Старый проект загружен с текущими пространственными настройками; географическая привязка исходного файла неизвестна.";
         }
         catch (Exception exception)
         {
@@ -495,9 +687,17 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     public void FitBackground()
     {
+        _backgroundMapX = 0;
+        _backgroundMapY = 0;
+        _backgroundMapWidth = Bounds.Width;
+        _backgroundMapHeight = Bounds.Height;
         BackgroundScale = 1;
-        BackgroundOffsetX = 0;
-        BackgroundOffsetY = 0;
+        this.RaisePropertyChanged(nameof(BackgroundOffsetX));
+        this.RaisePropertyChanged(nameof(BackgroundOffsetY));
+        this.RaisePropertyChanged(nameof(BackgroundMapX));
+        this.RaisePropertyChanged(nameof(BackgroundMapY));
+        this.RaisePropertyChanged(nameof(BackgroundMapWidth));
+        this.RaisePropertyChanged(nameof(BackgroundMapHeight));
         BackgroundRotation = 0;
     }
 
@@ -628,6 +828,11 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                 RefreshEditorProperties();
             });
         }
+        catch (OperationCanceledException) when (validationCancellation?.IsCancellationRequested == true)
+        {
+            // Resize and editor teardown cancel stale validation runs. Their
+            // results and cancellation details are intentionally discarded.
+        }
         catch (Exception exception)
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -661,6 +866,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     private void OnSpatialConfigurationChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (_suppressSpatialConfigurationChanges)
+            return;
+
         if (e.PropertyName is not (nameof(SpatialConfigurationViewModel.WorldModel)
             or nameof(SpatialConfigurationViewModel.UnitsPerCell)
             or nameof(SpatialConfigurationViewModel.CoverageKind)
@@ -858,16 +1066,45 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         Restore(_redo.Pop());
     }
 
-    private ManualMapEditorSnapshot Capture() => new(_draft, _currentVertexIds.ToArray(), _selectedRegionId);
+    private ManualMapEditorSnapshot Capture() => new(
+        _draft,
+        _currentVertexIds.ToArray(),
+        _selectedRegionId,
+        _spatialReference,
+        _backgroundMapX,
+        _backgroundMapY,
+        _backgroundMapWidth,
+        _backgroundMapHeight,
+        BackgroundRotation);
 
     private void Restore(ManualMapEditorSnapshot snapshot)
     {
+        _validationCancellation?.Cancel();
         _draft = snapshot.Draft;
+        _spatialReference = snapshot.SpatialReference;
         _nextVertexId = GetNextVertexId(_draft);
         _currentVertexIds = snapshot.CurrentVertexIds.ToList();
         _selectedRegionId = snapshot.SelectedRegionId;
+        _backgroundMapX = snapshot.BackgroundMapX;
+        _backgroundMapY = snapshot.BackgroundMapY;
+        _backgroundMapWidth = snapshot.BackgroundMapWidth;
+        _backgroundMapHeight = snapshot.BackgroundMapHeight;
+        BackgroundRotation = snapshot.BackgroundRotation;
+        _suppressSpatialConfigurationChanges = true;
+        try
+        {
+            SpatialConfiguration.LoadSpatialOptions(ToSpatialOptions(_spatialReference));
+        }
+        finally
+        {
+            _suppressSpatialConfigurationChanges = false;
+        }
         ClearPointerPreview();
         RefreshState();
+        this.RaisePropertyChanged(nameof(GridWidth));
+        this.RaisePropertyChanged(nameof(GridHeight));
+        this.RaisePropertyChanged(nameof(Bounds));
+        RaiseBackgroundTransformProperties();
     }
 
     private SnapResult FindSnap(MapPoint point, double tolerance)
@@ -908,41 +1145,102 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                 $"{(diagnostic.IsBlocking ? "✗" : "•")} {diagnostic.Code}: {diagnostic.Message}"));
     }
 
-    private void LoadEditorState(string path)
+    private static ManualMapEditorProjectState? ReadEditorState(string path)
     {
         var statePath = path + ".editor.json";
         if (!File.Exists(statePath))
-            return;
-        try
+            return null;
+        return JsonSerializer.Deserialize<ManualMapEditorProjectState>(File.ReadAllText(statePath), EditorStateOptions);
+    }
+
+    private static Bitmap? PrepareBackgroundImage(string path, string? relativeBackgroundPath)
+    {
+        if (string.IsNullOrWhiteSpace(relativeBackgroundPath))
+            return null;
+        var backgroundPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, relativeBackgroundPath));
+        return File.Exists(backgroundPath) ? DecodeBackgroundImage(backgroundPath) : null;
+    }
+
+    private void ApplyEditorState(string projectPath, ManualMapEditorProjectState? state, Bitmap? backgroundBitmap)
+    {
+        var previousImage = BackgroundImage;
+        BackgroundImage = backgroundBitmap;
+        previousImage?.Dispose();
+        BackgroundPath = backgroundBitmap is null || string.IsNullOrWhiteSpace(state?.BackgroundPath)
+            ? null
+            : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(projectPath))!, state.BackgroundPath));
+
+        IsBackgroundVisible = state?.IsBackgroundVisible ?? true;
+        IsBackgroundLocked = state?.IsBackgroundLocked ?? false;
+        BackgroundOpacity = state?.BackgroundOpacity ?? .55;
+        BackgroundRotation = state?.BackgroundRotation ?? 0;
+        _backgroundScale = state?.BackgroundScale is > 0 and var scale && double.IsFinite(scale) ? scale : 1;
+
+        if (state?.BackgroundMapX is { } x && state.BackgroundMapY is { } y &&
+            state.BackgroundMapWidth is > 0 and var width && state.BackgroundMapHeight is > 0 and var height &&
+            double.IsFinite(x) && double.IsFinite(y) && double.IsFinite(width) && double.IsFinite(height))
         {
-            var state = JsonSerializer.Deserialize<ManualMapEditorProjectState>(File.ReadAllText(statePath), EditorStateOptions);
-            if (state is null)
-                return;
-            var knownVertexIds = _draft.Vertices.Select(vertex => vertex.Id).ToHashSet();
-            _currentVertexIds = state.CurrentVertexIds is null
-                ? []
-                : state.CurrentVertexIds
-                    .Where(knownVertexIds.Contains)
-                    .Distinct()
-                    .ToList();
-            IsBackgroundVisible = state.IsBackgroundVisible;
-            IsBackgroundLocked = state.IsBackgroundLocked;
-            BackgroundOpacity = state.BackgroundOpacity;
-            BackgroundScale = state.BackgroundScale;
-            BackgroundOffsetX = state.BackgroundOffsetX;
-            BackgroundOffsetY = state.BackgroundOffsetY;
-            BackgroundRotation = state.BackgroundRotation;
-            if (!string.IsNullOrWhiteSpace(state.BackgroundPath))
-            {
-                var backgroundPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, state.BackgroundPath));
-                if (File.Exists(backgroundPath))
-                    LoadBackgroundImage(backgroundPath);
-            }
+            _backgroundMapX = x;
+            _backgroundMapY = y;
+            _backgroundMapWidth = width;
+            _backgroundMapHeight = height;
         }
-        catch (Exception exception)
+        else if (state is not null)
         {
-            Diagnostics = $"Проект загружен, но состояние фона не восстановлено: {exception.Message}";
+            // Version 1 sidecars stored offsets in canvas pixels and a scale
+            // relative to the then-current map bounds. Treat those offsets as
+            // map units once, then persist the stable map-space rectangle.
+            _backgroundMapX = double.IsFinite(state.BackgroundOffsetX) ? state.BackgroundOffsetX : 0;
+            _backgroundMapY = double.IsFinite(state.BackgroundOffsetY) ? state.BackgroundOffsetY : 0;
+            _backgroundMapWidth = Bounds.Width * _backgroundScale;
+            _backgroundMapHeight = Bounds.Height * _backgroundScale;
         }
+        else
+        {
+            _backgroundMapX = 0;
+            _backgroundMapY = 0;
+            _backgroundMapWidth = Bounds.Width;
+            _backgroundMapHeight = Bounds.Height;
+            _backgroundScale = 1;
+        }
+
+        this.RaisePropertyChanged(nameof(BackgroundOffsetX));
+        this.RaisePropertyChanged(nameof(BackgroundOffsetY));
+        this.RaisePropertyChanged(nameof(BackgroundMapX));
+        this.RaisePropertyChanged(nameof(BackgroundMapY));
+        this.RaisePropertyChanged(nameof(BackgroundMapWidth));
+        this.RaisePropertyChanged(nameof(BackgroundMapHeight));
+        this.RaisePropertyChanged(nameof(BackgroundScale));
+    }
+
+    private static List<int> GetCurrentVertexIds(ManualMapDraft draft, ManualMapEditorProjectState? state)
+    {
+        var knownVertexIds = draft.Vertices.Select(vertex => vertex.Id).ToHashSet();
+        return state?.CurrentVertexIds is null
+            ? []
+            : state.CurrentVertexIds.Where(knownVertexIds.Contains).Distinct().ToList();
+    }
+
+    private static MapSpatialOptions ToSpatialOptions(MapSpatialReference reference) => new()
+    {
+        WorldModel = reference.WorldModel,
+        Coverage = reference.Coverage,
+        GridMapping = reference.GridMapping,
+        Topology = reference.Topology,
+        UnitsPerCell = reference.UnitsPerCell,
+        PreserveProjectedCellAspectRatio = reference.PreserveProjectedCellAspectRatio,
+        LegacyCompatibility = reference.LegacyCompatibility
+    };
+
+    private void RaiseBackgroundTransformProperties()
+    {
+        this.RaisePropertyChanged(nameof(BackgroundOffsetX));
+        this.RaisePropertyChanged(nameof(BackgroundOffsetY));
+        this.RaisePropertyChanged(nameof(BackgroundMapX));
+        this.RaisePropertyChanged(nameof(BackgroundMapY));
+        this.RaisePropertyChanged(nameof(BackgroundMapWidth));
+        this.RaisePropertyChanged(nameof(BackgroundMapHeight));
+        this.RaisePropertyChanged(nameof(BackgroundScale));
     }
 
     private readonly record struct SnapResult(int? VertexId, MapPoint? Position, ManualMapEdgeSnap? Edge);
@@ -952,7 +1250,16 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         MapGenerationOptions Options,
         CancellationToken CancellationToken);
     private sealed record ManualMapValidationOutput(ManualMapFinalizationResult Finalization, int WaterBodyCount);
-    private sealed record ManualMapEditorSnapshot(ManualMapDraft Draft, IReadOnlyList<int> CurrentVertexIds, int? SelectedRegionId);
+    private sealed record ManualMapEditorSnapshot(
+        ManualMapDraft Draft,
+        IReadOnlyList<int> CurrentVertexIds,
+        int? SelectedRegionId,
+        MapSpatialReference SpatialReference,
+        double BackgroundMapX,
+        double BackgroundMapY,
+        double BackgroundMapWidth,
+        double BackgroundMapHeight,
+        double BackgroundRotation);
 }
 
 public sealed record ManualMapEditorProjectState(
@@ -964,4 +1271,9 @@ public sealed record ManualMapEditorProjectState(
     double BackgroundOffsetX,
     double BackgroundOffsetY,
     double BackgroundRotation,
-    IReadOnlyList<int>? CurrentVertexIds = null);
+    IReadOnlyList<int>? CurrentVertexIds = null,
+    double? BackgroundMapX = null,
+    double? BackgroundMapY = null,
+    double? BackgroundMapWidth = null,
+    double? BackgroundMapHeight = null,
+    string SchemaVersion = "2.0");

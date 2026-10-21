@@ -97,11 +97,10 @@ compatibility and intentionally planar configurations.
 
 `Coverage` states which geographic extent the generation grid represents.
 `MapCoverage.Global` describes a full longitude span and normally reaches the
-geographic poles, but it can use a narrower latitude range when the map needs
-an inset from both poles. The App exposes this as a symmetric pole inset.
-`MapCoverage.Regional` describes explicit south/north latitude bounds and a
-directed west/east longitude interval; a longitude interval may cross the
-antimeridian.
+geographic poles, but it can use an independently selected south and north
+latitude range. `MapCoverage.Regional` describes explicit south/north latitude
+bounds and a directed west/east longitude interval; a longitude interval may
+cross the antimeridian.
 
 Coverage does not choose a world context. A regional map may be isolated, use
 an automatically derived surrounding world, or use caller-supplied contexts;
@@ -226,8 +225,16 @@ Web Mercator generation supports latitudes only within
 `±WebMercatorGridMapping.WebMercatorLatitudeLimit` (approximately 85.0511°).
 The App replaces full-world ±90° defaults with this limit when Web Mercator is
 selected, and restores ±90° only when switching back while those values are
-still the untouched Mercator defaults. Manually entered invalid values are
-reported at the App boundary with a localized validation message.
+still the untouched Mercator defaults. Both global and regional latitude
+controls use the selected mapping's valid limits. Manually entered invalid
+values are reported at the App boundary with a localized validation message.
+
+The manual-map editor preserves the geographic coordinates of existing
+vertices when adding or removing canvas edge strips. Equirectangular bounds
+change linearly by the old degrees per row; Web Mercator bounds change in
+projected Y. Global coverage cannot change width because it already spans 360°
+of longitude. This is a document resize operation and does not alter MapPackage
+v1.
 
 For output Web Mercator, `LatitudeOverflowPolicy` chooses `Reject` or `Clip`.
 Generation and output policies are separate.

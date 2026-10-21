@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:MapRegionizer.App.Views"
+        xmlns:vm="clr-namespace:MapRegionizer.App.ViewModels"
+        x:Class="MapRegionizer.App.Views.ManualCanvasResizeDialog"
+        x:DataType="vm:ManualCanvasResizeDialogViewModel"
+        x:CompileBindings="False"
+        Title="Изменить размеры холста" Width="720" Height="760"
+        WindowStartupLocation="CenterOwner" CanResize="False">
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="16" RowSpacing="12">
+    <StackPanel Spacing="4">
+      <TextBlock Text="Изменение размеров холста" FontSize="20" FontWeight="Bold"/>
+      <TextBlock Text="Положительное число добавляет ячейки, отрицательное удаляет. Географическое положение существующих регионов сохраняется." TextWrapping="Wrap" Opacity="0.78"/>
+    </StackPanel>
+    <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
+      <StackPanel Spacing="4">
+        <TextBlock Text="Сверху, ячейки"/>
+        <NumericUpDown Value="{Binding TopCells}" Minimum="-100000" Maximum="100000" Increment="1" FormatString="N0"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Spacing="4">
+        <TextBlock Text="Снизу, ячейки"/>
+        <NumericUpDown Value="{Binding BottomCells}" Minimum="-100000" Maximum="100000" Increment="1" FormatString="N0"/>
+      </StackPanel>
+      <StackPanel Grid.Column="2" Spacing="4" IsEnabled="{Binding IsHorizontalResizeEnabled}">
+        <TextBlock Text="Слева, ячейки"/>
+        <NumericUpDown Value="{Binding LeftCells}" Minimum="-100000" Maximum="100000" Increment="1" FormatString="N0"/>
+      </StackPanel>
+      <StackPanel Grid.Column="3" Spacing="4" IsEnabled="{Binding IsHorizontalResizeEnabled}">
+        <TextBlock Text="Справа, ячейки"/>
+        <NumericUpDown Value="{Binding RightCells}" Minimum="-100000" Maximum="100000" Increment="1" FormatString="N0"/>
+      </StackPanel>
+    </Grid>
+    <StackPanel Grid.Row="2" Spacing="8">
+      <views:ManualCanvasResizePreview Height="280"/>
+      <TextBlock Text="Размер" FontWeight="SemiBold"/>
+      <TextBlock Text="{Binding CurrentSizeLabel}"/>
+      <TextBlock Text="{Binding NewSizeLabel}" FontWeight="SemiBold"/>
+      <TextBlock Text="{Binding CoverageLabel}" TextWrapping="Wrap"/>
+      <TextBlock Text="{Binding GeometryImpactLabel}" TextWrapping="Wrap"/>
+      <TextBlock Text="Для глобальной карты изменение ширины недоступно: охват уже равен 360° по долготе." IsVisible="{Binding IsGlobal}" TextWrapping="Wrap" Opacity="0.75"/>
+    </StackPanel>
+    <Border Grid.Row="3" Background="#3F1D1D" Padding="8" CornerRadius="4" IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="#FCA5A5" TextWrapping="Wrap"/>
+    </Border>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Отмена" Click="CancelClick" MinWidth="100"/>
+      <Button Content="Применить" Click="ApplyClick" IsEnabled="{Binding CanApply}" MinWidth="120" Background="#2563EB" Foreground="White"/>
+    </StackPanel>
+  </Grid>
+</Window>

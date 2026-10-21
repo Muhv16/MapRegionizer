@@ -88,11 +88,14 @@
             </views:SettingsRow.Value>
         </views:SettingsRow>
 
-        <views:SettingsRow Label="{Binding L[PolarInset]}" IsVisible="{Binding SpatialConfiguration.ShowPolarInset}">
-            <views:SettingsRow.Value>
-                <NumericUpDown Value="{Binding SpatialConfiguration.PolarInsetDegrees}" Minimum="{Binding SpatialConfiguration.MinimumPolarInsetDegrees}" Maximum="89.99" FormatString="N2"/>
-            </views:SettingsRow.Value>
-        </views:SettingsRow>
+        <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowGlobalLatitudeBounds}">
+            <views:SettingsRow Label="{Binding L[SouthLatitude]}">
+                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.SouthLatitude}" Minimum="{Binding SpatialConfiguration.MinimumLatitude}" Maximum="{Binding SpatialConfiguration.MaximumLatitude}" FormatString="N2"/></views:SettingsRow.Value>
+            </views:SettingsRow>
+            <views:SettingsRow Label="{Binding L[NorthLatitude]}">
+                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.NorthLatitude}" Minimum="{Binding SpatialConfiguration.MinimumLatitude}" Maximum="{Binding SpatialConfiguration.MaximumLatitude}" FormatString="N2"/></views:SettingsRow.Value>
+            </views:SettingsRow>
+        </StackPanel>
 
         <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowLongitudeBounds}">
             <views:SettingsRow Label="{Binding L[WestLongitude]}">
@@ -104,11 +107,11 @@
         </StackPanel>
 
         <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowLatitudeBounds}">
-            <views:SettingsRow Label="{Binding L[SouthLatitude]}">
-                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.SouthLatitude}" Minimum="-90" Maximum="90" FormatString="N2"/></views:SettingsRow.Value>
+                <views:SettingsRow Label="{Binding L[SouthLatitude]}">
+                    <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.SouthLatitude}" Minimum="{Binding SpatialConfiguration.MinimumLatitude}" Maximum="{Binding SpatialConfiguration.MaximumLatitude}" FormatString="N2"/></views:SettingsRow.Value>
             </views:SettingsRow>
-            <views:SettingsRow Label="{Binding L[NorthLatitude]}">
-                <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.NorthLatitude}" Minimum="-90" Maximum="90" FormatString="N2"/></views:SettingsRow.Value>
+                <views:SettingsRow Label="{Binding L[NorthLatitude]}">
+                    <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.NorthLatitude}" Minimum="{Binding SpatialConfiguration.MinimumLatitude}" Maximum="{Binding SpatialConfiguration.MaximumLatitude}" FormatString="N2"/></views:SettingsRow.Value>
             </views:SettingsRow>
         </StackPanel>
     </StackPanel>

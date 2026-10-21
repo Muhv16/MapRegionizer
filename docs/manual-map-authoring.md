@@ -69,16 +69,36 @@ so the background work can stop after the editor closes.
 
 ## Persistence and App state
 
-`ManualMapJson` writes a versioned `*.manual-map.json` document containing the
-grid, shared vertices, and faces. The Avalonia editor stores background image
-visibility, lock, opacity, transform, and a relative image path in the
-`*.manual-map.json.editor.json` sidecar. Background state is presentation-only
-and never enters Core finalization. The editor's Spatial controls configure
-full-world coverage with a symmetric inset from the poles, or regional coverage
-with explicit west/east longitude and south/north latitude bounds. Accepted
-spatial settings update the App configuration and are used to finalize and
-generate the map; cancelling the editor discards those edits. Spatial settings
-remain App configuration and are not stored in the manual-map geometry file.
+`ManualMapJson` writes version 2.0 `*.manual-map.json` documents containing the
+grid, shared vertices, faces, and the `MapSpatialReference` used to interpret
+their coordinates. Version 1.0 projects remain readable, but they contain no
+spatial reference; the editor asks before loading one with the current spatial
+settings because its original geographic coordinates cannot be recovered. The
+confirmation appears inside the editor. Cancelling it leaves the current draft
+and spatial settings unchanged and returns control to the editor.
+
+The Avalonia editor stores background visibility, lock, opacity, a map-unit
+rectangle, rotation, and a relative image path in the
+`*.manual-map.json.editor.json` sidecar. Older sidecars with canvas-pixel
+offsets are migrated once using those values as map-unit offsets. Background
+state is presentation-only and never enters Core finalization.
+
+The editor can add or remove empty edge strips from the canvas. Existing shared
+vertices are translated once and retain their IDs; the spatial coverage is
+updated using equirectangular degrees per cell or Web Mercator projected units
+per cell so their geographic coordinates remain fixed. A shrink is rejected
+if any saved or in-progress vertex would lie outside the new canvas. Global
+maps cannot change width because their longitude span is already 360 degrees.
+Resize is limited to 100,000 cells on either side and 100,000,000 cells total.
+The background rectangle moves with the map vertices and keeps its map-unit
+size, so it does not stretch when the canvas changes. **Fit background** remains
+an explicit action that fills the current canvas.
+
+Global coverage exposes independent south and north latitude bounds. Regional
+coverage also uses explicit west/east and south/north bounds. Accepted spatial
+settings update the App configuration and are used to finalize and generate the
+map; cancelling the editor discards those edits. The package output contract
+does not change.
 
 ## Current limitations and future work
 

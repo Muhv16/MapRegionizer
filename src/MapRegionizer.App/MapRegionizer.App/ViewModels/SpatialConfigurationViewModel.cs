@@ -461,6 +461,13 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
     public bool ShowRegionBounds => IsRegional;
     public bool ShowLongitudeBounds => IsRegional;
     public bool ShowLatitudeBounds => IsRegional;
+    public bool ShowGlobalLatitudeBounds => !IsRegional;
+    public double MinimumLatitude => GridMapping == GridMappingKind.WebMercator
+        ? -WebMercatorGridMapping.WebMercatorLatitudeLimit
+        : -90;
+    public double MaximumLatitude => GridMapping == GridMappingKind.WebMercator
+        ? WebMercatorGridMapping.WebMercatorLatitudeLimit
+        : 90;
     public bool ShowPolarInset => !IsRegional;
     public bool ShowHorizontalWrapping => !IsRegional;
 
@@ -620,6 +627,7 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(ShowRegionBounds));
         this.RaisePropertyChanged(nameof(ShowLongitudeBounds));
         this.RaisePropertyChanged(nameof(ShowLatitudeBounds));
+        this.RaisePropertyChanged(nameof(ShowGlobalLatitudeBounds));
         this.RaisePropertyChanged(nameof(ShowPolarInset));
         this.RaisePropertyChanged(nameof(ShowHorizontalWrapping));
         this.RaisePropertyChanged(nameof(ShowWorldContext));
@@ -631,6 +639,8 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         this.RaisePropertyChanged(nameof(IsWebMercator));
         this.RaisePropertyChanged(nameof(PolarInsetDegrees));
         this.RaisePropertyChanged(nameof(MinimumPolarInsetDegrees));
+        this.RaisePropertyChanged(nameof(MinimumLatitude));
+        this.RaisePropertyChanged(nameof(MaximumLatitude));
     }
 
     private void RaiseTopologyChoicesChanged()

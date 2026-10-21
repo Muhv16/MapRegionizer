@@ -6,16 +6,18 @@
         x:DataType="vm:ManualMapEditorViewModel"
         x:CompileBindings="False"
         Title="Ручная разметка карты" Width="1550" Height="980" WindowStartupLocation="CenterOwner">
-  <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10">
-    <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+  <Grid>
+    <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10" IsEnabled="{Binding !IsLegacyProjectConfirmationVisible}">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
       <!-- The canvas owns the tool state; do not bind ComboBox.SelectedItem back
            to the large editor ViewModel during a selection transaction. -->
       <ComboBox Width="155" ItemsSource="{Binding Tools}" SelectedIndex="0" SelectionChanged="ToolSelectionChanged"/>
       <Button Grid.Column="1" Content="Undo" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}"/>
       <Button Grid.Column="2" Content="Redo" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"/>
       <Button Grid.Column="3" Content="Проверить карту" Command="{Binding ValidateCommand}"/>
-      <CheckBox Grid.Column="5" Content="Применить distortion" IsChecked="{Binding ApplyBoundaryDistortion}" VerticalAlignment="Center"/>
-      <TextBlock Grid.Column="6" Text="Enter — завершить · Esc — отменить · Backspace — убрать вершину" VerticalAlignment="Center" Opacity="0.75"/>
+      <Button Grid.Column="4" Content="Изменить размеры…" Click="ResizeCanvasClick"/>
+      <CheckBox Grid.Column="6" Content="Применить distortion" IsChecked="{Binding ApplyBoundaryDistortion}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="7" Text="Enter — завершить · Esc — отменить · Backspace — убрать вершину" VerticalAlignment="Center" Opacity="0.75"/>
     </Grid>
     <Grid Grid.Row="1" ColumnDefinitions="270,*,310" ColumnSpacing="10">
       <Border BorderBrush="#475569" BorderThickness="1" Padding="8">
@@ -31,8 +33,8 @@
           <CheckBox Content="Показывать" IsChecked="{Binding IsBackgroundVisible}"/>
           <CheckBox Content="Заблокировать" IsChecked="{Binding IsBackgroundLocked}"/>
           <TextBlock Text="Прозрачность"/><Slider Minimum="0" Maximum="1" Value="{Binding BackgroundOpacity}"/>
-          <TextBlock Text="Масштаб"/><NumericUpDown Minimum="0.1" Value="{Binding BackgroundScale}" IsEnabled="{Binding CanEditBackground}"/>
-          <TextBlock Text="Смещение X / Y"/><StackPanel Orientation="Horizontal" Spacing="4"><NumericUpDown Width="105" Value="{Binding BackgroundOffsetX}" IsEnabled="{Binding CanEditBackground}"/><NumericUpDown Width="105" Value="{Binding BackgroundOffsetY}" IsEnabled="{Binding CanEditBackground}"/></StackPanel>
+          <TextBlock Text="Масштаб относительно холста"/><NumericUpDown Minimum="0.1" Value="{Binding BackgroundScale}" IsEnabled="{Binding CanEditBackground}"/>
+          <TextBlock Text="Смещение X / Y (map units)"/><StackPanel Orientation="Horizontal" Spacing="4"><NumericUpDown Width="105" Value="{Binding BackgroundOffsetX}" IsEnabled="{Binding CanEditBackground}"/><NumericUpDown Width="105" Value="{Binding BackgroundOffsetY}" IsEnabled="{Binding CanEditBackground}"/></StackPanel>
           <TextBlock Text="Поворот"/><NumericUpDown Value="{Binding BackgroundRotation}" Minimum="-180" Maximum="180" IsEnabled="{Binding CanEditBackground}"/>
         </StackPanel>
       </Border>
@@ -58,6 +60,36 @@
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Отмена" Click="CancelClick"/>
       <Button Content="Сформировать карту" Click="FinalizeClick" IsEnabled="{Binding CanFinalize}" Background="#2563EB" Foreground="White"/>
-    </StackPanel>
+      </StackPanel>
+    </Grid>
+    <Border IsVisible="{Binding IsLegacyProjectConfirmationVisible}"
+            Background="#990F172A"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch">
+      <Border HorizontalAlignment="Center"
+              VerticalAlignment="Center"
+              MaxWidth="500"
+              Padding="20"
+              Background="#1E293B"
+              BorderBrush="#64748B"
+              BorderThickness="1"
+              CornerRadius="8">
+        <StackPanel Spacing="16">
+          <TextBlock Text="Проект без пространственных настроек"
+                     FontSize="18"
+                     FontWeight="Bold"/>
+          <TextBlock Text="Этот проект старого формата не содержит пространственные настройки. Использовать настройки текущего редактора? Географические координаты исходного проекта могут отличаться."
+                     TextWrapping="Wrap"/>
+          <StackPanel Orientation="Horizontal"
+                      HorizontalAlignment="Right"
+                      Spacing="8">
+            <Button Content="Отмена" Click="CancelProjectLoadClick" MinWidth="90"/>
+            <Button Content="Использовать текущие настройки"
+                    Click="ConfirmLegacyProjectLoadClick"
+                    MinWidth="210"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Border>
   </Grid>
 </Window>

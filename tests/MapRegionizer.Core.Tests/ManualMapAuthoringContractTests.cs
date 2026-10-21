@@ -407,6 +407,35 @@ public sealed class ManualMapAuthoringContractTests
         Assert.Equal(draft.Regions.SelectMany(region => region.VertexIds), roundTripped.Regions.SelectMany(region => region.VertexIds));
     }
 
+    [Fact]
+    public void ManualMapJsonVersionTwoRoundTripsSpatialReference()
+    {
+        var draft = SquareDraft(10, 10, 1, 1, 5, 5);
+        var reference = CreateSpatialReference(10, 10) with
+        {
+            Coverage = MapCoverage.Regional(new LongitudeInterval(145, 80), -35, 65),
+            UnitsPerCell = 2.5
+        };
+
+        var project = ManualMapJson.ReadProject(ManualMapJson.Write(draft, reference));
+
+        Assert.Equal("2.0", project.SchemaVersion);
+        Assert.Equal(draft.GridWidth, project.Draft.GridWidth);
+        Assert.Equal(draft.GridHeight, project.Draft.GridHeight);
+        Assert.Equal(draft.Vertices, project.Draft.Vertices);
+        Assert.Equal(draft.Regions.SelectMany(region => region.VertexIds), project.Draft.Regions.SelectMany(region => region.VertexIds));
+        Assert.Equal(reference, project.SpatialReference);
+    }
+
+    [Fact]
+    public void LegacyManualMapJsonDoesNotInventSpatialReference()
+    {
+        var project = ManualMapJson.ReadProject(ManualMapJson.Write(SquareDraft(10, 10, 1, 1, 5, 5)));
+
+        Assert.Equal("1.0", project.SchemaVersion);
+        Assert.False(project.HasSpatialReference);
+    }
+
     private ManualMapFinalizationResult Finalize(ManualMapDraft draft) => _finalizer.FinalizeDraft(draft, CreateSpatialReference(draft.GridWidth, draft.GridHeight));
 
     private static ManualMapDraft SquareDraft(int width, int height, double x, double y, double squareWidth, double squareHeight) => new(

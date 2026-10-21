@@ -29,11 +29,12 @@
                     </views:SettingsRow>
                     <StackPanel Spacing="8" IsVisible="{Binding IsManualSource}">
                         <views:SettingsRow Label="Grid width">
-                            <views:SettingsRow.Value><NumericUpDown Value="{Binding ManualGridWidth}" Minimum="1" FormatString="N0"/></views:SettingsRow.Value>
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding ManualGridWidth}" Minimum="1" FormatString="N0" IsEnabled="{Binding CanEditManualGridSize}"/></views:SettingsRow.Value>
                         </views:SettingsRow>
                         <views:SettingsRow Label="Grid height">
-                            <views:SettingsRow.Value><NumericUpDown Value="{Binding ManualGridHeight}" Minimum="1" FormatString="N0"/></views:SettingsRow.Value>
+                            <views:SettingsRow.Value><NumericUpDown Value="{Binding ManualGridHeight}" Minimum="1" FormatString="N0" IsEnabled="{Binding CanEditManualGridSize}"/></views:SettingsRow.Value>
                         </views:SettingsRow>
+                        <TextBlock Text="Чтобы изменить существующую карту, откройте ручной редактор и выберите «Изменить размеры»." IsVisible="{Binding !CanEditManualGridSize}" TextWrapping="Wrap" FontSize="11" Opacity="0.75"/>
                         <Button Content="Открыть ручной редактор" Command="{Binding OpenManualMapEditorCommand}" IsEnabled="{Binding !IsGenerating}"/>
                     </StackPanel>
                     <views:SettingsRow Label="{Binding L[Output]}">

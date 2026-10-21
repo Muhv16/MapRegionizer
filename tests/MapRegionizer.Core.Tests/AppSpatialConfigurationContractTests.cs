@@ -270,6 +270,24 @@ public sealed class AppSpatialConfigurationContractTests
     }
 
     [Fact]
+    public void GlobalCoverageSupportsIndependentNorthAndSouthLatitudeBounds()
+    {
+        var viewModel = new SpatialConfigurationViewModel
+        {
+            CoverageKind = MapCoverageKind.Global,
+            SouthLatitude = -72,
+            NorthLatitude = 83
+        };
+
+        var spatial = viewModel.BuildSpatialOptions();
+
+        Assert.True(viewModel.ShowGlobalLatitudeBounds);
+        Assert.False(viewModel.ShowLatitudeBounds);
+        Assert.Equal(-72, spatial.Coverage.SouthLatitude);
+        Assert.Equal(83, spatial.Coverage.NorthLatitude);
+    }
+
+    [Fact]
     public void WebMercatorAppLayoutAcceptsTheSelectedRasterAspect()
     {
         var viewModel = new SpatialConfigurationViewModel
