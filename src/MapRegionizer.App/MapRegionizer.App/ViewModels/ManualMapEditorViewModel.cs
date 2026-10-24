@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using Avalonia.Media.Imaging;
@@ -8,6 +9,7 @@ using MapRegionizer.App.Services;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.ManualAuthoring;
+using MapRegionizer.Core.ManualAuthoring.Georeferencing;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
 using MapRegionizer.GeoJson;
@@ -26,7 +28,13 @@ public enum ManualMapEditorTool
 {
     Navigate,
     CreateRegion,
-    Select
+    Select,
+    AddGeographicControlPoint
+}
+
+public sealed record ManualMapEditorToolOption(string Label, ManualMapEditorTool Tool)
+{
+    public override string ToString() => Label;
 }
 
 public sealed record ManualMapEditorResult(
@@ -38,6 +46,7 @@ public sealed record ManualMapEditorResult(
 public sealed record ManualMapEditorRegionViewModel(int Id, string Label, bool IsSelected);
 
 public sealed record ManualMapDisplayRegion(int Id, string? Name, Polygon Shape);
+public sealed record ManualMapControlPointMarker(int Id, string Name, MapPoint Position, bool IsActive);
 
 /// <summary>
 /// App-only editor state for manual geography. Core receives only the draft;
@@ -50,12 +59,15 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private static readonly JsonSerializerOptions EditorStateOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        WriteIndented = true,
+        Converters = { new MapSpatialReferenceJsonConverter() }
     };
 
     private readonly ManualMapDraftValidator _validator = new();
     private readonly ManualMapDraftFinalizer _finalizer = new();
     private readonly ManualMapCanvasResizer _canvasResizer = new();
+    private readonly ManualMapReprojectionService _reprojectionService = new();
+    private readonly ParametricGeoreferenceSolver _georeferenceSolver = new();
     private MapSpatialReference _spatialReference;
     private readonly MapGenerationOptions _options;
     private ManualMapDraftSpatialIndex _spatialIndex;
@@ -65,6 +77,11 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private STRtree<ManualMapDisplayRegion> _regionSelectionIndex = new();
     private ManualMapDraft _draft;
     private readonly List<MapPoint> _vertexMarkers = [];
+    private readonly HashSet<Bitmap> _backgroundBitmaps = new(ReferenceEqualityComparer.Instance);
+    private List<GeographicControlPoint> _controlPoints = [];
+    private GeographicCalibrationParameters? _calibrationParameters;
+    private GeographicCalibrationResult? _calibrationReport;
+    private GeographicControlPointAnchorKind _controlPointAnchorKind = GeographicControlPointAnchorKind.MapUnits;
     private List<int> _currentVertexIds = [];
     private MapPoint? _pointerPreview;
     private int? _snapCandidateVertexId;
@@ -81,6 +98,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private string _selectedRegionName = string.Empty;
     private Bitmap? _backgroundImage;
     private string? _backgroundPath;
+    private string? _backgroundImageId;
     private bool _isBackgroundVisible = true;
     private bool _isBackgroundLocked;
     private double _backgroundOpacity = .55;
@@ -90,6 +108,10 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     private double _backgroundMapWidth;
     private double _backgroundMapHeight;
     private double _backgroundRotation;
+    private BackgroundImagePlacement? _backgroundWarpSourcePlacement;
+    private BackgroundReprojectionState? _backgroundReprojectionState;
+    private CancellationTokenSource? _backgroundWarpCancellation;
+    private int _backgroundWarpVersion;
     private int _waterBodyCount;
     private int _nextVertexId;
     private bool _isValidating;
@@ -131,10 +153,36 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     public int GridWidth => _draft.GridWidth;
     public int GridHeight => _draft.GridHeight;
+    public MapSpatialReference SpatialReference => _spatialReference;
+    public IReadOnlyList<GeographicControlPoint> ControlPoints => _controlPoints;
+    public GeographicCalibrationResult? CalibrationReport => _calibrationReport;
+    public IReadOnlyList<ManualMapControlPointMarker> ControlPointMarkers => _controlPoints
+        .Select(point => TryGetControlPointDisplayPosition(point) is { } position
+            ? new ManualMapControlPointMarker(point.Id, point.Name, position, point.IsActive)
+            : null)
+        .Where(marker => marker is not null)
+        .Select(marker => marker!)
+        .ToArray();
+    public GeographicCalibrationParameters? CalibrationParameters => _calibrationParameters;
+    public IReadOnlyList<GeographicControlPointAnchorKind> ControlPointAnchorKinds { get; } = Enum.GetValues<GeographicControlPointAnchorKind>();
+    public GeographicControlPointAnchorKind ControlPointAnchorKind
+    {
+        get => _controlPointAnchorKind;
+        set => this.RaiseAndSetIfChanged(ref _controlPointAnchorKind, value);
+    }
+    public BackgroundImagePlacement? BackgroundPlacement => BackgroundImage is null
+        ? null
+        : new BackgroundImagePlacement(BackgroundMapX, BackgroundMapY, BackgroundMapWidth, BackgroundMapHeight, BackgroundRotation);
     public LocalizationService? L => SpatialConfiguration.L;
     public SpatialConfigurationViewModel SpatialConfiguration { get; }
     public MapBounds Bounds => new(_spatialReference.WidthInMapUnits, _spatialReference.HeightInMapUnits, _spatialReference.UnitsPerCell);
-    public IReadOnlyList<ManualMapEditorTool> Tools { get; } = Enum.GetValues<ManualMapEditorTool>();
+    public IReadOnlyList<ManualMapEditorToolOption> Tools { get; } =
+    [
+        new("Навигация", ManualMapEditorTool.Navigate),
+        new("Создать регион", ManualMapEditorTool.CreateRegion),
+        new("Выбрать регион", ManualMapEditorTool.Select),
+        new("Добавить опорную точку", ManualMapEditorTool.AddGeographicControlPoint)
+    ];
     public ManualMapEditorTool SelectedTool
     {
         get => _selectedTool;
@@ -309,6 +357,8 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     public double BackgroundMapWidth => _backgroundMapWidth;
     public double BackgroundMapHeight => _backgroundMapHeight;
     public double BackgroundRotation { get => _backgroundRotation; set => this.RaiseAndSetIfChanged(ref _backgroundRotation, value); }
+    public BackgroundImagePlacement? BackgroundWarpSourcePlacement => _backgroundWarpSourcePlacement;
+    public BackgroundReprojectionState? BackgroundReprojectionState => _backgroundReprojectionState;
     public int WaterBodyCount { get => _waterBodyCount; private set => this.RaiseAndSetIfChanged(ref _waterBodyCount, value); }
 
     public void ShowDiagnostic(string message) => Diagnostics = message;
@@ -392,6 +442,22 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         _spatialReference = result.SpatialReference;
         _backgroundMapX += result.Request.LeftCells * result.SpatialReference.UnitsPerCell;
         _backgroundMapY += result.Request.TopCells * result.SpatialReference.UnitsPerCell;
+        var resizeOffsetX = result.Request.LeftCells * result.SpatialReference.UnitsPerCell;
+        var resizeOffsetY = result.Request.TopCells * result.SpatialReference.UnitsPerCell;
+        _controlPoints = _controlPoints.Select(point => point.AnchorKind switch
+        {
+            GeographicControlPointAnchorKind.MapUnits when point.MapPosition is { } position => point with
+            {
+                MapPosition = new MapPoint(position.X + resizeOffsetX, position.Y + resizeOffsetY),
+                SourceReferenceAtCapture = result.SpatialReference
+            },
+            GeographicControlPointAnchorKind.BackgroundImageUv when point.BackgroundPlacementAtCapture is { } placement => point with
+            {
+                BackgroundPlacementAtCapture = placement with { X = placement.X + resizeOffsetX, Y = placement.Y + resizeOffsetY },
+                SourceReferenceAtCapture = result.SpatialReference
+            },
+            _ => point
+        }).ToList();
         _currentVertexIds = _currentVertexIds
             .Where(id => _draft.Vertices.Any(vertex => vertex.Id == id))
             .ToList();
@@ -418,10 +484,18 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(GridHeight));
         this.RaisePropertyChanged(nameof(Bounds));
         RaiseBackgroundTransformProperties();
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
     }
 
     public void HandlePointer(MapPoint point, double hitTolerance)
     {
+        if (SelectedTool == ManualMapEditorTool.AddGeographicControlPoint)
+        {
+            AddGeographicControlPoint(point);
+            return;
+        }
+
         if (SelectedTool == ManualMapEditorTool.Select)
         {
             SelectRegion(point);
@@ -485,6 +559,470 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         RefreshInteractiveState();
     }
 
+    public void AddGeographicControlPoint(MapPoint mapPosition)
+    {
+        if (!double.IsFinite(mapPosition.X) || !double.IsFinite(mapPosition.Y))
+        {
+            Diagnostics = "Опорная точка должна находиться в конечных координатах карты.";
+            return;
+        }
+
+        GeographicControlPoint point;
+        if (ControlPointAnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv)
+        {
+            if (BackgroundImage is null)
+            {
+                Diagnostics = "Сначала загрузите фоновое изображение, чтобы размещать на нём опорные точки.";
+                return;
+            }
+            if (!string.Equals(_backgroundImageId, GetBackgroundImageId(BackgroundPath), StringComparison.Ordinal))
+            {
+                Diagnostics = "Фоновый файл изменился. Загрузите его заново, чтобы добавить опорную точку.";
+                return;
+            }
+            double u;
+            double v;
+            var sourcePlacement = _backgroundReprojectionState?.SourcePlacement ?? _backgroundWarpSourcePlacement ?? BackgroundPlacement;
+            if (sourcePlacement is null)
+            {
+                Diagnostics = "Не удалось определить положение фонового изображения.";
+                return;
+            }
+            try
+            {
+                var backgroundMapPosition = mapPosition;
+                if (_backgroundReprojectionState is { } backgroundState)
+                {
+                    if (backgroundState.TargetReference != _spatialReference)
+                        throw new InvalidOperationException("Сначала перепроецируйте подложку на текущую сетку.");
+                    var targetReference = backgroundState.TargetReference;
+                    var targetGeographic = MapSpatialContext.Create(targetReference).GridToGeographic(new GridCoordinate(
+                        mapPosition.X / targetReference.UnitsPerCell,
+                        mapPosition.Y / targetReference.UnitsPerCell));
+                    if (backgroundState.CalibrationParameters is { } backgroundCalibration)
+                    {
+                        backgroundMapPosition = ParametricGeoreferenceSolver
+                            .CreateTransform(backgroundState.SourceReference, backgroundCalibration)
+                            .ToSourceMap(targetGeographic);
+                    }
+                    else
+                    {
+                        var sourceGeographic = targetGeographic with
+                        {
+                            LongitudeDegrees = LongitudeInterval.Normalize(targetGeographic.LongitudeDegrees - backgroundState.SourceLongitudeOffsetDegrees)
+                        };
+                        var sourceGrid = MapSpatialContext.Create(backgroundState.SourceReference).GeographicToGrid(sourceGeographic);
+                        backgroundMapPosition = new MapPoint(
+                            sourceGrid.X * backgroundState.SourceReference.UnitsPerCell,
+                            sourceGrid.Y * backgroundState.SourceReference.UnitsPerCell);
+                    }
+                }
+                else if (_calibrationParameters?.IsAppliedToBackground == true)
+                {
+                    var sourceReference = _calibrationParameters.SourceReference ?? _spatialReference;
+                    var transform = ParametricGeoreferenceSolver.CreateTransform(sourceReference, _calibrationParameters);
+                    backgroundMapPosition = transform.ToSourceMap(CurrentGeographicPosition(mapPosition));
+                }
+                (u, v) = sourcePlacement.ToImageUv(backgroundMapPosition);
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                Diagnostics = $"Не удалось связать точку с исходным изображением: {exception.Message}";
+                return;
+            }
+            point = new GeographicControlPoint(
+                NextControlPointId(),
+                $"GCP {_controlPoints.Count + 1}",
+                GeographicControlPointAnchorKind.BackgroundImageUv,
+                GeographicControlPointRole.Calibration,
+                new GeoCoordinate(0, 0),
+                BackgroundU: u,
+                BackgroundV: v,
+                BackgroundPlacementAtCapture: sourcePlacement,
+                BackgroundImageId: _backgroundImageId,
+                SourceReferenceAtCapture: _backgroundReprojectionState?.SourceReference ?? _calibrationParameters?.SourceReference ?? _spatialReference);
+        }
+        else
+        {
+            if (mapPosition.X < 0 || mapPosition.X > _spatialReference.WidthInMapUnits ||
+                mapPosition.Y < 0 || mapPosition.Y > _spatialReference.HeightInMapUnits)
+            {
+                Diagnostics = "Опорную точку геометрии нужно разместить внутри холста карты.";
+                return;
+            }
+            point = new GeographicControlPoint(
+                NextControlPointId(),
+                $"GCP {_controlPoints.Count + 1}",
+                GeographicControlPointAnchorKind.MapUnits,
+                GeographicControlPointRole.Calibration,
+                CurrentGeographicPosition(mapPosition),
+                MapPosition: mapPosition,
+                SourceReferenceAtCapture: _spatialReference);
+        }
+
+        PushUndo();
+        _controlPoints.Add(point);
+        if (_calibrationParameters is not { IsApplied: true } and not { IsAppliedToBackground: true })
+            _calibrationParameters = null;
+        _calibrationReport = null;
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+        Diagnostics = $"Добавлена опорная точка {point.Name}. Укажите её реальные широту и долготу в окне географической привязки.";
+    }
+
+    public void UpdateControlPoints(IEnumerable<GeographicControlPoint> controlPoints)
+    {
+        ArgumentNullException.ThrowIfNull(controlPoints);
+        var updated = controlPoints.OrderBy(point => point.Id).ToList();
+        if (updated.Any(point => point.Id <= 0) || updated.Select(point => point.Id).Distinct().Count() != updated.Count)
+            throw new ArgumentException("Идентификаторы опорных точек должны быть положительными и уникальными.", nameof(controlPoints));
+        PushUndo();
+        _controlPoints = updated;
+        if (_calibrationParameters is not { IsApplied: true } and not { IsAppliedToBackground: true })
+            _calibrationParameters = null;
+        _calibrationReport = null;
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+        Diagnostics = "Сеть опорных точек изменена. Рассчитайте модель заново.";
+    }
+
+    public void SetCalibrationParameters(GeographicCalibrationParameters? parameters)
+    {
+        PushUndo();
+        _calibrationParameters = parameters;
+        _calibrationReport = null;
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+    }
+
+    public void SaveGeoreferencingData(
+        IEnumerable<GeographicControlPoint> controlPoints,
+        GeographicCalibrationParameters? parameters,
+        GeographicCalibrationResult? calibrationReport = null)
+    {
+        ArgumentNullException.ThrowIfNull(controlPoints);
+        var updated = controlPoints.OrderBy(point => point.Id).ToList();
+        if (updated.Any(point => point.Id <= 0) || updated.Select(point => point.Id).Distinct().Count() != updated.Count)
+            throw new ArgumentException("Идентификаторы опорных точек должны быть положительными и уникальными.", nameof(controlPoints));
+        PushUndo();
+        _controlPoints = updated;
+        _calibrationParameters = parameters;
+        _calibrationReport = calibrationReport;
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+    }
+
+    public GeographicCalibrationResult SolveCalibration(
+        MapSpatialReference? sourceReference = null,
+        IReadOnlyList<GeographicControlPoint>? controlPoints = null)
+    {
+        var result = _georeferenceSolver.Solve(new GeographicCalibrationRequest(
+            sourceReference ?? _spatialReference,
+            controlPoints ?? _controlPoints,
+            BackgroundPlacement));
+        if (result.IsSuccessful && result.Parameters is not null)
+        {
+            PushUndo();
+            _calibrationParameters = result.Parameters;
+            _calibrationReport = result;
+            this.RaisePropertyChanged(nameof(CalibrationParameters));
+            this.RaisePropertyChanged(nameof(CalibrationReport));
+        }
+        return result;
+    }
+
+    public async Task ApplyReprojectionAsync(
+        ManualMapReprojectionRequest request,
+        ManualMapReprojectionResult result,
+        IReadOnlyList<GeographicControlPoint>? controlPointsToSave = null,
+        GeographicCalibrationParameters? calibrationParameters = null,
+        byte[]? reprojectedBackgroundPng = null,
+        BackgroundImagePlacement? sourceBackgroundPlacement = null,
+        GeographicCalibrationResult? calibrationReport = null,
+        BackgroundReprojectionState? backgroundReprojectionState = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.IsSuccessful || result.Draft is null)
+            throw new InvalidOperationException("Предпросмотр перепроецирования не прошёл геометрическую проверку.");
+        if (!ReferenceEquals(_draft, request.Draft))
+            throw new InvalidOperationException("Карта изменилась во время предпросмотра. Рассчитайте его заново.");
+
+        var sourceDraft = _draft;
+        var prepared = await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var validation = _validator.Validate(result.Draft, result.TargetReference, cancellationToken);
+            var finalization = result.Finalization ?? _finalizer.FinalizeDraft(result.Draft, result.TargetReference, cancellationToken);
+            var spatialIndex = new ManualMapDraftSpatialIndex(
+                result.Draft,
+                Math.Max(result.TargetReference.UnitsPerCell * 16, RegionGeometryPrecision.LengthTolerance * 4),
+                cancellationToken);
+            return (Validation: validation, Finalization: finalization, SpatialIndex: spatialIndex);
+        }, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!prepared.Validation.IsSuccessful || !prepared.Finalization.IsSuccessful)
+            throw new InvalidOperationException("Результат перепроецирования не прошёл проверку или финализацию.");
+        if (!ReferenceEquals(_draft, sourceDraft))
+            throw new InvalidOperationException("Карта изменилась во время проверки. Рассчитайте перепроецирование заново.");
+
+        CancelBackgroundWarp();
+        var updatedControlPoints = ReprojectControlPoints(controlPointsToSave ?? _controlPoints, request, result.TargetReference);
+        Bitmap? reprojectedBackground = null;
+        if (reprojectedBackgroundPng is not null)
+        {
+            if (sourceBackgroundPlacement is null || string.IsNullOrWhiteSpace(BackgroundPath))
+                throw new InvalidOperationException("The source background image and its placement are required to apply a background reprojection.");
+            if (!string.Equals(_backgroundImageId, GetBackgroundImageId(BackgroundPath), StringComparison.Ordinal))
+                throw new InvalidOperationException("The source background image changed. Reload it before applying this reprojection.");
+            backgroundReprojectionState ??= new BackgroundReprojectionState(
+                calibrationParameters?.SourceReference ?? request.SourceReference,
+                result.TargetReference,
+                sourceBackgroundPlacement,
+                request.SourceLongitudeOffsetDegrees,
+                calibrationParameters);
+            backgroundReprojectionState = backgroundReprojectionState with { SourceImageId = _backgroundImageId };
+            backgroundReprojectionState.SourceReference.Validate();
+            backgroundReprojectionState.TargetReference.Validate();
+            backgroundReprojectionState.SourcePlacement.Validate();
+            using var stream = new MemoryStream(reprojectedBackgroundPng);
+            reprojectedBackground = new Bitmap(stream);
+        }
+
+        _validationCancellation?.Cancel();
+        PushUndo();
+        _draft = result.Draft;
+        _spatialReference = result.TargetReference;
+        _calibrationParameters = calibrationParameters ?? _calibrationParameters;
+        _calibrationReport = calibrationReport ?? _calibrationReport;
+        _controlPoints = updatedControlPoints.Select(point => point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv && reprojectedBackground is null
+            ? point with { IsActive = false }
+            : point).ToList();
+        if (request.GeoreferenceTransform is ParametricGeoreferenceTransform && _calibrationParameters is not null)
+            _calibrationParameters = _calibrationParameters with { IsApplied = true };
+        if (reprojectedBackground is not null)
+        {
+            _backgroundBitmaps.Add(reprojectedBackground);
+            BackgroundImage = reprojectedBackground;
+            _backgroundWarpSourcePlacement = backgroundReprojectionState!.SourcePlacement;
+            _backgroundMapX = 0;
+            _backgroundMapY = 0;
+            _backgroundMapWidth = _spatialReference.WidthInMapUnits;
+            _backgroundMapHeight = _spatialReference.HeightInMapUnits;
+            _backgroundScale = 1;
+            BackgroundRotation = 0;
+            if (calibrationParameters is not null)
+                _calibrationParameters = _calibrationParameters! with { IsAppliedToBackground = true };
+            else if (_calibrationParameters is not null)
+                _calibrationParameters = _calibrationParameters with { IsAppliedToBackground = backgroundReprojectionState!.CalibrationParameters is not null };
+            _backgroundReprojectionState = backgroundReprojectionState! with
+            {
+                CalibrationParameters = calibrationParameters is null ? backgroundReprojectionState.CalibrationParameters : _calibrationParameters
+            };
+        }
+        if (_calibrationReport is not null && _calibrationParameters is not null)
+            _calibrationReport = _calibrationReport with { Parameters = _calibrationParameters };
+        _suppressSpatialConfigurationChanges = true;
+        try
+        {
+            SpatialConfiguration.LoadSpatialOptions(ToSpatialOptions(_spatialReference));
+        }
+        finally
+        {
+            _suppressSpatialConfigurationChanges = false;
+        }
+        _nextVertexId = GetNextVertexId(_draft);
+        _selectedRegionId = _draft.Regions.Any(region => region.Id == _selectedRegionId) ? _selectedRegionId : null;
+        ClearPointerPreview();
+        _lastFinalization = null;
+        ValidationSummary = string.Empty;
+        WaterBodyCount = 0;
+        var inactiveBackgroundPoints = _controlPoints.Count(point => point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv && !point.IsActive);
+        Diagnostics = $"Карта перепроецирована. Добавлено общих вершин: {result.AddedVertices}. " +
+            (reprojectedBackground is null
+                ? $"Фон не перепроецирован; {inactiveBackgroundPoints} точек фона отключены до привязки. "
+                : "Фоновое изображение преобразовано отдельно. ") +
+            "Проверьте результат перед формированием.";
+        RefreshState(prepared.Validation, prepared.SpatialIndex);
+        this.RaisePropertyChanged(nameof(Draft));
+        this.RaisePropertyChanged(nameof(GridWidth));
+        this.RaisePropertyChanged(nameof(GridHeight));
+        this.RaisePropertyChanged(nameof(SpatialReference));
+        this.RaisePropertyChanged(nameof(Bounds));
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+        RaiseBackgroundTransformProperties();
+    }
+
+    public void ApplyBackgroundReprojection(
+        byte[] reprojectedBackgroundPng,
+        BackgroundImagePlacement sourceBackgroundPlacement,
+        GeographicCalibrationParameters parameters,
+        IReadOnlyList<GeographicControlPoint>? controlPoints = null,
+        GeographicCalibrationResult? calibrationReport = null)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        ApplyBackgroundReprojection(
+            reprojectedBackgroundPng,
+            new BackgroundReprojectionState(
+                parameters.SourceReference ?? _spatialReference,
+                _spatialReference,
+                sourceBackgroundPlacement,
+                CalibrationParameters: parameters),
+            controlPoints,
+            calibrationReport);
+    }
+
+    public void ApplyBackgroundReprojection(
+        byte[] reprojectedBackgroundPng,
+        BackgroundReprojectionState reprojectionState,
+        IReadOnlyList<GeographicControlPoint>? controlPoints = null,
+        GeographicCalibrationResult? calibrationReport = null)
+    {
+        ArgumentNullException.ThrowIfNull(reprojectedBackgroundPng);
+        ArgumentNullException.ThrowIfNull(reprojectionState);
+        reprojectionState.SourceReference.Validate();
+        reprojectionState.TargetReference.Validate();
+        reprojectionState.SourcePlacement.Validate();
+        if (string.IsNullOrWhiteSpace(BackgroundPath))
+            throw new InvalidOperationException("Load and save a source background image before reprojecting it.");
+        if (!string.Equals(_backgroundImageId, GetBackgroundImageId(BackgroundPath), StringComparison.Ordinal))
+            throw new InvalidOperationException("The source background image changed. Reload it before applying this reprojection.");
+        CancelBackgroundWarp();
+        using var stream = new MemoryStream(reprojectedBackgroundPng);
+        var image = new Bitmap(stream);
+        PushUndo();
+        _backgroundBitmaps.Add(image);
+        BackgroundImage = image;
+        _backgroundWarpSourcePlacement = reprojectionState.SourcePlacement;
+        reprojectionState = reprojectionState with { SourceImageId = _backgroundImageId };
+        _backgroundReprojectionState = reprojectionState;
+        _backgroundMapX = 0;
+        _backgroundMapY = 0;
+        _backgroundMapWidth = reprojectionState.TargetReference.WidthInMapUnits;
+        _backgroundMapHeight = reprojectionState.TargetReference.HeightInMapUnits;
+        _backgroundScale = 1;
+        BackgroundRotation = 0;
+        var appliedCalibrationParameters = reprojectionState.CalibrationParameters is { } parameters
+            ? parameters with { IsAppliedToBackground = true }
+            : null;
+        _backgroundReprojectionState = reprojectionState with { CalibrationParameters = appliedCalibrationParameters };
+        _calibrationParameters = appliedCalibrationParameters ?? (_calibrationParameters is { } previousParameters
+            ? previousParameters with { IsAppliedToBackground = false }
+            : null);
+        if (controlPoints is not null)
+            _controlPoints = controlPoints.OrderBy(point => point.Id).ToList();
+        _calibrationReport = calibrationReport is not null && appliedCalibrationParameters is not null
+            ? calibrationReport with { Parameters = appliedCalibrationParameters }
+            : calibrationReport;
+        RaiseBackgroundTransformProperties();
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+        Diagnostics = "Подложка перепроецирована. Геометрия регионов не изменена.";
+    }
+
+    private GeoCoordinate CurrentGeographicPosition(MapPoint mapPosition)
+    {
+        var geographic = MapSpatialContext.Create(_spatialReference).GridToGeographic(new GridCoordinate(
+            mapPosition.X / _spatialReference.UnitsPerCell,
+            mapPosition.Y / _spatialReference.UnitsPerCell));
+        return geographic with { LongitudeDegrees = LongitudeInterval.Normalize(geographic.LongitudeDegrees) };
+    }
+
+    private MapPoint? TryGetControlPointDisplayPosition(GeographicControlPoint point)
+    {
+        if (point.AnchorKind == GeographicControlPointAnchorKind.MapUnits)
+            return point.MapPosition;
+        if (point.BackgroundU is not { } u || point.BackgroundV is not { } v ||
+            (point.BackgroundPlacementAtCapture ?? _backgroundReprojectionState?.SourcePlacement ?? _backgroundWarpSourcePlacement ?? BackgroundPlacement) is not { } placement)
+            return null;
+        try
+        {
+            var sourcePosition = placement.ToMapPoint(u, v);
+            if (_backgroundReprojectionState is { } backgroundState)
+            {
+                if (backgroundState.TargetReference != _spatialReference)
+                    return null;
+                GeoCoordinate sourceGeographic;
+                if (backgroundState.CalibrationParameters is { } backgroundCalibration)
+                    sourceGeographic = ParametricGeoreferenceSolver.CreateTransform(backgroundState.SourceReference, backgroundCalibration).ToUnwrappedGeographic(sourcePosition);
+                else
+                {
+                    sourceGeographic = MapSpatialContext.Create(backgroundState.SourceReference).GridToGeographic(new GridCoordinate(
+                        sourcePosition.X / backgroundState.SourceReference.UnitsPerCell,
+                        sourcePosition.Y / backgroundState.SourceReference.UnitsPerCell));
+                    sourceGeographic = sourceGeographic with
+                    {
+                        LongitudeDegrees = sourceGeographic.LongitudeDegrees + backgroundState.SourceLongitudeOffsetDegrees
+                    };
+                }
+                var targetGrid = MapSpatialContext.Create(backgroundState.TargetReference).GeographicToGrid(sourceGeographic);
+                return new MapPoint(
+                    targetGrid.X * backgroundState.TargetReference.UnitsPerCell,
+                    targetGrid.Y * backgroundState.TargetReference.UnitsPerCell);
+            }
+            if (_calibrationParameters?.IsAppliedToBackground == true)
+            {
+                var sourceReference = _calibrationParameters.SourceReference ?? _spatialReference;
+                var transform = ParametricGeoreferenceSolver.CreateTransform(sourceReference, _calibrationParameters);
+                var geographic = transform.ToUnwrappedGeographic(sourcePosition);
+                var targetGrid = MapSpatialContext.Create(_spatialReference).GeographicToGrid(geographic);
+                return new MapPoint(targetGrid.X * _spatialReference.UnitsPerCell, targetGrid.Y * _spatialReference.UnitsPerCell);
+            }
+            return sourcePosition;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private int NextControlPointId() => GetNextControlPointId(_controlPoints);
+
+    private static List<GeographicControlPoint> ReprojectControlPoints(
+        IReadOnlyList<GeographicControlPoint> controlPoints,
+        ManualMapReprojectionRequest request,
+        MapSpatialReference targetReference)
+    {
+        var sourceContext = MapSpatialContext.Create(request.SourceReference);
+        var targetContext = MapSpatialContext.Create(targetReference);
+        var longitudeCycleOffset = ManualMapReprojectionService.GetSourceLongitudeCycleOffset(request);
+        return controlPoints.Select(point =>
+        {
+            if (point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv)
+                return point;
+            if (point.MapPosition is not { } sourcePosition)
+                return point;
+            var geographic = request.GeoreferenceTransform?.ToUnwrappedGeographic(sourcePosition)
+                ?? sourceContext.GridToGeographic(new GridCoordinate(
+                    sourcePosition.X / request.SourceReference.UnitsPerCell,
+                    sourcePosition.Y / request.SourceReference.UnitsPerCell));
+            geographic = geographic with
+            {
+                LongitudeDegrees = geographic.LongitudeDegrees + request.SourceLongitudeOffsetDegrees - longitudeCycleOffset
+            };
+            var targetGrid = targetContext.GeographicToGrid(geographic);
+            return point with
+            {
+                MapPosition = new MapPoint(
+                    targetGrid.X * targetReference.UnitsPerCell,
+                    targetGrid.Y * targetReference.UnitsPerCell),
+                SourceReferenceAtCapture = targetReference
+            };
+        }).ToList();
+    }
+
     public void UpdatePointerPreview(MapPoint point, double hitTolerance)
     {
         if (_currentVertexIds.Count == 0)
@@ -533,10 +1071,12 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
         _disposed = true;
         _validationCancellation?.Cancel();
+        CancelBackgroundWarp();
         SpatialConfiguration.PropertyChanged -= OnSpatialConfigurationChanged;
-        var backgroundImage = BackgroundImage;
         BackgroundImage = null;
-        backgroundImage?.Dispose();
+        foreach (var image in _backgroundBitmaps)
+            image.Dispose();
+        _backgroundBitmaps.Clear();
     }
 
     public void RemoveLastCurrentVertex()
@@ -555,17 +1095,122 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         if (_disposed)
             return;
 
+        CancelBackgroundWarp();
+        var sourceId = GetBackgroundImageId(path);
+        var sourceImageChanged = BackgroundPath is not null &&
+            !string.Equals(GetBackgroundImageId(BackgroundPath), sourceId, StringComparison.Ordinal);
+        var stalePoints = _controlPoints.Any(point =>
+            point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv && point.IsActive &&
+            !string.Equals(point.BackgroundImageId, sourceId, StringComparison.Ordinal));
+        if (stalePoints || sourceImageChanged)
+        {
+            PushUndo();
+            _controlPoints = _controlPoints.Select(point => point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv &&
+                (sourceImageChanged || !string.Equals(point.BackgroundImageId, sourceId, StringComparison.Ordinal))
+                ? point with { IsActive = false }
+                : point).ToList();
+            if (_calibrationParameters?.IsAppliedToBackground == true)
+                _calibrationParameters = _calibrationParameters with { IsAppliedToBackground = false };
+            _backgroundWarpSourcePlacement = null;
+            _backgroundReprojectionState = null;
+            this.RaisePropertyChanged(nameof(ControlPoints));
+            this.RaisePropertyChanged(nameof(ControlPointMarkers));
+            this.RaisePropertyChanged(nameof(CalibrationParameters));
+            this.RaisePropertyChanged(nameof(CalibrationReport));
+        }
+
         LoadBackgroundImage(path);
         FitBackground();
+        if (_backgroundReprojectionState is not null)
+            QueueBackgroundWarpRestore(_backgroundReprojectionState);
+        else if (_calibrationParameters?.IsAppliedToBackground == true && _backgroundWarpSourcePlacement is not null)
+            QueueBackgroundWarpRestore(new BackgroundReprojectionState(
+                _calibrationParameters.SourceReference ?? _spatialReference,
+                _spatialReference,
+                _backgroundWarpSourcePlacement,
+                CalibrationParameters: _calibrationParameters));
+        else if (stalePoints || sourceImageChanged)
+            Diagnostics = "Подложка заменена. Опорные точки, отмеченные на прежнем изображении, отключены.";
     }
 
     private void LoadBackgroundImage(string path)
     {
         var bitmap = DecodeBackgroundImage(path);
-        var previous = BackgroundImage;
+        _backgroundBitmaps.Add(bitmap);
         BackgroundImage = bitmap;
-        previous?.Dispose();
         BackgroundPath = Path.GetFullPath(path);
+        _backgroundImageId = GetBackgroundImageId(BackgroundPath);
+    }
+
+    private void QueueBackgroundWarpRestore(BackgroundReprojectionState state)
+    {
+        CancelBackgroundWarp();
+        if (_disposed || string.IsNullOrWhiteSpace(BackgroundPath) || !File.Exists(BackgroundPath))
+            return;
+
+        var sourcePath = BackgroundPath;
+        var sourceReference = state.SourceReference;
+        var targetReference = state.TargetReference;
+        var version = Interlocked.Increment(ref _backgroundWarpVersion);
+        var cancellation = new CancellationTokenSource();
+        _backgroundWarpCancellation = cancellation;
+        var token = cancellation.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var transform = state.CalibrationParameters is null
+                    ? null
+                    : ParametricGeoreferenceSolver.CreateTransform(sourceReference, state.CalibrationParameters);
+                var png = ManualMapBackgroundReprojector.ReprojectToPng(
+                    sourcePath,
+                    state.SourcePlacement,
+                    sourceReference,
+                    targetReference,
+                    state.SourceLongitudeOffsetDegrees,
+                    georeferenceTransform: transform,
+                    cancellationToken: token);
+                token.ThrowIfCancellationRequested();
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (_disposed || token.IsCancellationRequested || version != _backgroundWarpVersion || BackgroundPath != sourcePath)
+                        return;
+                    using var stream = new MemoryStream(png);
+                    var bitmap = new Bitmap(stream);
+                    _backgroundBitmaps.Add(bitmap);
+                    BackgroundImage = bitmap;
+                    this.RaisePropertyChanged(nameof(ControlPointMarkers));
+                });
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!_disposed && version == _backgroundWarpVersion)
+                        Diagnostics = $"Не удалось восстановить географическую подложку: {exception.Message}";
+                });
+            }
+            finally
+            {
+                if (version == _backgroundWarpVersion)
+                {
+                    _backgroundWarpCancellation?.Dispose();
+                    _backgroundWarpCancellation = null;
+                }
+            }
+        });
+    }
+
+    private void CancelBackgroundWarp()
+    {
+        Interlocked.Increment(ref _backgroundWarpVersion);
+        _backgroundWarpCancellation?.Cancel();
+        _backgroundWarpCancellation?.Dispose();
+        _backgroundWarpCancellation = null;
     }
 
     private static Bitmap DecodeBackgroundImage(string path)
@@ -590,9 +1235,24 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         }
     }
 
+    private static string? GetBackgroundImageId(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        try
+        {
+            using var stream = File.OpenRead(Path.GetFullPath(path));
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     public void SaveProject(string path)
     {
-        ManualMapJson.Save(path, _draft, _spatialReference);
+        ManualMapJson.Save(path, _draft, _spatialReference, _controlPoints, _calibrationParameters, _calibrationReport);
         var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         var relativeBackground = string.IsNullOrWhiteSpace(BackgroundPath)
             ? null
@@ -611,7 +1271,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                 BackgroundMapX,
                 BackgroundMapY,
                 BackgroundMapWidth,
-                BackgroundMapHeight),
+                BackgroundMapHeight,
+                BackgroundWarpSourcePlacement: _backgroundWarpSourcePlacement,
+                BackgroundReprojectionState: _backgroundReprojectionState),
             EditorStateOptions));
         Diagnostics = "Ручной проект сохранён.";
     }
@@ -671,6 +1333,7 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
         try
         {
+            CancelBackgroundWarp();
             var project = ManualMapJson.LoadProject(path);
             if (!project.HasSpatialReference && !useCurrentSpatialReferenceForLegacy)
             {
@@ -692,6 +1355,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
             _validationCancellation?.Cancel();
             _draft = draft;
             _spatialReference = spatialReference;
+            _controlPoints = project.ControlPoints?.OrderBy(point => point.Id).ToList() ?? [];
+            _calibrationParameters = project.CalibrationParameters;
+            _calibrationReport = project.CalibrationReport;
             _nextVertexId = GetNextVertexId(draft);
             _currentVertexIds = GetCurrentVertexIds(draft, editorState);
             _selectedRegionId = null;
@@ -708,14 +1374,30 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
                 _suppressSpatialConfigurationChanges = false;
             }
             ApplyEditorState(path, editorState, backgroundBitmap);
+            var staleBackgroundReferences = DeactivateStaleBackgroundReferences();
+            if (_backgroundReprojectionState is not null && BackgroundImage is not null)
+                QueueBackgroundWarpRestore(_backgroundReprojectionState);
+            else if (_calibrationParameters?.IsAppliedToBackground == true && _backgroundWarpSourcePlacement is not null && BackgroundImage is not null)
+                QueueBackgroundWarpRestore(new BackgroundReprojectionState(
+                    _calibrationParameters.SourceReference ?? _spatialReference,
+                    _spatialReference,
+                    _backgroundWarpSourcePlacement,
+                    CalibrationParameters: _calibrationParameters));
             RefreshState(projectValidation);
             this.RaisePropertyChanged(nameof(GridWidth));
             this.RaisePropertyChanged(nameof(GridHeight));
             this.RaisePropertyChanged(nameof(Bounds));
+            this.RaisePropertyChanged(nameof(SpatialReference));
+            this.RaisePropertyChanged(nameof(ControlPoints));
+            this.RaisePropertyChanged(nameof(ControlPointMarkers));
+            this.RaisePropertyChanged(nameof(CalibrationParameters));
+            this.RaisePropertyChanged(nameof(CalibrationReport));
             RaiseBackgroundTransformProperties();
             Diagnostics = project.HasSpatialReference
                 ? "Ручной проект загружен."
                 : "Старый проект загружен с текущими пространственными настройками; географическая привязка исходного файла неизвестна.";
+            if (staleBackgroundReferences)
+                Diagnostics = "Фоновый файл изменился или отсутствует. Привязка этого изображения и его GCP отключены; проверьте и привяжите подложку заново.";
         }
         catch (Exception exception)
         {
@@ -919,6 +1601,21 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     {
         if (_suppressSpatialConfigurationChanges)
             return;
+
+        if (_draft.Vertices.Count > 0 || _draft.Regions.Count > 0)
+        {
+            _suppressSpatialConfigurationChanges = true;
+            try
+            {
+                SpatialConfiguration.LoadSpatialOptions(ToSpatialOptions(_spatialReference));
+            }
+            finally
+            {
+                _suppressSpatialConfigurationChanges = false;
+            }
+            Diagnostics = "Пространственные параметры не изменены: у карты уже есть геометрия. Используйте «Перепроецировать карту…», чтобы перенести её явно.";
+            return;
+        }
 
         if (e.PropertyName is not (nameof(SpatialConfigurationViewModel.WorldModel)
             or nameof(SpatialConfigurationViewModel.UnitsPerCell)
@@ -1170,10 +1867,22 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         _backgroundMapY,
         _backgroundMapWidth,
         _backgroundMapHeight,
-        BackgroundRotation);
+        BackgroundRotation,
+        _controlPoints.ToArray(),
+        _calibrationParameters,
+        _calibrationReport,
+        BackgroundImage,
+        BackgroundPath,
+        IsBackgroundVisible,
+        IsBackgroundLocked,
+        BackgroundOpacity,
+        BackgroundScale,
+        _backgroundWarpSourcePlacement,
+        _backgroundReprojectionState);
 
     private void Restore(ManualMapEditorSnapshot snapshot)
     {
+        CancelBackgroundWarp();
         _validationCancellation?.Cancel();
         _draft = snapshot.Draft;
         _spatialReference = snapshot.SpatialReference;
@@ -1185,6 +1894,18 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         _backgroundMapWidth = snapshot.BackgroundMapWidth;
         _backgroundMapHeight = snapshot.BackgroundMapHeight;
         BackgroundRotation = snapshot.BackgroundRotation;
+        BackgroundImage = snapshot.BackgroundImage;
+        BackgroundPath = snapshot.BackgroundPath;
+        _backgroundImageId = GetBackgroundImageId(BackgroundPath);
+        IsBackgroundVisible = snapshot.IsBackgroundVisible;
+        IsBackgroundLocked = snapshot.IsBackgroundLocked;
+        BackgroundOpacity = snapshot.BackgroundOpacity;
+        _backgroundScale = snapshot.BackgroundScale;
+        _backgroundWarpSourcePlacement = snapshot.BackgroundWarpSourcePlacement;
+        _backgroundReprojectionState = snapshot.BackgroundReprojectionState;
+        _controlPoints = snapshot.ControlPoints.ToList();
+        _calibrationParameters = snapshot.CalibrationParameters;
+        _calibrationReport = snapshot.CalibrationReport;
         _suppressSpatialConfigurationChanges = true;
         try
         {
@@ -1199,6 +1920,11 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(GridWidth));
         this.RaisePropertyChanged(nameof(GridHeight));
         this.RaisePropertyChanged(nameof(Bounds));
+        this.RaisePropertyChanged(nameof(SpatialReference));
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
         RaiseBackgroundTransformProperties();
     }
 
@@ -1219,6 +1945,9 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
 
     private static int GetNextVertexId(ManualMapDraft draft) =>
         draft.Vertices.Select(vertex => vertex.Id).DefaultIfEmpty(0).Max() + 1;
+
+    private static int GetNextControlPointId(IReadOnlyList<GeographicControlPoint> controlPoints) =>
+        controlPoints.Select(point => point.Id).DefaultIfEmpty(0).Max() + 1;
 
     private static MapPoint Canonicalize(MapPoint point) => new(
         RegionGeometryPrecision.Canonicalize(point.X),
@@ -1260,10 +1989,16 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
     {
         var previousImage = BackgroundImage;
         BackgroundImage = backgroundBitmap;
-        previousImage?.Dispose();
+        if (backgroundBitmap is not null)
+            _backgroundBitmaps.Add(backgroundBitmap);
+        if (previousImage is not null && _backgroundBitmaps.Remove(previousImage))
+            previousImage.Dispose();
+        _backgroundReprojectionState = state?.BackgroundReprojectionState;
+        _backgroundWarpSourcePlacement = state?.BackgroundWarpSourcePlacement ?? _backgroundReprojectionState?.SourcePlacement;
         BackgroundPath = backgroundBitmap is null || string.IsNullOrWhiteSpace(state?.BackgroundPath)
             ? null
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(projectPath))!, state.BackgroundPath));
+        _backgroundImageId = GetBackgroundImageId(BackgroundPath);
 
         IsBackgroundVisible = state?.IsBackgroundVisible ?? true;
         IsBackgroundLocked = state?.IsBackgroundLocked ?? false;
@@ -1306,6 +2041,40 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(BackgroundMapWidth));
         this.RaisePropertyChanged(nameof(BackgroundMapHeight));
         this.RaisePropertyChanged(nameof(BackgroundScale));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+    }
+
+    private bool DeactivateStaleBackgroundReferences()
+    {
+        var loadedImageId = GetBackgroundImageId(BackgroundPath);
+        var staleState = _backgroundReprojectionState?.SourceImageId is { } savedImageId &&
+            !string.Equals(savedImageId, loadedImageId, StringComparison.Ordinal);
+        var stalePoints = _controlPoints.Any(point =>
+            point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv && point.IsActive &&
+            point.BackgroundImageId is { } pointImageId && !string.Equals(pointImageId, loadedImageId, StringComparison.Ordinal));
+        if (!staleState && !stalePoints)
+            return false;
+
+        if (stalePoints)
+        {
+            _controlPoints = _controlPoints.Select(point => point.AnchorKind == GeographicControlPointAnchorKind.BackgroundImageUv &&
+                point.BackgroundImageId is { } pointImageId && !string.Equals(pointImageId, loadedImageId, StringComparison.Ordinal)
+                ? point with { IsActive = false }
+                : point).ToList();
+        }
+        if (staleState || stalePoints)
+        {
+            _backgroundReprojectionState = null;
+            _backgroundWarpSourcePlacement = null;
+            if (_calibrationParameters?.IsAppliedToBackground == true)
+                _calibrationParameters = _calibrationParameters with { IsAppliedToBackground = false };
+        }
+        this.RaisePropertyChanged(nameof(ControlPoints));
+        this.RaisePropertyChanged(nameof(ControlPointMarkers));
+        this.RaisePropertyChanged(nameof(CalibrationParameters));
+        this.RaisePropertyChanged(nameof(CalibrationReport));
+        RaiseBackgroundTransformProperties();
+        return true;
     }
 
     private static List<int> GetCurrentVertexIds(ManualMapDraft draft, ManualMapEditorProjectState? state)
@@ -1336,6 +2105,8 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         this.RaisePropertyChanged(nameof(BackgroundMapWidth));
         this.RaisePropertyChanged(nameof(BackgroundMapHeight));
         this.RaisePropertyChanged(nameof(BackgroundScale));
+        this.RaisePropertyChanged(nameof(BackgroundWarpSourcePlacement));
+        this.RaisePropertyChanged(nameof(BackgroundReprojectionState));
     }
 
     private readonly record struct SnapResult(int? VertexId, MapPoint? Position, ManualMapEdgeSnap? Edge);
@@ -1354,7 +2125,18 @@ public sealed class ManualMapEditorViewModel : ReactiveObject, IDisposable
         double BackgroundMapY,
         double BackgroundMapWidth,
         double BackgroundMapHeight,
-        double BackgroundRotation);
+        double BackgroundRotation,
+        IReadOnlyList<GeographicControlPoint> ControlPoints,
+        GeographicCalibrationParameters? CalibrationParameters,
+        GeographicCalibrationResult? CalibrationReport,
+        Bitmap? BackgroundImage,
+        string? BackgroundPath,
+        bool IsBackgroundVisible,
+        bool IsBackgroundLocked,
+        double BackgroundOpacity,
+        double BackgroundScale,
+        BackgroundImagePlacement? BackgroundWarpSourcePlacement,
+        BackgroundReprojectionState? BackgroundReprojectionState);
 }
 
 public sealed record ManualMapEditorProjectState(
@@ -1371,4 +2153,6 @@ public sealed record ManualMapEditorProjectState(
     double? BackgroundMapY = null,
     double? BackgroundMapWidth = null,
     double? BackgroundMapHeight = null,
-    string SchemaVersion = "2.0");
+    string SchemaVersion = "3.0",
+    BackgroundImagePlacement? BackgroundWarpSourcePlacement = null,
+    BackgroundReprojectionState? BackgroundReprojectionState = null);

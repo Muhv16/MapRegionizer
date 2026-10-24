@@ -14,6 +14,19 @@ public sealed class MapPackageContractTests
     private static readonly GeometryFactory Factory = new();
 
     [Fact]
+    public void GlobalPackagePreservesRelocatedCanvasCut()
+    {
+        var reference = CreateReference() with { Coverage = MapCoverage.Create(MapCoverageKind.Global, new(-167.9781, 360), -80, 80) };
+        var map = CreateMap(reference, [SquareLandmass(1, 0, 0, 6, 4)], [SquareRegion(1, 1, 0, 0, 6, 4)]);
+
+        var document = MapPackageReader.Read(MapPackageWriter.Write(map));
+
+        Assert.Equal(reference, document.SpatialReference);
+        Assert.Single(document.Regions);
+        Assert.True(document.Regions[0].Shape.IsValid);
+    }
+
+    [Fact]
     public void BasicPackageExportStoresSchemaBoundsSpatialReferenceAndIds()
     {
         var map = CreateMap(

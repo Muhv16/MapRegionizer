@@ -8,7 +8,7 @@
         Title="Ручная разметка карты" Width="1550" Height="980" WindowStartupLocation="CenterOwner">
   <Grid>
     <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10" IsEnabled="{Binding !IsLegacyProjectConfirmationVisible}">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
       <!-- The canvas owns the tool state; do not bind ComboBox.SelectedItem back
            to the large editor ViewModel during a selection transaction. -->
       <ComboBox Width="155" ItemsSource="{Binding Tools}" SelectedIndex="0" SelectionChanged="ToolSelectionChanged"/>
@@ -16,8 +16,10 @@
       <Button Grid.Column="2" Content="Redo" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}"/>
       <Button Grid.Column="3" Content="Проверить карту" Command="{Binding ValidateCommand}"/>
       <Button Grid.Column="4" Content="Изменить размеры…" Click="ResizeCanvasClick"/>
-      <CheckBox Grid.Column="6" Content="Применить distortion" IsChecked="{Binding ApplyBoundaryDistortion}" VerticalAlignment="Center"/>
-      <TextBlock Grid.Column="7" Text="Enter — завершить · Esc — отменить · Backspace — убрать вершину" VerticalAlignment="Center" Opacity="0.75"/>
+      <Button Grid.Column="5" Content="Перепроецировать карту…" Click="ReprojectMapClick"/>
+      <Button Grid.Column="6" Content="Географическая привязка…" Click="GeographicCalibrationClick"/>
+      <CheckBox Grid.Column="8" Content="Применить distortion" IsChecked="{Binding ApplyBoundaryDistortion}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="9" Text="Enter — завершить · Esc — отменить · Backspace — убрать вершину" VerticalAlignment="Center" Opacity="0.75"/>
     </Grid>
     <Grid Grid.Row="1" ColumnDefinitions="270,*,310" ColumnSpacing="10">
       <Border BorderBrush="#475569" BorderThickness="1" Padding="8">
@@ -53,6 +55,13 @@
           <Button Content="Сохранить manual project" Click="SaveProjectClick"/>
           <Button Content="Загрузить фон" Click="LoadBackgroundClick"/>
           <Button Content="Вписать фон" Command="{Binding FitBackgroundCommand}" IsEnabled="{Binding CanEditBackground}"/>
+          <Separator Margin="0,8,0,0"/>
+          <TextBlock Text="Географическая привязка" FontWeight="Bold"/>
+          <StackPanel Orientation="Horizontal" Spacing="4"><TextBlock Text="Опорные точки:"/><TextBlock Text="{Binding ControlPoints.Count}"/></StackPanel>
+          <TextBlock Text="Привязка новых точек"/>
+          <ComboBox ItemsSource="{Binding ControlPointAnchorKinds}" SelectedItem="{Binding ControlPointAnchorKind}"/>
+          <TextBlock Text="Выберите инструмент «Добавить опорную точку» в верхней панели и щёлкните известное место на карте или фоне. Затем укажите настоящие координаты и роль в окне привязки." TextWrapping="Wrap" Opacity="0.75"/>
+          <Button Content="Точки и оценка точности…" Click="GeographicCalibrationClick"/>
         </StackPanel>
         </ScrollViewer>
       </Border>

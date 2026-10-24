@@ -934,7 +934,7 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
                     frozenVisibleRegions ? false : BoundaryDistortionEnabled)
             };
             var owner = GetMainWindow();
-            var result = owner is null ? null : await editor.ShowDialog<RegionEditorResult?>(owner);
+            var result = owner is null ? null : await OwnedWindowDialog.ShowAsync<RegionEditorResult?>(editor, owner);
             if (_disposed || result is null)
                 return;
 
@@ -990,7 +990,7 @@ public sealed class MainViewModel : ReactiveObject, IDisposable
             ManualMapEditorResult? result;
             try
             {
-                result = owner is null ? null : await editor.ShowDialog<ManualMapEditorResult?>(owner);
+                result = owner is null ? null : await OwnedWindowDialog.ShowAsync<ManualMapEditorResult?>(editor, owner);
             }
             finally
             {

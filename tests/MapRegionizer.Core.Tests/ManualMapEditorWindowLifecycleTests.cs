@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless;
 using Avalonia.Threading;
 using MapRegionizer.App.Services;
@@ -14,12 +15,13 @@ namespace MapRegionizer.Core.Tests;
 public sealed class ManualMapEditorWindowLifecycleTests
 {
     [Fact]
-    public async Task ClosingEmptyEditorReturnsControlAndDoesNotLeaveManualMapWarning()
+    public async Task ManualMapDialogsReturnControlAfterCancellationAndFinalization()
     {
         AppBuilder.Configure<HeadlessTestApplication>()
-            .UseHeadless(new AvaloniaHeadlessPlatformOptions())
+            .UseSkia()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .UseReactiveUI(_ => { })
-            .SetupWithoutStarting();
+            .SetupWithLifetime(new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown });
 
         var settingsDirectory = Path.Combine(Path.GetTempPath(), $"MapRegionizer-{Guid.NewGuid():N}");
         Directory.CreateDirectory(settingsDirectory);
@@ -37,6 +39,8 @@ public sealed class ManualMapEditorWindowLifecycleTests
             owner = new Window();
             owner.Show();
             Dispatcher.UIThread.RunJobs();
+            MapTransformDialogContractChecks.Run(owner);
+            ManualMapFinalizationDialogChecks.Run(settingsDirectory);
 
             var resources = new TrackingDisposable();
             var editor = new ManualMapEditorWindow { DataContext = resources };
@@ -70,7 +74,10 @@ public sealed class ManualMapEditorWindowLifecycleTests
 
     }
 
-    private sealed class HeadlessTestApplication : Application;
+    private sealed class HeadlessTestApplication : Application
+    {
+        public override void Initialize() => Styles.Add(new Avalonia.Themes.Fluent.FluentTheme());
+    }
 
     private sealed class TrackingDisposable : IDisposable
     {

@@ -151,7 +151,7 @@ public sealed class ManualMapCanvasResizer
         MapCoverage coverage;
         if (oldCoverage.IsGlobal)
         {
-            coverage = MapCoverage.Global(southLatitude, northLatitude);
+            coverage = MapCoverage.Create(MapCoverageKind.Global, oldCoverage.Longitude, southLatitude, northLatitude);
         }
         else
         {

@@ -491,7 +491,7 @@ public sealed class SpatialConfigurationViewModel : ReactiveObject
         }
 
         var coverage = CoverageKind == MapCoverageKind.Global
-            ? MapCoverage.Global(SouthLatitude, NorthLatitude)
+            ? MapCoverage.Create(MapCoverageKind.Global, new LongitudeInterval(WestLongitude, 360), SouthLatitude, NorthLatitude)
             : MapCoverage.Regional(WestLongitude, EastLongitude, SouthLatitude, NorthLatitude);
         var topology = CoverageKind == MapCoverageKind.Regional && Topology == GridTopologyKind.CylindricalX
             ? GridTopologyKind.OpenRectangular

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.ManualAuthoring;
+using MapRegionizer.Core.ManualAuthoring.Georeferencing;
 
 namespace MapRegionizer.GeoJson;
 
@@ -11,14 +12,16 @@ namespace MapRegionizer.GeoJson;
 /// </summary>
 public static class ManualMapJson
 {
-    public const string CurrentSchemaVersion = "2.0";
+    public const string CurrentSchemaVersion = "3.0";
+    public const string SpatialReferenceSchemaVersion = "2.0";
     public const string LegacySchemaVersion = "1.0";
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        Converters = { new JsonStringEnumConverter(), new MapSpatialReferenceJsonConverter() }
     };
 
     public static string Write(ManualMapDraft draft)
@@ -30,15 +33,24 @@ public static class ManualMapJson
     }
 
     public static string Write(ManualMapDraft draft, MapSpatialReference spatialReference)
+        => Write(draft, spatialReference, [], null);
+
+    public static string Write(
+        ManualMapDraft draft,
+        MapSpatialReference spatialReference,
+        IReadOnlyList<GeographicControlPoint> controlPoints,
+        GeographicCalibrationParameters? calibrationParameters,
+        GeographicCalibrationResult? calibrationReport = null)
     {
         ArgumentNullException.ThrowIfNull(draft);
         ArgumentNullException.ThrowIfNull(spatialReference);
+        ArgumentNullException.ThrowIfNull(controlPoints);
         spatialReference.Validate();
         if (spatialReference.GridWidth != draft.GridWidth || spatialReference.GridHeight != draft.GridHeight)
             throw new ArgumentException("Draft and spatial reference grid dimensions must match.", nameof(spatialReference));
 
         return JsonSerializer.Serialize(
-            CreateDocument(draft, CurrentSchemaVersion, SpatialReferenceDocument.From(spatialReference)),
+            CreateDocument(draft, CurrentSchemaVersion, SpatialReferenceDocument.From(spatialReference), controlPoints, calibrationParameters, calibrationReport),
             SerializerOptions);
     }
 
@@ -50,10 +62,11 @@ public static class ManualMapJson
         var document = JsonSerializer.Deserialize<ManualMapDocument>(json, SerializerOptions)
             ?? throw new ArgumentException("The manual-map document is empty.", nameof(json));
         if (!string.Equals(document.SchemaVersion, CurrentSchemaVersion, StringComparison.Ordinal) &&
+            !string.Equals(document.SchemaVersion, SpatialReferenceSchemaVersion, StringComparison.Ordinal) &&
             !string.Equals(document.SchemaVersion, LegacySchemaVersion, StringComparison.Ordinal))
         {
             throw new ArgumentException(
-                $"Unsupported manual-map schema version '{document.SchemaVersion}'. Expected '{LegacySchemaVersion}' or '{CurrentSchemaVersion}'.",
+                $"Unsupported manual-map schema version '{document.SchemaVersion}'. Expected '{LegacySchemaVersion}', '{SpatialReferenceSchemaVersion}' or '{CurrentSchemaVersion}'.",
                 nameof(json));
         }
 
@@ -69,7 +82,8 @@ public static class ManualMapJson
             region.Name)).ToArray() ?? [];
         var draft = new ManualMapDraft(document.Grid.Width, document.Grid.Height, vertices, regions);
         MapSpatialReference? spatialReference = null;
-        if (string.Equals(document.SchemaVersion, CurrentSchemaVersion, StringComparison.Ordinal))
+        if (string.Equals(document.SchemaVersion, CurrentSchemaVersion, StringComparison.Ordinal) ||
+            string.Equals(document.SchemaVersion, SpatialReferenceSchemaVersion, StringComparison.Ordinal))
         {
             if (document.SpatialReference is null)
                 throw new ArgumentException("A version 2.0 manual-map document must contain a spatial reference.", nameof(json));
@@ -79,7 +93,13 @@ public static class ManualMapJson
             spatialReference.Validate();
         }
 
-        return new ManualMapProject(draft, spatialReference, document.SchemaVersion);
+        return new ManualMapProject(
+            draft,
+            spatialReference,
+            document.SchemaVersion,
+            document.ControlPoints ?? [],
+            document.CalibrationParameters,
+            document.CalibrationReport);
     }
 
     public static void Save(string path, ManualMapDraft draft)
@@ -89,9 +109,18 @@ public static class ManualMapJson
     }
 
     public static void Save(string path, ManualMapDraft draft, MapSpatialReference spatialReference)
+        => Save(path, draft, spatialReference, [], null);
+
+    public static void Save(
+        string path,
+        ManualMapDraft draft,
+        MapSpatialReference spatialReference,
+        IReadOnlyList<GeographicControlPoint> controlPoints,
+        GeographicCalibrationParameters? calibrationParameters,
+        GeographicCalibrationResult? calibrationReport = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        File.WriteAllText(path, Write(draft, spatialReference));
+        File.WriteAllText(path, Write(draft, spatialReference, controlPoints, calibrationParameters, calibrationReport));
     }
 
     public static ManualMapDraft Load(string path)
@@ -109,7 +138,10 @@ public static class ManualMapJson
     private static ManualMapDocument CreateDocument(
         ManualMapDraft draft,
         string schemaVersion,
-        SpatialReferenceDocument? spatialReference) => new()
+        SpatialReferenceDocument? spatialReference,
+        IReadOnlyList<GeographicControlPoint>? controlPoints = null,
+        GeographicCalibrationParameters? calibrationParameters = null,
+        GeographicCalibrationResult? calibrationReport = null) => new()
         {
             SchemaVersion = schemaVersion,
             Grid = new ManualMapGrid { Width = draft.GridWidth, Height = draft.GridHeight },
@@ -131,7 +163,10 @@ public static class ManualMapJson
                 Name = region.Name,
                 Vertices = region.VertexIds.ToArray()
             })
-            .ToArray()
+            .ToArray(),
+            ControlPoints = controlPoints?.OrderBy(point => point.Id).ToArray(),
+            CalibrationParameters = calibrationParameters,
+            CalibrationReport = calibrationReport
         };
 
     private sealed class ManualMapDocument
@@ -141,6 +176,9 @@ public static class ManualMapJson
         public SpatialReferenceDocument? SpatialReference { get; set; }
         public ManualMapVertexDocument[]? Vertices { get; set; }
         public ManualMapRegionDocument[]? Regions { get; set; }
+        public GeographicControlPoint[]? ControlPoints { get; set; }
+        public GeographicCalibrationParameters? CalibrationParameters { get; set; }
+        public GeographicCalibrationResult? CalibrationReport { get; set; }
     }
 
     private sealed class SpatialReferenceDocument
@@ -183,9 +221,7 @@ public static class ManualMapJson
         public MapSpatialReference ToSpatialReference()
         {
             var longitude = new LongitudeInterval(LongitudeStartDegrees, LongitudeSpanDegrees);
-            var coverage = CoverageKind == MapCoverageKind.Global
-                ? MapCoverage.Global(SouthLatitude, NorthLatitude)
-                : MapCoverage.Regional(longitude, SouthLatitude, NorthLatitude);
+            var coverage = MapCoverage.Create(CoverageKind, longitude, SouthLatitude, NorthLatitude);
             var world = WorldModelKind switch
             {
                 global::MapRegionizer.Core.Domain.WorldModelKind.Planar => WorldModelDescriptor.Planar(),
@@ -232,7 +268,10 @@ public static class ManualMapJson
 public sealed record ManualMapProject(
     ManualMapDraft Draft,
     MapSpatialReference? SpatialReference,
-    string SchemaVersion)
+    string SchemaVersion,
+    IReadOnlyList<GeographicControlPoint>? ControlPoints = null,
+    GeographicCalibrationParameters? CalibrationParameters = null,
+    GeographicCalibrationResult? CalibrationReport = null)
 {
     public bool HasSpatialReference => SpatialReference is not null;
 }

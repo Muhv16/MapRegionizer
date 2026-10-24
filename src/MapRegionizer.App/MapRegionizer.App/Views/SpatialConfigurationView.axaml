@@ -89,6 +89,9 @@
         </views:SettingsRow>
 
         <StackPanel Spacing="6" IsVisible="{Binding SpatialConfiguration.ShowGlobalLatitudeBounds}">
+            <views:SettingsRow Label="Разрез карты, ° долготы" Tip="Меридиан левого и правого края холста. Изменяется через перепроецирование или географическую привязку.">
+                <views:SettingsRow.Value><TextBlock Text="{Binding SpatialConfiguration.WestLongitude, StringFormat={}{0:0.####}}"/></views:SettingsRow.Value>
+            </views:SettingsRow>
             <views:SettingsRow Label="{Binding L[SouthLatitude]}">
                 <views:SettingsRow.Value><NumericUpDown Value="{Binding SpatialConfiguration.SouthLatitude}" Minimum="{Binding SpatialConfiguration.MinimumLatitude}" Maximum="{Binding SpatialConfiguration.MaximumLatitude}" FormatString="N2"/></views:SettingsRow.Value>
             </views:SettingsRow>

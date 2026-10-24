@@ -74,6 +74,16 @@ public sealed class ManualMapEditorCanvas : Control
                 DrawStaticLayer(context, viewModel, scale, offsetX, offsetY);
         }
 
+        foreach (var marker in viewModel.ControlPointMarkers)
+        {
+            var point = ToPoint(marker.Position, scale, offsetX, offsetY);
+            var markerBrush = marker.IsActive ? Brushes.Gold : Brushes.Gray;
+            context.DrawEllipse(markerBrush, new Pen(Brushes.Black, 1), new Rect(point.X - 5, point.Y - 5, 10, 10));
+            context.DrawText(new FormattedText(marker.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Brushes.White),
+                new AvaloniaPoint(point.X + 7, point.Y - 7));
+        }
+
         var current = viewModel.CurrentPolygon;
         if (current.Count > 0)
         {

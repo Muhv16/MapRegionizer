@@ -98,7 +98,12 @@ compatibility and intentionally planar configurations.
 `Coverage` states which geographic extent the generation grid represents.
 `MapCoverage.Global` describes a full longitude span and normally reaches the
 geographic poles, but it can use an independently selected south and north
-latitude range. `MapCoverage.Regional` describes explicit south/north latitude
+latitude range. `MapCoverage.Create` can also describe a global 360° interval
+starting at another longitude; the default `MapCoverage.Global()` factory keeps
+the usual −180° cut. The interval's start is the canvas cut, not a change in
+geographic longitude conventions. The App's spatial controls retain that
+start through `WestLongitude` for global coverage; `EastLongitude` does not
+reduce the fixed 360° global span. `MapCoverage.Regional` describes explicit south/north latitude
 bounds and a directed west/east longitude interval; a longitude interval may
 cross the antimeridian.
 
@@ -134,6 +139,32 @@ Global cylindrical coverage remains cylindrical regardless of context mode.
 `UnitsPerCell` is the size of one generation cell in canonical map units.
 `MapBounds.UnitsPerCell` and `MapSpatialReference.UnitsPerCell` expose the
 same value. The obsolete `PixelSize` names are compatibility aliases only.
+
+### Reprojecting an authored map
+
+Changing `GridMapping`, `Coverage`, or `UnitsPerCell` changes the interpretation
+of grid positions. For a populated manual map, do not update those settings
+alone: use the editor's explicit reprojection operation. It converts each
+shared authoring vertex from map units to grid coordinates, maps it to
+longitude/latitude through the source reference, and maps that location into
+the target reference. The operation can also change grid dimensions while
+preserving geographic positions. Equirectangular and Web Mercator are
+supported; Web Mercator rejects latitudes beyond ±85.0511287798066°.
+
+When a longitude correction would fold a region across the canvas cut, the
+editor offers an explicit relocation of a full-world target's cut to the
+transformed source origin. The result retains the corrected geographic
+coordinates with a continuous planar representation and shared topology.
+No multipart manual-face contract is introduced. See the cut-resolution
+workflow in `manual-map-authoring.md` for application and persistence semantics.
+
+The editor keeps raster presentation separate from region geometry. Background
+reprojection can be applied on its own or together with geometry, and its
+source-to-target recipe is saved in the editor sidecar. Calibration control
+points and their error report are stored with the manual-map project; validation
+points remain separate from points used to fit a model. See
+[`manual-map-authoring.md`](manual-map-authoring.md) for the editor workflow and
+current calibration limits.
 
 ## Generation Domains
 

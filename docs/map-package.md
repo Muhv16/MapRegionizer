@@ -38,6 +38,12 @@ MapPackageWriter -> *.map.json
 
 ## v1 contents
 
+`coverage.longitudeStart` is authoritative for global maps as well as regional
+maps. A global map spans 360° but may use a cut other than −180°, for example
+after manual geographic calibration. Consumers must use the stored interval
+when converting `GridMapUnits` to longitude rather than assuming a fixed cut.
+This uses the existing v1 representation and does not change the schema.
+
 ```json
 {
   "schema": "MapRegionizer.MapPackage.v1",

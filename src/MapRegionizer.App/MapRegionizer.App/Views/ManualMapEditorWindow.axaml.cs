@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using MapRegionizer.App.Services;
 using MapRegionizer.App.ViewModels;
 using MapRegionizer.Core.ManualAuthoring;
 
@@ -26,10 +27,10 @@ public partial class ManualMapEditorWindow : Window
     {
         if (DataContext is not ManualMapEditorViewModel viewModel
             || e.AddedItems.Count == 0
-            || e.AddedItems[0] is not ManualMapEditorTool tool)
+            || e.AddedItems[0] is not ManualMapEditorToolOption option)
             return;
 
-        viewModel.SelectedTool = tool;
+        viewModel.SelectedTool = option.Tool;
     }
 
     private void CancelClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => Close(null);
@@ -96,7 +97,41 @@ public partial class ManualMapEditorWindow : Window
             DataContext = ViewModel.CreateCanvasResizeDialogViewModel(),
             ApplyResizeAsync = ApplyCanvasResizeAsync
         };
-        await dialog.ShowDialog<bool>(this);
+        await OwnedWindowDialog.ShowAsync<bool>(dialog, this);
+    }
+
+    private async void ReprojectMapClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var dialog = new ManualMapReprojectionDialog(ViewModel);
+        var selection = await OwnedWindowDialog.ShowAsync<ManualMapReprojectionSelection?>(dialog, this);
+        if (_isClosed || selection is null)
+            return;
+        try
+        {
+            if (selection.ApplyGeometry)
+            {
+                await ViewModel.ApplyReprojectionAsync(
+                    selection.Request,
+                    selection.Result!,
+                    reprojectedBackgroundPng: selection.ApplyBackground ? selection.BackgroundPng : null,
+                    sourceBackgroundPlacement: selection.ApplyBackground ? selection.BackgroundState?.SourcePlacement : null,
+                    backgroundReprojectionState: selection.ApplyBackground ? selection.BackgroundState : null);
+            }
+            else if (selection.ApplyBackground && selection.BackgroundPng is not null && selection.BackgroundState is not null)
+            {
+                ViewModel.ApplyBackgroundReprojection(selection.BackgroundPng, selection.BackgroundState);
+            }
+        }
+        catch (Exception exception)
+        {
+            ViewModel.ShowDiagnostic($"Карта не перепроецирована: {exception.Message}");
+        }
+    }
+
+    private async void GeographicCalibrationClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var dialog = new GeographicCalibrationDialog(ViewModel);
+        await OwnedWindowDialog.ShowAsync<object?>(dialog, this);
     }
 
     private async Task ApplyCanvasResizeAsync(ManualCanvasResizeResult result, CancellationToken cancellationToken)

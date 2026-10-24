@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Text.Json;
 using MapRegionizer.Core.Domain;
 using MapRegionizer.Core.Generation;
 using MapRegionizer.Core.ManualAuthoring;
+using MapRegionizer.Core.ManualAuthoring.Georeferencing;
 using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Regions;
 using MapRegionizer.GeoJson;
@@ -408,7 +410,7 @@ public sealed class ManualMapAuthoringContractTests
     }
 
     [Fact]
-    public void ManualMapJsonVersionTwoRoundTripsSpatialReference()
+    public void ManualMapJsonVersionThreeRoundTripsSpatialReference()
     {
         var draft = SquareDraft(10, 10, 1, 1, 5, 5);
         var reference = CreateSpatialReference(10, 10) with
@@ -419,12 +421,86 @@ public sealed class ManualMapAuthoringContractTests
 
         var project = ManualMapJson.ReadProject(ManualMapJson.Write(draft, reference));
 
-        Assert.Equal("2.0", project.SchemaVersion);
+        Assert.Equal("3.0", project.SchemaVersion);
         Assert.Equal(draft.GridWidth, project.Draft.GridWidth);
         Assert.Equal(draft.GridHeight, project.Draft.GridHeight);
         Assert.Equal(draft.Vertices, project.Draft.Vertices);
         Assert.Equal(draft.Regions.SelectMany(region => region.VertexIds), project.Draft.Regions.SelectMany(region => region.VertexIds));
         Assert.Equal(reference, project.SpatialReference);
+    }
+
+    [Fact]
+    public void ManualMapJsonRoundTripsControlPointsAndCalibrationState()
+    {
+        var draft = SquareDraft(10, 10, 1, 1, 5, 5);
+        var reference = CreateSpatialReference(10, 10);
+        var points = new[]
+        {
+            new GeographicControlPoint(1, "Test landmark", GeographicControlPointAnchorKind.MapUnits,
+                GeographicControlPointRole.Calibration, new GeoCoordinate(42.5, 18.25), new MapPoint(2, 3),
+                SourceReferenceAtCapture: reference),
+            new GeographicControlPoint(2, "Image landmark", GeographicControlPointAnchorKind.BackgroundImageUv,
+                GeographicControlPointRole.Validation, new GeoCoordinate(-75, 51), BackgroundU: .25, BackgroundV: .75,
+                BackgroundPlacementAtCapture: new BackgroundImagePlacement(2, 4, 5, 6, 12),
+                BackgroundImageId: "test-image", SourceReferenceAtCapture: reference)
+        };
+        var parameters = new GeographicCalibrationParameters(1, GridMappingKind.WebMercator, 12, -60, 80,
+            IsApplied: true, IsAppliedToBackground: true, SourceReference: reference);
+        var report = new GeographicCalibrationResult(
+            parameters,
+            [new GeographicPointResidual(1, "Test landmark", GeographicControlPointRole.Calibration,
+                new GeoCoordinate(42.5, 18.25), new GeoCoordinate(30, 20), new GeoCoordinate(42.5, 18.25), 0, 0, 0)],
+            new GeographicCalibrationMetrics(1, 0, 0, 0, double.NaN, double.NaN, double.NaN, false, "Not evaluated",
+                CalibrationMeanAbsoluteLongitudeErrorDegrees: .125,
+                CalibrationMeanAbsoluteLatitudeErrorDegrees: .25),
+            [new GeographicCalibrationDiagnostic("insufficient-validation-points", "Add independent check points.")],
+            true);
+
+        var project = ManualMapJson.ReadProject(ManualMapJson.Write(draft, reference, points, parameters, report));
+
+        Assert.Equal("3.0", project.SchemaVersion);
+        Assert.Equal(points, project.ControlPoints);
+        Assert.Equal(parameters, project.CalibrationParameters);
+        Assert.NotNull(project.CalibrationReport);
+        Assert.Equal(report.IsSuccessful, project.CalibrationReport.IsSuccessful);
+        Assert.Equal(report.Metrics, project.CalibrationReport.Metrics);
+        Assert.Equal(report.Diagnostics, project.CalibrationReport.Diagnostics);
+        Assert.Equal(report.Residuals, project.CalibrationReport.Residuals);
+    }
+
+    [Fact]
+    public void ManualMapJsonStillReadsVersionTwoSpatialProjects()
+    {
+        var json = ManualMapJson.Write(SquareDraft(10, 10, 1, 1, 5, 5), CreateSpatialReference(10, 10))
+            .Replace("\"schemaVersion\": \"3.0\"", "\"schemaVersion\": \"2.0\"", StringComparison.Ordinal);
+
+        var project = ManualMapJson.ReadProject(json);
+
+        Assert.Equal("2.0", project.SchemaVersion);
+        Assert.True(project.HasSpatialReference);
+        Assert.Empty(project.ControlPoints!);
+        Assert.Null(project.CalibrationParameters);
+    }
+
+    [Fact]
+    public void BackgroundReprojectionStateRoundTripsSourceAndTargetReferences()
+    {
+        var source = CreateSpatialReference(10, 8);
+        var target = source with
+        {
+            GridWidth = 20,
+            UnitsPerCell = .5,
+            GridMapping = GridMappingKind.WebMercator,
+            PreserveProjectedCellAspectRatio = false
+        };
+        var parameters = new GeographicCalibrationParameters(1, GridMappingKind.Equirectangular, 5, -70, 80, SourceReference: source);
+        var state = new BackgroundReprojectionState(source, target, new BackgroundImagePlacement(1, 2, 3, 4, 10), 2, parameters, "source-image-hash");
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        options.Converters.Add(new MapSpatialReferenceJsonConverter());
+
+        var roundTripped = JsonSerializer.Deserialize<BackgroundReprojectionState>(JsonSerializer.Serialize(state, options), options);
+
+        Assert.Equal(state, roundTripped);
     }
 
     [Fact]
