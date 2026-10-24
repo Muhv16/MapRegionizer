@@ -122,19 +122,26 @@ public sealed class ParametricGeoreferenceSolver
         if (denominator <= 1e-12)
             return Failed("underdetermined-latitude-fit", "Calibration points must span more than one image row to determine the north and south latitude bounds.");
         var slope = latitudeSamples.Sum(point => (point.V - meanV) * (point.ProjectedLatitude - meanProjectedLatitude)) / denominator;
+        if (!double.IsFinite(slope) || slope >= 0)
+            return Failed("invalid-latitude-fit", "A flat or vertically inverted latitude fit cannot be represented by this north-up model.");
         var projectedNorth = meanProjectedLatitude - slope * meanV;
         var projectedSouth = meanProjectedLatitude + slope * (1 - meanV);
-        var northLatitude = request.SourceReference.GridMapping == GridMappingKind.WebMercator
-            ? WebMercatorGridMapping.InverseMercatorY(projectedNorth)
-            : projectedNorth;
-        var southLatitude = request.SourceReference.GridMapping == GridMappingKind.WebMercator
-            ? WebMercatorGridMapping.InverseMercatorY(projectedSouth)
-            : projectedSouth;
-        if (!double.IsFinite(southLatitude) || !double.IsFinite(northLatitude) || southLatitude < -90 || northLatitude > 90 || southLatitude >= northLatitude)
-            return Failed("invalid-latitude-fit", "Control points imply invalid north/south latitude bounds.");
-        if (request.SourceReference.GridMapping == GridMappingKind.WebMercator &&
-            (southLatitude < -WebMercatorGridMapping.WebMercatorLatitudeLimit || northLatitude > WebMercatorGridMapping.WebMercatorLatitudeLimit))
-            return Failed("latitude-outside-source-projection", "The fitted latitude bounds exceed the Web Mercator limit. Check the source projection and calibration points.");
+        var mercator = request.SourceReference.GridMapping == GridMappingKind.WebMercator;
+        var latitudeLimit = mercator ? WebMercatorGridMapping.WebMercatorLatitudeLimit : 90;
+        var minimum = mercator ? WebMercatorGridMapping.MercatorY(-latitudeLimit) : -latitudeLimit;
+        var maximum = mercator ? WebMercatorGridMapping.MercatorY(latitudeLimit) : latitudeLimit;
+        if (projectedSouth < minimum || projectedNorth > maximum || projectedNorth < minimum || projectedSouth > maximum)
+        {
+            var unconstrainedNorth = mercator ? WebMercatorGridMapping.InverseMercatorY(projectedNorth) : projectedNorth;
+            var unconstrainedSouth = mercator ? WebMercatorGridMapping.InverseMercatorY(projectedSouth) : projectedSouth;
+            (projectedNorth, projectedSouth) = FitBoundedLatitudes(latitudeSamples, minimum, maximum);
+            diagnostics.Add(new("latitude-fit-constrained", FormattableString.Invariant(
+                $"Unconstrained source latitude bounds {unconstrainedSouth:R}..{unconstrainedNorth:R} exceed the projection limit ±{latitudeLimit:R}. Refit within that limit using all calibration points; inspect their residuals.")));
+        }
+        var northLatitude = Math.Clamp(mercator ? WebMercatorGridMapping.InverseMercatorY(projectedNorth) : projectedNorth, -latitudeLimit, latitudeLimit);
+        var southLatitude = Math.Clamp(mercator ? WebMercatorGridMapping.InverseMercatorY(projectedSouth) : projectedSouth, -latitudeLimit, latitudeLimit);
+        if (!double.IsFinite(southLatitude) || !double.IsFinite(northLatitude) || southLatitude >= northLatitude)
+            return Failed("invalid-latitude-fit", "The best bounded latitude fit collapses the map's north/south extent.");
 
         var longitudeDifferences = calibration.Select(point => LongitudeInterval.Normalize(
             point.Point.GeographicPosition.LongitudeDegrees - point.BaseGeographic.LongitudeDegrees)).ToArray();
@@ -205,6 +212,33 @@ public sealed class ParametricGeoreferenceSolver
 
     public static ParametricGeoreferenceTransform CreateTransform(MapSpatialReference sourceReference, GeographicCalibrationParameters parameters) =>
         new(sourceReference, parameters);
+
+    private static (double North, double South) FitBoundedLatitudes(
+        IReadOnlyList<(double V, double ProjectedLatitude)> samples, double minimum, double maximum)
+    {
+        // Minimize sum(((1-v)*north + v*south - latitude)^2) on the
+        // triangle minimum <= south <= north <= maximum. An infeasible
+        // unconstrained optimum puts the constrained optimum on an edge.
+        // Solve on every edge, refitting the free bound instead of simply
+        // clamping the two unconstrained bounds. Order is deterministic.
+        var northWeightSquared = samples.Sum(point => (1 - point.V) * (1 - point.V));
+        var southWeightSquared = samples.Sum(point => point.V * point.V);
+        var candidates = new List<(double North, double South)>();
+        foreach (var bound in new[] { minimum, maximum })
+        {
+            var south = samples.Sum(point => point.V * (point.ProjectedLatitude - (1 - point.V) * bound)) / southWeightSquared;
+            candidates.Add((bound, Math.Clamp(south, minimum, bound)));
+            var north = samples.Sum(point => (1 - point.V) * (point.ProjectedLatitude - point.V * bound)) / northWeightSquared;
+            candidates.Add((Math.Clamp(north, bound, maximum), bound));
+        }
+        var collapsed = Math.Clamp(samples.Average(point => point.ProjectedLatitude), minimum, maximum);
+        candidates.Add((collapsed, collapsed));
+        return candidates.MinBy(candidate => samples.Sum(point =>
+        {
+            var residual = (1 - point.V) * candidate.North + point.V * candidate.South - point.ProjectedLatitude;
+            return residual * residual;
+        }));
+    }
 
     private static GeographicCalibrationResult Failed(string code, string message) =>
         new(null, [], null, [new GeographicCalibrationDiagnostic(code, message, true)], false);

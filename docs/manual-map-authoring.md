@@ -151,8 +151,25 @@ and maximum ≤ 10° (or the thresholds supplied in the request); it is false wh
 no validation points exist. It does not certify accuracy across the whole map.
 Validation points are still excluded from fitting, and their presence, absence,
 and threshold results never determine application availability. The serialized
-model shape is unchanged. Fitted Mercator latitude bounds outside
-±85.0511287798066° produce a failed result with diagnostics, not an exception.
+model shape is unchanged. Latitude fitting minimizes squared residuals in
+the selected projection subject to its physical bounds: ±90° for
+Equirectangular and ±85.0511287798066° for Web Mercator. If ordinary least
+squares extrapolates a canvas edge beyond a pole, the solver refits on the
+allowed bounds using all enabled calibration points. It solves the free
+edge again rather than independently clamping the old solution. A nonblocking
+`latitude-fit-constrained` diagnostic and a concise UI notice explain this
+case; the residual report shows the resulting errors for every point.
+This avoids requiring users to disable an entire hemisphere just to obtain
+a valid model. A flat or vertically inverted fit remains unsupported, and
+invalid input coordinates (including calibration latitudes outside Mercator's
+range when Mercator is selected) still produce explicit errors. No points
+are silently removed and validation points still cannot affect the fit.
+Existing feasible fits and the serialized parameter format are unchanged;
+previously rejected extrapolations can now produce a bounded best fit.
+To repeat the reported 16 calibration/1 validation point case through fitting,
+contour preservation, application and finalization, set
+`MAPREGIONIZER_CALIBRATION_SOURCE` to the supplied project's path before
+`./scripts/verify.ps1 -Full`; the source is checked unchanged.
 
 Direct reprojection similarly separates the source interpretation, target
 grid, and result into tabs. The left-edge longitude is available for global

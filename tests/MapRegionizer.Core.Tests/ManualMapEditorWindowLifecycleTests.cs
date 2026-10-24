@@ -6,12 +6,14 @@ using Avalonia.Threading;
 using MapRegionizer.App.Services;
 using MapRegionizer.App.ViewModels;
 using MapRegionizer.App.Views;
+using ReactiveUI;
 using ReactiveUI.Avalonia;
 using System.Reactive.Threading.Tasks;
 using Xunit;
 
 namespace MapRegionizer.Core.Tests;
 
+[Collection("Avalonia UI")]
 public sealed class ManualMapEditorWindowLifecycleTests
 {
     [Fact]
@@ -22,6 +24,9 @@ public sealed class ManualMapEditorWindowLifecycleTests
             .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .UseReactiveUI(_ => { })
             .SetupWithLifetime(new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown });
+
+        var previousScheduler = RxSchedulers.MainThreadScheduler;
+        RxSchedulers.MainThreadScheduler = AvaloniaScheduler.Instance;
 
         var settingsDirectory = Path.Combine(Path.GetTempPath(), $"MapRegionizer-{Guid.NewGuid():N}");
         Directory.CreateDirectory(settingsDirectory);
@@ -69,6 +74,7 @@ public sealed class ManualMapEditorWindowLifecycleTests
         {
             if (owner?.IsVisible == true)
                 owner.Close();
+            RxSchedulers.MainThreadScheduler = previousScheduler;
             Directory.Delete(settingsDirectory, recursive: true);
         }
 
@@ -85,4 +91,11 @@ public sealed class ManualMapEditorWindowLifecycleTests
 
         public void Dispose() => IsDisposed = true;
     }
+}
+
+// Other view-model tests rebuild global ReactiveUI services. The headless
+// application must retain its UI scheduler for the entire window workflow.
+[CollectionDefinition("Avalonia UI", DisableParallelization = true)]
+public sealed class AvaloniaUiTestIsolation
+{
 }

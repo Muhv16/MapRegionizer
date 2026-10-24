@@ -95,12 +95,12 @@ public sealed class ManualMapReprojectionAndGeoreferencingTests
     }
 
     [Fact]
-    public void MercatorFitOutsideItsLatitudeLimitReturnsDiagnosticInsteadOfThrowing()
+    public void MercatorControlPointOutsideItsLatitudeLimitReturnsDiagnosticInsteadOfThrowing()
     {
         var reference = Reference(100, 100, 1, GridMappingKind.WebMercator, MapCoverage.Global(-80, 80));
         GeographicControlPoint[] points =
         [
-            new(1, "north", GeographicControlPointAnchorKind.MapUnits, GeographicControlPointRole.Calibration, new(-144, 85), new(10, 40)),
+            new(1, "north", GeographicControlPointAnchorKind.MapUnits, GeographicControlPointRole.Calibration, new(-144, 86), new(10, 40)),
             new(2, "south", GeographicControlPointAnchorKind.MapUnits, GeographicControlPointRole.Calibration, new(108, 84), new(80, 50))
         ];
 

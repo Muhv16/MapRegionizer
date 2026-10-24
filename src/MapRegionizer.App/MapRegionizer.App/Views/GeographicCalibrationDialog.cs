@@ -323,6 +323,8 @@ public sealed class GeographicCalibrationDialog : Window
                 (reprojection.IsSuccessful ? "Геометрия проверена. Сравните результат на вкладке «До и после»." : MapTransformDialogUi.Diagnostic(reprojection.Diagnostics.Count > 0 ? reprojection.Diagnostics[0].Code : ""));
             if (fit.Diagnostics.Any(item => item.Code is "conflicting-longitudes" or "high-calibration-error"))
                 summary += "\n" + MapTransformDialogUi.Diagnostic("high-calibration-error");
+            if (fit.Diagnostics.Any(item => item.Code == "latitude-fit-constrained"))
+                summary += "\n" + MapTransformDialogUi.Diagnostic("latitude-fit-constrained");
             if (backgroundError is not null)
                 summary += "\nФон не подготовлен. Проверьте доступность исходного изображения.";
             if (_relocateSeam.IsVisible)

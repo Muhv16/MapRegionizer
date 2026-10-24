@@ -13,6 +13,7 @@ using MapRegionizer.Core.Options;
 using MapRegionizer.Core.Spatial;
 using MapRegionizer.GeoJson;
 using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
@@ -28,6 +29,72 @@ internal static class ManualMapSeamDialogChecks
         VerifySuppliedMap();
         VerifyCalibrationAction(owner);
         VerifyDirectReprojectionAction(owner);
+        VerifyBoundedCalibrationAction(owner);
+    }
+
+    private static void VerifyBoundedCalibrationAction(Window owner)
+    {
+        var small = ManualMapSeamContractTests.Draft();
+        var draft = small with
+        {
+            GridWidth = 2560,
+            GridHeight = 1413,
+            Vertices = small.Vertices.Select(vertex => vertex with
+            {
+                Position = new(vertex.Position.X * 25.6, vertex.Position.Y * 14.13)
+            }).ToArray()
+        };
+        Verify(draft, BoundedLatitudeCalibrationTests.Reference(), BoundedLatitudeCalibrationTests.SuppliedPoints());
+        var path = Environment.GetEnvironmentVariable("MAPREGIONIZER_CALIBRATION_SOURCE");
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            var hash = SHA256.HashData(File.ReadAllBytes(path));
+            var project = ManualMapJson.LoadProject(path);
+            Assert.NotEmpty(project.ControlPoints!);
+            Verify(project.Draft, project.SpatialReference!, project.ControlPoints!);
+            Assert.Equal(hash, SHA256.HashData(File.ReadAllBytes(path)));
+        }
+
+        void Verify(ManualMapDraft source, MapSpatialReference reference, IReadOnlyList<GeographicControlPoint> points)
+        {
+            using var editor = Editor(source, reference);
+            editor.UpdateControlPoints(points);
+            var dialog = new GeographicCalibrationDialog(editor);
+            var modal = dialog.ShowDialog(owner);
+            dialog.GetVisualDescendants().OfType<TabControl>().Single().SelectedIndex = 1;
+            Dispatcher.UIThread.RunJobs();
+            FindButton(dialog, "Подобрать и проверить").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var relocate = FindButton(dialog, "Сохранить контуры и проверить привязку");
+            PumpUntil(() => relocate.IsVisible, () => VisibleText(dialog), TimeSpan.FromMinutes(2));
+            Assert.Contains("Все включённые точки учтены", VisibleText(dialog));
+            Assert.DoesNotContain("невозможные границы", VisibleText(dialog));
+            relocate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var apply = FindButton(dialog, "К геометрии…");
+            PumpUntil(() => apply.IsEnabled, () => VisibleText(dialog), TimeSpan.FromMinutes(2));
+            SaveSnapshot(dialog, "calibration-both-hemispheres");
+            apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => dialog.OwnedWindows.Count == 1);
+            FindButton(dialog.OwnedWindows.Single(), "Применить").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => modal.IsCompleted, () => VisibleText(dialog), TimeSpan.FromMinutes(2));
+            modal.GetAwaiter().GetResult();
+            Assert.True(editor.CalibrationParameters!.IsApplied);
+            Assert.Equal(points.Select(point => point.IsActive), editor.ControlPoints.Select(point => point.IsActive));
+            Assert.Equal(16, editor.CalibrationReport!.Metrics!.CalibrationPointCount);
+            Assert.Equal(1, editor.CalibrationReport.Metrics.ValidationPointCount);
+            Assert.Equal(90, editor.SpatialReference.NorthLatitude, 9);
+            Assert.Equal(-75.12633125074517, editor.SpatialReference.SouthLatitude, 9);
+            var validation = editor.ValidateCommand.Execute().ToTask();
+            PumpUntil(() => validation.IsCompleted, () => editor.Diagnostics, TimeSpan.FromMinutes(2));
+            validation.GetAwaiter().GetResult();
+            Assert.True(editor.CanFinalize, editor.Diagnostics);
+            var result = editor.CreateResult();
+            Assert.Equal(source.Vertices.Select(vertex => vertex.Id), result.Draft.Vertices.Select(vertex => vertex.Id));
+            foreach (var (before, after) in source.Vertices.Zip(result.Draft.Vertices))
+            {
+                Assert.Equal(before.Position.X, after.Position.X, 8);
+                Assert.Equal(before.Position.Y, after.Position.Y, 8);
+            }
+        }
     }
 
     private static ManualMapEditorViewModel Editor(ManualMapDraft draft, MapSpatialReference reference)
